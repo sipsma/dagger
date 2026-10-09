@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path"
 	"regexp"
@@ -166,12 +167,16 @@ func appendUniq(xs []string, x string) []string {
 }
 
 // script renders a block as a standalone shell script with stable paths.
-func (b *block) script(blocks map[string]*block) string {
+// gcConc replaces the compiler's -c value (0 keeps the plan's). Tool commands
+// (compile, asm, link, pack) are timed; their total is left in $tt (ns).
+func (b *block) script(blocks map[string]*block, gcConc int) string {
 	var sb strings.Builder
-	sb.WriteString("set -e\nmkdir -p /src /work/" + b.name + "\n")
+	sb.WriteString("set -e\ntt=0\nmkdir -p /src /work/" + b.name + "\n")
 	for _, l := range b.lines {
 		l = reBuildID.ReplaceAllString(l, "")
-		l = reConc.ReplaceAllString(l, " -c=4")
+		if gcConc > 0 {
+			l = reConc.ReplaceAllString(l, fmt.Sprintf(" -c=%d", gcConc))
+		}
 		// The go command packs archives in-process; "go tool pack" would
 		// build the pack tool from source in every fresh container.
 		l = strings.Replace(l, "go tool pack ", "/usr/local/bin/gopack ", 1)
@@ -186,7 +191,11 @@ func (b *block) script(blocks map[string]*block) string {
 		l = reWorkRef.ReplaceAllStringFunc(l, func(s string) string {
 			return "/work/" + blocks[strings.TrimPrefix(s, "$WORK/")].name
 		})
-		sb.WriteString(l + "\n")
+		if strings.HasPrefix(l, "/usr/local/go/pkg/tool/") || strings.HasPrefix(l, "/usr/local/bin/gopack ") {
+			sb.WriteString("s=$(date +%s%N)\n" + l + "\ntt=$((tt+$(date +%s%N)-s))\n")
+		} else {
+			sb.WriteString(l + "\n")
+		}
 	}
 	if !b.isMain {
 		sb.WriteString("cp /work/" + b.name + "/_pkg_.a /work/" + b.name + "/" + b.name + ".a\n")
@@ -209,6 +218,12 @@ type result struct {
 func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string, salt string,
 	// +default=32
 	concurrency int,
+	// Compiler backend concurrency (-c) for package compiles; 0 keeps the plan's value.
+	// +default=4
+	gcConcurrency int,
+	// Append the package dependency graph ("DEP pkg: deps...").
+	// +default=false
+	graph bool,
 ) (string, error) {
 	start := time.Now()
 	mods, err := modCache(src).Sync(ctx)
@@ -270,7 +285,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			r.started = time.Since(start)
-			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"})
+			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks, gcConcurrency) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms $((tt/1000000))ms\" >> /stamp\n"})
 			out, err := ran.Directory("/work/" + b.name).Sync(ctx)
 			if err != nil {
 				r.err = fmt.Errorf("%s: %w", b.importPath, err)
@@ -293,17 +308,22 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	var lines []string
 	var timing []string
 	var sumExec, sumPost, sumQueue time.Duration
-	var sumInside int
+	var sumInside, sumTools int
 	for id, r := range results {
 		if r.err != nil {
 			return "", r.err
 		}
 		lines = append(lines, fmt.Sprintf("%s %s", r.stamp, blocks[id].importPath))
 		sumQueue += r.started - r.ready
-		if f := strings.Fields(r.stamp); len(f) == 2 {
+		if f := strings.Fields(r.stamp); len(f) >= 2 {
 			var ms int
 			fmt.Sscanf(f[1], "%dms", &ms)
 			sumInside += ms
+			if len(f) >= 3 {
+				var tms int
+				fmt.Sscanf(f[2], "%dms", &tms)
+				sumTools += tms
+			}
 		}
 		sumExec += r.execDone - r.started
 		sumPost += r.finished - r.execDone
@@ -316,7 +336,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	if len(timing) > 12 {
 		timing = timing[:12]
 	}
-	header := fmt.Sprintf("TIMING sumQueue=%s sumExec=%s sumPost=%s sumInsideContainer=%dms", sumQueue.Round(time.Millisecond), sumExec.Round(time.Millisecond), sumPost.Round(time.Millisecond), sumInside)
+	header := fmt.Sprintf("TIMING sumQueue=%s sumExec=%s sumPost=%s sumInsideContainer=%dms sumTools=%dms", sumQueue.Round(time.Millisecond), sumExec.Round(time.Millisecond), sumPost.Round(time.Millisecond), sumInside, sumTools)
 	lines = append(timing, lines...)
 	sort.Slice(lines, func(i, j int) bool { return strings.Fields(lines[i])[1] < strings.Fields(lines[j])[1] })
 	size, err := results["b001"].file.Size(ctx)
@@ -328,6 +348,16 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	if err != nil {
 		return "", err
 	}
+	if graph {
+		for _, b := range blocks {
+			deps := make([]string, 0, len(b.deps))
+			for _, d := range b.deps {
+				deps = append(deps, blocks[d].importPath)
+			}
+			sort.Strings(deps)
+			lines = append(lines, "DEP "+b.importPath+": "+strings.Join(deps, " "))
+		}
+	}
 	return fmt.Sprintf("replay: %d packages, plan %s, total %s, binary %d bytes, runs: %s\n%s\n%s",
 		len(blocks), planDur.Round(time.Millisecond), time.Since(start).Round(time.Millisecond), size, strings.TrimSpace(version), header,
 		strings.Join(lines, "\n")), nil
@@ -335,7 +365,18 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 
 // Plain builds the same package with one go build exec. With a non-empty
 // volume name, GOCACHE lives in that cache volume.
-func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, volume string, salt string) (string, error) {
+func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, volume string, salt string,
+	// Record the go command's action trace and append one line per build and
+	// link action: "PACT <build|link> <package> <start ms> <duration ms>".
+	// +default=false
+	trace bool,
+	// Extra -gcflags for go build (e.g. "all=-c=4").
+	// +default=""
+	gcflags string,
+	// go build -p (0 keeps the go command's default).
+	// +default=0
+	p int,
+) (string, error) {
 	start := time.Now()
 	mods, err := modCache(src).Sync(ctx)
 	if err != nil {
@@ -351,11 +392,80 @@ func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, 
 	} else {
 		ctr = ctr.WithEnvVariable("GOCACHE", "/tmp/gocache")
 	}
-	out, err := ctr.WithExec([]string{"sh", "-c", "go build -trimpath -buildvcs=false -o /out/bin . && go version"}).File("/out/bin").Size(ctx)
+	args := []string{"go", "build", "-trimpath", "-buildvcs=false"}
+	if p > 0 {
+		args = append(args, fmt.Sprintf("-p=%d", p))
+	}
+	if gcflags != "" {
+		args = append(args, "-gcflags="+gcflags)
+	}
+	if trace {
+		args = append(args, "-debug-trace=/out/trace.json")
+	}
+	args = append(args, "-o", "/out/bin", ".")
+	ran := ctr.WithExec(append([]string{"sh", "-c", `mkdir -p /out && "$@" && go version`, "sh"}, args...))
+	out, err := ran.File("/out/bin").Size(ctx)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("plain (volume=%q): total %s, binary %d bytes", volume, time.Since(start).Round(time.Millisecond), out), nil
+	res := fmt.Sprintf("plain (volume=%q): total %s, binary %d bytes", volume, time.Since(start).Round(time.Millisecond), out)
+	if !trace {
+		return res, nil
+	}
+	raw, err := ran.File("/out/trace.json").Contents(ctx)
+	if err != nil {
+		return "", err
+	}
+	acts, err := traceActions(raw)
+	if err != nil {
+		return "", err
+	}
+	return res + "\n" + strings.Join(acts, "\n"), nil
+}
+
+// traceActions summarizes a go command -debug-trace file: one line per build
+// and link action, with its start relative to the first event and its duration.
+func traceActions(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasSuffix(raw, "]") {
+		raw += "]"
+	}
+	var events []struct {
+		Name string  `json:"name"`
+		Ph   string  `json:"ph"`
+		Ts   float64 `json:"ts"`
+		Tid  int     `json:"tid"`
+	}
+	if err := json.Unmarshal([]byte(raw), &events); err != nil {
+		return nil, fmt.Errorf("parse trace: %w", err)
+	}
+	var t0 float64
+	open := map[string]float64{}
+	var out []string
+	for i, e := range events {
+		if i == 0 || e.Ts < t0 {
+			t0 = e.Ts
+		}
+		inner, ok := strings.CutPrefix(e.Name, "Executing action (")
+		if !ok || !strings.HasSuffix(inner, ")") {
+			continue
+		}
+		mode, pkg, ok := strings.Cut(strings.TrimSuffix(inner, ")"), " ")
+		if !ok || (mode != "build" && mode != "link") || strings.HasPrefix(pkg, "check cache") {
+			continue
+		}
+		key := fmt.Sprintf("%s|%d", e.Name, e.Tid)
+		switch e.Ph {
+		case "B":
+			open[key] = e.Ts
+		case "E":
+			if b, ok := open[key]; ok {
+				delete(open, key)
+				out = append(out, fmt.Sprintf("PACT %s %s %.1f %.1f", mode, pkg, (b-t0)/1000, (e.Ts-b)/1000))
+			}
+		}
+	}
+	return out, nil
 }
 
 // PlanDebug shows how one package's block was parsed.
@@ -380,7 +490,7 @@ func (m *Gcexp) PlanDebug(ctx context.Context, src *dagger.Directory, importPath
 	}
 	for _, b := range blocks {
 		if b.importPath == importPath {
-			return fmt.Sprintf("srcFiles=%v\nmodFiles=%v\ndeps=%d\n%s", b.srcFiles, b.modFiles, len(b.deps), b.script(blocks)), nil
+			return fmt.Sprintf("srcFiles=%v\nmodFiles=%v\ndeps=%d\n%s", b.srcFiles, b.modFiles, len(b.deps), b.script(blocks, 4)), nil
 		}
 	}
 	return "not found", nil

@@ -212,14 +212,39 @@ func (r *Gcexp) MountScale(ctx context.Context, n int, salt string, nonce string
 	return response, q.Execute(ctx)
 }
 
+// GcexpPlainOpts contains options for Gcexp.Plain
+type GcexpPlainOpts struct {
+	// Record the go command's action trace and append one line per build and
+	// link action: "PACT <build|link> <package> <start ms> <duration ms>".
+	Trace bool
+	// Extra -gcflags for go build (e.g. "all=-c=4").
+	Gcflags string
+	// go build -p (0 keeps the go command's default).
+	P int
+}
+
 // Plain builds the same package with one go build exec. With a non-empty
 // volume name, GOCACHE lives in that cache volume.
-func (r *Gcexp) Plain(ctx context.Context, src *Directory, nonce string, volume string, salt string) (string, error) {
+func (r *Gcexp) Plain(ctx context.Context, src *Directory, nonce string, volume string, salt string, opts ...GcexpPlainOpts) (string, error) {
 	assertNotNil("src", src)
 	if r.plain != nil {
 		return *r.plain, nil
 	}
 	q := r.query.Select("plain")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `trace` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Trace) {
+			q = q.Arg("trace", opts[i].Trace)
+		}
+		// `gcflags` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Gcflags) {
+			q = q.Arg("gcflags", opts[i].Gcflags)
+		}
+		// `p` optional argument
+		if !querybuilder.IsZeroValue(opts[i].P) {
+			q = q.Arg("p", opts[i].P)
+		}
+	}
 	q = q.Arg("src", src)
 	q = q.Arg("nonce", nonce)
 	q = q.Arg("volume", volume)
@@ -252,6 +277,12 @@ type GcexpReplayOpts struct {
 
 	// Default: 32
 	Concurrency int
+	// Compiler backend concurrency (-c) for package compiles; 0 keeps the plan's value.
+	//
+	// Default: 4
+	GcConcurrency int
+	// Append the package dependency graph ("DEP pkg: deps...").
+	Graph bool
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -267,6 +298,14 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 		// `concurrency` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Concurrency) {
 			q = q.Arg("concurrency", opts[i].Concurrency)
+		}
+		// `gcConcurrency` optional argument
+		if !querybuilder.IsZeroValue(opts[i].GcConcurrency) {
+			q = q.Arg("gcConcurrency", opts[i].GcConcurrency)
+		}
+		// `graph` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Graph) {
+			q = q.Arg("graph", opts[i].Graph)
 		}
 	}
 	q = q.Arg("src", src)

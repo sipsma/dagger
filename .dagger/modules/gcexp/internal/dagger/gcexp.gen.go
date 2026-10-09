@@ -8,5 +8,8 @@ import (
 
 type Gcexp = core.Gcexp
 
+// GcexpPlainOpts contains options for Gcexp.Plain
+type GcexpPlainOpts = core.GcexpPlainOpts
+
 // GcexpReplayOpts contains options for Gcexp.Replay
 type GcexpReplayOpts = core.GcexpReplayOpts

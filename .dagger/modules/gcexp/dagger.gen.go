@@ -408,7 +408,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg salt", err))
 				}
 			}
-			return (*Gcexp).Plain(&parent, ctx, src, nonce, volume, salt)
+			var trace bool
+			if inputArgs["trace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["trace"]), &trace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg trace", err))
+				}
+			}
+			var gcflags string
+			if inputArgs["gcflags"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["gcflags"]), &gcflags)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gcflags", err))
+				}
+			}
+			var p int
+			if inputArgs["p"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["p"]), &p)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg p", err))
+				}
+			}
+			return (*Gcexp).Plain(&parent, ctx, src, nonce, volume, salt, trace, gcflags, p)
 		case "PlanDebug":
 			var parent Gcexp
 			err = json.Unmarshal(parentJSON, &parent)
@@ -464,7 +485,21 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg concurrency", err))
 				}
 			}
-			return (*Gcexp).Replay(&parent, ctx, src, nonce, salt, concurrency)
+			var gcConcurrency int
+			if inputArgs["gcConcurrency"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["gcConcurrency"]), &gcConcurrency)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg gcConcurrency", err))
+				}
+			}
+			var graph bool
+			if inputArgs["graph"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["graph"]), &graph)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg graph", err))
+				}
+			}
+			return (*Gcexp).Replay(&parent, ctx, src, nonce, salt, concurrency, gcConcurrency, graph)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -515,10 +550,10 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("Layered",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Layered builds in three steps with no engine changes:\n 1. list the non-main-module packages the build needs (reruns on any source change, cheap);\n 2. build those packages into a GOCACHE directory output, keyed on that list's\n    content plus go.mod/go.sum (a normal cached result, not a cache volume);\n 3. go build with GOCACHE seeded from step 2 (copy-on-write mount).").
-							WithSourceMap(dag.SourceMap("replay.go", 394, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 394, 46)}).
-							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 394, 69)}).
-							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 394, 83)})).
+							WithSourceMap(dag.SourceMap("replay.go", 504, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 504, 46)}).
+							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 504, 69)}).
+							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 504, 83)})).
 					WithFunction(
 						dag.Function("MountScale",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
@@ -531,27 +566,32 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("Plain",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Plain builds the same package with one go build exec. With a non-empty\nvolume name, GOCACHE lives in that cache volume.").
-							WithSourceMap(dag.SourceMap("replay.go", 338, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 338, 44)}).
-							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 338, 67)}).
-							WithArg("volume", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 338, 81)}).
-							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 338, 96)})).
+							WithSourceMap(dag.SourceMap("replay.go", 368, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 368, 44)}).
+							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 368, 67)}).
+							WithArg("volume", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 368, 81)}).
+							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 368, 96)}).
+							WithArg("trace", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Record the go command's action trace and append one line per build and\nlink action: \"PACT <build|link> <package> <start ms> <duration ms>\".", SourceMap: dag.SourceMap("replay.go", 372, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("gcflags", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Extra -gcflags for go build (e.g. \"all=-c=4\").", SourceMap: dag.SourceMap("replay.go", 375, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("p", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "go build -p (0 keeps the go command's default).", SourceMap: dag.SourceMap("replay.go", 378, 2), DefaultValue: dagger.JSON("0")})).
 					WithFunction(
 						dag.Function("PlanDebug",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("PlanDebug shows how one package's block was parsed.").
-							WithSourceMap(dag.SourceMap("replay.go", 362, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 362, 48)}).
-							WithArg("importPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 362, 71)})).
+							WithSourceMap(dag.SourceMap("replay.go", 472, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 472, 48)}).
+							WithArg("importPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 472, 71)})).
 					WithFunction(
 						dag.Function("Replay",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Replay builds the main package at the root of src with one exec per package.\nIt returns the wall time and, per package, a stamp that changes only when\nthat package's exec actually ran.").
-							WithSourceMap(dag.SourceMap("replay.go", 209, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 209, 45)}).
-							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 209, 68)}).
-							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 209, 82)}).
-							WithArg("concurrency", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 211, 2), DefaultValue: dagger.JSON("32")}))), nil
+							WithSourceMap(dag.SourceMap("replay.go", 218, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 218, 45)}).
+							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 218, 68)}).
+							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 218, 82)}).
+							WithArg("concurrency", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 220, 2), DefaultValue: dagger.JSON("32")}).
+							WithArg("gcConcurrency", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Compiler backend concurrency (-c) for package compiles; 0 keeps the plan's value.", SourceMap: dag.SourceMap("replay.go", 223, 2), DefaultValue: dagger.JSON("4")}).
+							WithArg("graph", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Append the package dependency graph (\"DEP pkg: deps...\").", SourceMap: dag.SourceMap("replay.go", 226, 2), DefaultValue: dagger.JSON("false")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}
