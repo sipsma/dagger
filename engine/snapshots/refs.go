@@ -20,6 +20,7 @@ import (
 	"github.com/dagger/dagger/engine/snapshots/config"
 	overlay "github.com/dagger/dagger/engine/snapshots/fsdiff"
 	rootlessmountopts "github.com/dagger/dagger/engine/snapshots/rootlessmountopts"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/internal/buildkit/client"
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
@@ -621,6 +622,7 @@ func (sr *immutableRef) Mount(ctx context.Context, readonly bool) (_ MountableRe
 	}
 	// The view lease and its snapshot resource are written in one metadata
 	// transaction: every read-only mount makes them, so they are hot.
+	_, leaseOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "snap.mount.viewLease", wcprof.OpOpts{})
 	if err := sr.cm.updateMetadata(ctx, func(ctx context.Context) error {
 		if _, err := sr.cm.LeaseManager.Create(ctx, func(l *leases.Lease) error {
 			l.ID = viewLeaseID
@@ -640,10 +642,14 @@ func (sr *immutableRef) Mount(ctx context.Context, readonly bool) (_ MountableRe
 		return nil
 	}); err != nil {
 		// Without a metadata DB the lease may have been created on its own.
+		leaseOp.EndErr(err)
 		_ = releaseViewLease()
 		return nil, err
 	}
+	leaseOp.End(wcprof.OutcomeOK)
+	_, viewOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "snap.mount.view", wcprof.OpOpts{})
 	mnts, err := sr.cm.Snapshotter.View(ctx, viewSnapshotID, sr.SnapshotID())
+	viewOp.EndErr(err)
 	if err != nil && !cerrdefs.IsAlreadyExists(err) {
 		_ = releaseViewLease()
 		return nil, err
@@ -822,13 +828,18 @@ func (sr *mutableRef) CommitWithUsage(ctx context.Context, usage snapshots.Usage
 		return nil, errors.Wrap(err, "ensure lease for snapshot commit")
 	}
 
+	profWait := wcprof.BeginWaitIdent(ctx, "snapshots.cm.mu", wcprof.WaitReasonLock)
 	sr.cm.mu.Lock()
+	profWait.End()
 	defer sr.cm.mu.Unlock()
 
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
-	return sr.commit(ctx, &usage)
+	_, commitOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "snap.commit", wcprof.OpOpts{})
+	ref, err := sr.commit(ctx, &usage)
+	commitOp.EndErr(err)
+	return ref, err
 }
 
 func (sr *mutableRef) Release(ctx context.Context) error {
