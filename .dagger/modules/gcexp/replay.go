@@ -23,6 +23,11 @@ import (
 
 const goImage = "golang:1.26"
 
+// noNest runs an exec without Dagger-in-Dagger. None of these execs call
+// Dagger, and a latency-optimized per-package build would not start a nested
+// session for them.
+var noNest = dagger.ContainerWithExecOpts{DisableDaggerInDagger: true}
+
 func goBase(salt string) *dagger.Container {
 	return dag.Container().From(goImage).
 		WithEnvVariable("SALT", salt).
@@ -37,7 +42,7 @@ func modCache(src *dagger.Directory) *dagger.Directory {
 	return goBase("").
 		WithMountedDirectory("/src", src.Filter(dagger.DirectoryFilterOpts{Include: []string{"go.mod", "go.sum"}})).
 		WithWorkdir("/src").
-		WithExec([]string{"go", "mod", "download"}).
+		WithExec([]string{"go", "mod", "download"}, noNest).
 		Directory("/gomod")
 }
 
@@ -207,7 +212,7 @@ type result struct {
 // command packs archives in-process; per-package execs need a binary, and
 // "go tool pack" would build it from source in every fresh container.
 func packTool() *dagger.File {
-	return goBase("").WithExec([]string{"go", "build", "-o", "/gopack", "cmd/pack"}).File("/gopack")
+	return goBase("").WithExec([]string{"go", "build", "-o", "/gopack", "cmd/pack"}, noNest).File("/gopack")
 }
 
 // PackTool builds the pack tool and reports its size. It is built once per
@@ -238,7 +243,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		WithMountedDirectory("/src", src).
 		WithWorkdir("/src").
 		WithEnvVariable("GOCACHE", "/tmp/emptycache").
-		WithExec([]string{"sh", "-c", "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"}).
+		WithExec([]string{"sh", "-c", "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"}, noNest).
 		File("/plan.txt").Contents(ctx)
 	if err != nil {
 		return "", err
@@ -288,7 +293,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			r.started = time.Since(start)
-			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"})
+			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"}, noNest)
 			out, err := ran.Directory("/work/" + b.name).Sync(ctx)
 			if err != nil {
 				r.err = fmt.Errorf("%s: %w", b.importPath, err)
@@ -342,7 +347,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		return "", err
 	}
 	version, err := goBase("").WithMountedFile("/bin/built", results["b001"].file).
-		WithExec([]string{"/bin/built", "--version"}).Stdout(ctx)
+		WithExec([]string{"/bin/built", "--version"}, noNest).Stdout(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -369,7 +374,7 @@ func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, 
 	} else {
 		ctr = ctr.WithEnvVariable("GOCACHE", "/tmp/gocache")
 	}
-	out, err := ctr.WithExec([]string{"sh", "-c", "go build -trimpath -buildvcs=false -o /out/bin . && go version"}).File("/out/bin").Size(ctx)
+	out, err := ctr.WithExec([]string{"sh", "-c", "go build -trimpath -buildvcs=false -o /out/bin . && go version"}, noNest).File("/out/bin").Size(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -387,7 +392,7 @@ func (m *Gcexp) PlanDebug(ctx context.Context, src *dagger.Directory, importPath
 		WithMountedDirectory("/src", src).
 		WithWorkdir("/src").
 		WithEnvVariable("GOCACHE", "/tmp/emptycache").
-		WithExec([]string{"sh", "-c", "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"}).
+		WithExec([]string{"sh", "-c", "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"}, noNest).
 		File("/plan.txt").Contents(ctx)
 	if err != nil {
 		return "", err
@@ -420,7 +425,7 @@ func (m *Gcexp) Layered(ctx context.Context, src *dagger.Directory, nonce string
 	}
 	listDir, err := env(goBase(salt)).
 		WithMountedDirectory("/src", src).
-		WithExec([]string{"sh", "-c", "mkdir -p /list && go list -deps -f '{{if or (not .Module) (not .Module.Main)}}{{.ImportPath}}{{end}}' . | sort > /list/deps.txt"}).
+		WithExec([]string{"sh", "-c", "mkdir -p /list && go list -deps -f '{{if or (not .Module) (not .Module.Main)}}{{.ImportPath}}{{end}}' . | sort > /list/deps.txt"}, noNest).
 		Directory("/list").Sync(ctx)
 	if err != nil {
 		return "", err
@@ -430,7 +435,7 @@ func (m *Gcexp) Layered(ctx context.Context, src *dagger.Directory, nonce string
 	depsCache, err := env(goBase(salt)).
 		WithMountedDirectory("/src", src.Filter(dagger.DirectoryFilterOpts{Include: []string{"go.mod", "go.sum"}})).
 		WithMountedFile("/deps.txt", depsList).
-		WithExec([]string{"sh", "-c", "go build -trimpath -buildvcs=false $(cat /deps.txt)"}).
+		WithExec([]string{"sh", "-c", "go build -trimpath -buildvcs=false $(cat /deps.txt)"}, noNest).
 		Directory("/gocache").Sync(ctx)
 	if err != nil {
 		return "", err
@@ -440,7 +445,7 @@ func (m *Gcexp) Layered(ctx context.Context, src *dagger.Directory, nonce string
 		WithMountedDirectory("/src", src).
 		WithMountedDirectory("/gocache", depsCache).
 		WithEnvVariable("NONCE", nonce).
-		WithExec([]string{"go", "build", "-trimpath", "-buildvcs=false", "-o", "/out/bin", "."}).
+		WithExec([]string{"go", "build", "-trimpath", "-buildvcs=false", "-o", "/out/bin", "."}, noNest).
 		File("/out/bin").Size(ctx)
 	if err != nil {
 		return "", err
