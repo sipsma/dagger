@@ -55,7 +55,8 @@ type block struct {
 var (
 	reMkdir   = regexp.MustCompile(`^mkdir -p \$WORK/(b\d+)/`)
 	reWorkRef = regexp.MustCompile(`\$WORK/(b\d+)`)
-	rePath    = regexp.MustCompile(`(/src|/gomod)(/[^\s"';=]*)?`)
+	// A /src or /gomod path starts a token, so /usr/local/go/src/... does not match.
+	rePath    = regexp.MustCompile(`(?:^|[\s"'=])((?:/src|/gomod)(?:/[^\s"';=]*)?)`)
 	reRelFile = regexp.MustCompile(`(^|\s)\./([^\s"';]+)`)
 	reBuildID = regexp.MustCompile(`\s-buildid[ =]\S+`)
 	reConc    = regexp.MustCompile(`\s-c=\d+`)
@@ -112,8 +113,8 @@ func parsePlan(plan string) (map[string]*block, error) {
 			continue
 		}
 		cur.lines = append(cur.lines, line)
-		for _, m := range rePath.FindAllString(line, -1) {
-			addSource(cur, m)
+		for _, m := range rePath.FindAllStringSubmatch(line, -1) {
+			addSource(cur, m[1])
 		}
 		// Relative source paths appear on tool command lines and, for long
 		// file lists, one per line in a heredoc arguments file.
