@@ -89,6 +89,7 @@ func (s *directorySchema) Install(srv *dagql.Server) {
 				It is guaranteed to be stable between invocations of the same Dagger engine.`,
 			),
 		dagql.NodeFunc("file", s.file).
+			IsPersistable().
 			Doc(`Retrieve a file at the given path.`).
 			Args(
 				dagql.Arg("path").Doc(`Location of the file to retrieve (e.g., "README.md").`),
