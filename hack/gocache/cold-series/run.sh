@@ -23,7 +23,9 @@ expmod=${EXPMOD:-$HOME/gocache-bench/expmod}; yq=$HOME/gocache-bench/yq
 [ -d "$expmod/.git" ] && [ -d "$yq" ] || { echo "missing $expmod (with .git) or $yq" >&2; exit 2; }
 id=$(date +%s%N)
 mkdir -p "$out"
-{ echo "commit $(git rev-parse HEAD)"; echo "expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; } > "$out/meta.txt"
+steal() { awk '/^cpu /{print $9}' /proc/stat; }
+steal0=$(steal)
+{ echo "commit $(git rev-parse HEAD)"; echo "expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; echo "loadavg-start $(cat /proc/loadavg)"; } > "$out/meta.txt"
 inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
@@ -35,7 +37,7 @@ DSH
 )
 if [ -n "${DRY:-}" ]; then echo "$script"; exit 0; fi
 dagger -c "$script"
-uptime >> "$out/meta.txt"
+{ uptime; echo "loadavg-end $(cat /proc/loadavg)"; echo "cpu-steal-ticks $(( $(steal) - steal0 )) (USER_HZ, whole slot)"; } >> "$out/meta.txt"
 W=$out/wcprof-report
 for d in "$out"/run/noop*.dump; do
   [ -f "$d" ] || continue
