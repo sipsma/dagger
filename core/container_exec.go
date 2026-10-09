@@ -1753,6 +1753,45 @@ func (state *ContainerExecState) evaluateOutputs(ctx context.Context, container 
 		}
 
 		profPrepareStartNS := wcprof.NowNS()
+		// EXPERIMENT (g18 attribution): prepareMounts as a parent op, with a
+		// child per mount by kind.
+		prepCtx, prepOp := ctx, (*wcprof.Op)(nil)
+		if wcprof.Enabled(ctx) {
+			prepCtx, prepOp = wcprof.BeginOp(ctx, wcprof.OpKindExecPhase, "withExec.prepareMounts", wcprof.OpOpts{})
+		}
+		prepEnded := false
+		defer func() {
+			if !prepEnded {
+				prepOp.EndErr(errors.New("prepare mounts failed"))
+			}
+		}()
+		materializeStateInner := materializeState
+		materializeState = func(state *execMountState) error {
+			if prepOp == nil {
+				return materializeStateInner(state)
+			}
+			kind := "other"
+			switch {
+			case state.Dest == pb.RootMount:
+				kind = "root"
+			case state.Dest == engineutil.MetaMountDestPath:
+				kind = "meta"
+			case state.Volume != nil:
+				kind = "volume"
+			case state.MountType == pb.MountType_TMPFS:
+				kind = "tmpfs"
+			case state.MountType == pb.MountType_CACHE:
+				kind = "cache"
+			case state.ApplyOutput != nil && !state.Readonly:
+				kind = "output"
+			case state.Readonly:
+				kind = "readonly"
+			}
+			startNS := wcprof.NowNS()
+			err := materializeStateInner(state)
+			wcprof.RecordOp(prepCtx, wcprof.OpKindExecPhase, "withExec.prepareMounts:"+kind, wcprof.OpOpts{}, startNS, wcprof.NowNS(), wcprof.OutcomeOK)
+			return err
+		}
 
 		rootState := &execMountState{
 			Dest:        pb.RootMount,
@@ -1914,7 +1953,9 @@ func (state *ContainerExecState) evaluateOutputs(ctx context.Context, container 
 		})
 
 		if wcprof.Enabled(ctx) {
-			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "withExec.prepareMounts", wcprof.OpOpts{}, profPrepareStartNS, wcprof.NowNS(), wcprof.OutcomeOK)
+			_ = profPrepareStartNS
+			prepOp.EndErr(nil)
+			prepEnded = true
 		}
 
 		defer func() {
