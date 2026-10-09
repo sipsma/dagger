@@ -8,7 +8,7 @@
 # dump. Outputs land in <outdir>/run/; afterwards a text report per run is written next to each dump
 # (cold*.reports.txt). DRY=1 prints the generated dagger script and exits.
 # INNER=inner-plain.sh runs plain cold `go build` vs cold replay instead (ORDER, default
-# "plain replay replay plain").
+# "plain replay replay plain"). CRUN_FILE=<path> swaps that crun binary into the dev engine.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${1:-$HOME/gocache-cold-series-$(date -u +%Y%m%dT%H%M%SZ)}
@@ -22,7 +22,7 @@ inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
 cidr=\$(\$dev | network-cidr)
-svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
+svc=\$(\$dev | container${CRUN_FILE:+ | with-file /usr/local/bin/crun \$(host | file $CRUN_FILE)} | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
 engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-env-variable NONCE $id | with-env-variable CONCS "$concs" | with-env-variable ORDER "${ORDER:-plain replay replay plain}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
 container | from golang:1.26 | with-env-variable CGO_ENABLED 0 | with-directory /src \$(directory | with-file go.mod \$(host | file go.mod) | with-file go.sum \$(host | file go.sum) | with-directory engine/wcprof \$(host | directory engine/wcprof) | with-directory internal/enginelab/wcprofreport \$(host | directory .dagger/modules/engine-lab/wcprof-report)) | with-workdir /src | with-exec -- go build -o /out/wcprof-report ./internal/enginelab/wcprofreport | file /out/wcprof-report | export $out/wcprof-report
 DSH
