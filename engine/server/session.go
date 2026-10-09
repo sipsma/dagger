@@ -2776,7 +2776,15 @@ func (srv *Server) serveQuery(w http.ResponseWriter, r *http.Request, client *cl
 		return gqlErr(fmt.Errorf("failed to get schema: %w", err), http.StatusBadRequest)
 	}
 
+	var newHandlerOp *wcprof.Op
+	if profiling {
+		_, newHandlerOp = wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.newHandler", wcprof.OpOpts{ClientID: client.clientID})
+	}
 	gqlSrv := dagql.NewDefaultHandler(schema)
+	if profiling {
+		useQueryProf(gqlSrv)
+		newHandlerOp.End(wcprof.OutcomeOK)
+	}
 	// NB: break glass when needed:
 	// gqlSrv.AroundResponses(func(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
 	// 	res := next(ctx)
@@ -2787,7 +2795,9 @@ func (srv *Server) serveQuery(w http.ResponseWriter, r *http.Request, client *cl
 
 	if profiling {
 		queryCtx, queryOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "session.query", wcprof.OpOpts{ClientID: client.clientID})
+		queryCtx, marks := withQueryProfMarks(queryCtx)
 		defer queryOp.End(wcprof.OutcomeOK)
+		defer recordQueryProfMarks(queryCtx, marks, client.clientID)
 		r = r.WithContext(queryCtx)
 	}
 

@@ -17,6 +17,7 @@ import (
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/slog"
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 // Class is a class of Object types.
@@ -545,7 +546,9 @@ func (spec *FieldSpec) resolveModule(ctx context.Context, srv *Server) (*ResultC
 
 // Select calls the field on the instance specified by the selector
 func (r ObjectResult[T]) Select(ctx context.Context, s *Server, sel Selector) (AnyResult, error) {
-	r, preselectResult, err := r.preselect(ctx, s, sel)
+	preCtx, preOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.preselect", wcprof.OpOpts{})
+	r, preselectResult, err := r.preselect(preCtx, s, sel)
+	preOp.EndErr(err)
 	if err != nil {
 		return nil, err
 	}
@@ -598,7 +601,9 @@ func (r ObjectResult[T]) preselect(ctx context.Context, srv *Server, sel Selecto
 		switch {
 		case namedInput.Value != nil:
 			inputArgs[argSpec.Name] = namedInput.Value
-			frameArg, err := resultCallArgFromInput(ctx, argSpec.Name, namedInput.Value, argSpec.Sensitive)
+			argCtx, argOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.argRef", wcprof.OpOpts{})
+			frameArg, err := resultCallArgFromInput(argCtx, argSpec.Name, namedInput.Value, argSpec.Sensitive)
+			argOp.EndErr(err)
 			if err != nil {
 				return r, nil, err
 			}
@@ -628,7 +633,9 @@ func (r ObjectResult[T]) preselect(ctx context.Context, srv *Server, sel Selecto
 		return r, nil, fmt.Errorf("failed to resolve identity inputs for %s.%s: %w", typ.Name(), sel.Field, err)
 	}
 
-	receiverRef, err := resultCallRefFromResult(ctx, r)
+	recvCtx, recvOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.receiverRef", wcprof.OpOpts{})
+	receiverRef, err := resultCallRefFromResult(recvCtx, r)
+	recvOp.EndErr(err)
 	if err != nil {
 		typ := r.Type()
 		if typ == nil {
@@ -731,13 +738,17 @@ func (r ObjectResult[T]) call(
 		ctx = ContextWithTrivialField(ctx)
 	}
 	if s.telemetry != nil && !field.Spec.NoTelemetry {
+		_, telStartOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.telemetryStart", wcprof.OpOpts{})
 		telemetryCtx, done := s.telemetry(ctx, req)
+		telStartOp.End(wcprof.OutcomeOK)
 		defer func() {
 			var cached bool
 			if res != nil {
 				cached = res.HitCache()
 			}
+			_, telEndOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.telemetryEnd", wcprof.OpOpts{})
 			done(res, cached, &err)
+			telEndOp.End(wcprof.OutcomeOK)
 		}()
 		ctx = telemetryCtx
 	}

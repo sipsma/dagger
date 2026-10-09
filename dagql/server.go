@@ -15,6 +15,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/errcode"
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/dagger/dagger/engine"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/iancoleman/strcase"
 	"github.com/opencontainers/go-digest"
 	"github.com/sourcegraph/conc/pool"
@@ -1108,7 +1109,9 @@ func (s *Server) Exec(ctx1 context.Context) graphql.ResponseHandler {
 			}
 		}
 
+		_, marshalOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.marshal", wcprof.OpOpts{})
 		data, err := json.Marshal(results)
+		marshalOp.End(wcprof.OutcomeOK)
 		if err != nil {
 			return graphql.ErrorResponse(ctx, "marshal: %s", err)
 		}
@@ -1162,11 +1165,15 @@ func (s *Server) ExecOp(ctx context.Context, gqlOp *graphql.OperationContext) (r
 				continue
 			}
 			var sels []Selection
-			sels, rerr = s.parseASTSelections(ctx, gqlOp, s.root.Type(), op.SelectionSet)
+			selCtx, selOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.selections", wcprof.OpOpts{})
+			sels, rerr = s.parseASTSelections(selCtx, gqlOp, s.root.Type(), op.SelectionSet)
+			selOp.EndErr(rerr)
 			if rerr != nil {
 				return nil, fmt.Errorf("query:\n%s\n\nerror: parse selections: %w", gqlOp.RawQuery, rerr)
 			}
-			results, rerr = s.Resolve(ctx, s.root, sels...)
+			resCtx, resOp := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, "q.resolve", wcprof.OpOpts{})
+			results, rerr = s.Resolve(resCtx, s.root, sels...)
+			resOp.EndErr(rerr)
 			if rerr != nil {
 				return nil, rerr
 			}
