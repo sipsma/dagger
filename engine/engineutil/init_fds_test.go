@@ -12,7 +12,6 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/distconsts"
 )
 
@@ -31,12 +30,12 @@ func TestInitFDs(t *testing.T) {
 	var fds initFDs
 	fds.add(distconsts.SessionHelperStatusFDEnv, w1)
 	fds.add("UNUSED", nil)
-	fds.add(engine.InitTimingFDEnv, w2)
+	fds.add(distconsts.InitTimingFDEnv, w2)
 	require.Equal(t, []*os.File{w1, w2}, fds.files)
 
 	spec := &specs.Spec{Process: &specs.Process{Args: []string{initPath, "true"}, Env: []string{"A=1"}}}
 	got := fds.withEnv(spec)
-	require.Equal(t, []string{"A=1", distconsts.SessionHelperStatusFDEnv + "=3", engine.InitTimingFDEnv + "=4"}, got.Process.Env)
+	require.Equal(t, []string{"A=1", distconsts.SessionHelperStatusFDEnv + "=3", distconsts.InitTimingFDEnv + "=4"}, got.Process.Env)
 	require.Equal(t, []string{"A=1"}, spec.Process.Env, "the exec's own spec is unchanged")
 
 	var none initFDs
@@ -50,7 +49,7 @@ func TestReadBundleSpecWithoutInitFDEnv(t *testing.T) {
 	defer w.Close()
 	var fds initFDs
 	fds.add(distconsts.SessionHelperStatusFDEnv, w)
-	fds.add(engine.InitTimingFDEnv, w)
+	fds.add(distconsts.InitTimingFDEnv, w)
 	spec := &specs.Spec{Process: &specs.Process{Args: []string{initPath, "sleep", "100"}, Env: []string{"A=1", "PATH=/bin"}}}
 
 	// The bundle's config.json is written with the variables; a process

@@ -7,7 +7,6 @@ import (
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 
-	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/distconsts"
 )
 
