@@ -7,7 +7,9 @@
 # state volume; one warm-up replay, then one cold replay (fresh salt) per CONCS entry, each with a wcprof
 # dump. Outputs land in <outdir>/run/; afterwards a text report per run is written next to each dump
 # (cold*.reports.txt). INNER=inner-noop.sh instead counts re-executions in no-change replays
-# (run/reexec.txt: one exec.processRun means no package exec re-ran). DRY=1 prints the generated dagger script and exits.
+# (run/reexec.txt: one exec.processRun means no package exec re-ran). INNER=inner-first.sh also dumps
+# the first replay on the fresh engine (first-c16.dump), after a plain-build preload.
+# DRY=1 prints the generated dagger script and exits.
 # INNER=inner-plain.sh runs plain cold `go build` vs cold replay instead (ORDER, default
 # "plain replay replay plain").
 set -euo pipefail
@@ -36,7 +38,7 @@ for d in "$out"/run/noop*.dump; do
   [ -f "$d" ] || continue
   echo "$(basename "$d") $($W -view classes -kind exec_phase -top 1 "$d" | grep 'exec.processRun' | awk '{print "processRun_count=" $1}')" >> "$out/run/reexec.txt"
 done
-for d in "$out"/run/cold*.dump; do
+for d in "$out"/run/first*.dump "$out"/run/cold*.dump; do
   [ -f "$d" ] || continue
   r=${d%.dump}.reports.txt
   {
@@ -48,6 +50,7 @@ for d in "$out"/run/cold*.dump; do
     echo "## io ops (snapshot and mount phases)"; $W -view classes -kind io -top 20 "$d"
     echo "## calls by self time"; $W -view classes -kind call -top 25 "$d"
     echo "## waits"; $W -view waits -top 20 "$d"
+    echo "## withFiles tree"; $W -view tree -class '^Directory[.]withFiles$' -kind lazy -depth 3 "$d"
   } > "$r" 2>&1
 done
 echo "outputs in $out"; cat "$out/run/summary.txt"
