@@ -3244,6 +3244,7 @@ func (c *Cache) canonicalEquivalentSharedResultLocked(sessionID string, res *sha
 	for outputEqID := range c.outputEqClassRootsLocked(res.id) {
 		c.appendOutputEqClassResultsLocked(candidates, outputEqID, nowUnix)
 	}
+	raw := candidates
 	if requireCleanAttachment {
 		clean := newSharedResultSet()
 		for cand := range candidates.Items() {
@@ -3254,7 +3255,9 @@ func (c *Cache) canonicalEquivalentSharedResultLocked(sessionID string, res *sha
 		candidates = clean
 	}
 
-	if canonical := c.selectLookupCandidateForSessionLocked(sessionID, candidates); canonical != nil {
+	canonical := c.selectLookupCandidateForSessionLocked(sessionID, candidates)
+	c.g15CanonCrossCheckLocked(sessionID, res, raw, candidates, canonical, nowUnix)
+	if canonical != nil {
 		return canonical
 	}
 	return res
