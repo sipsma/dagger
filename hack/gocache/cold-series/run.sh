@@ -12,7 +12,8 @@
 # profiles the first replay, a no-change replay and edit A. INNER=inner-ns.sh adds plain go build references
 # (cold, no change and edit A with a warm GOCACHE volume) around the same three profiled replays.
 # INNER=inner-cw.sh is the compile-work gap capture (needs the gcexp compile-work options).
-# EXPMOD overrides the gcexp checkout.
+# EXPMOD overrides the gcexp checkout. REPLAY_STAMPS=false runs the replays with --stamps=false;
+# run/execcounts.txt lists exec.workload ops per dump, the re-run check when stamps are off.
 # DRY=1 prints the generated dagger script and exits.
 # INNER=inner-plain.sh runs plain cold `go build` vs cold replay instead (ORDER, default
 # "plain replay replay plain").
@@ -32,7 +33,7 @@ script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
 cidr=\$(\$dev | network-cidr)
 svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
-engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-env-variable NONCE $id | with-env-variable CONCS "$concs" | with-env-variable ORDER "${ORDER:-plain replay replay plain}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
+engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-env-variable NONCE $id | with-env-variable REPLAY_STAMPS "${REPLAY_STAMPS:-}" | with-env-variable CONCS "$concs" | with-env-variable ORDER "${ORDER:-plain replay replay plain}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
 container | from golang:1.26 | with-env-variable CGO_ENABLED 0 | with-directory /src \$(directory | with-file go.mod \$(host | file go.mod) | with-file go.sum \$(host | file go.sum) | with-directory engine/wcprof \$(host | directory engine/wcprof) | with-directory internal/enginelab/wcprofreport \$(host | directory .dagger/modules/engine-lab/wcprof-report)) | with-workdir /src | with-exec -- go build -o /out/wcprof-report ./internal/enginelab/wcprofreport | file /out/wcprof-report | export $out/wcprof-report
 DSH
 )
@@ -46,6 +47,7 @@ for d in "$out"/run/noop*.dump; do
 done
 for d in "$out"/run/first*.dump "$out"/run/noop*.dump "$out"/run/edit*.dump "$out"/run/cold*.dump; do
   [ -f "$d" ] || continue
+  echo "$(basename "$d") exec.workload=$($W -view classes -kind exec_phase -class '^exec[.]workload$' "$d" | awk '$NF ~ /^ok:/ && /exec.workload/ {print $1}')" >> "$out/run/execcounts.txt"
   r=${d%.dump}.reports.txt
   {
     echo "### $(basename "$d")"

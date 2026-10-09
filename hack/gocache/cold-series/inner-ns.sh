@@ -13,7 +13,7 @@ reran() {
   echo "$2 re-ran vs $1: $(wc -l < "/out/$2.new") packages:$pk" >> /out/summary.txt
 }
 D=http://dagger-engine:6060/debug/wcprof/dump
-R="-s call gcexp replay --src ./yq --salt r-$NONCE --concurrency 16"
+R="-s call gcexp replay --src ./yq --salt r-$NONCE --concurrency 16 ${REPLAY_STAMPS:+--stamps=$REPLAY_STAMPS}"
 P="-s call gcexp plain --src ./yq"
 V=gocache-ns-$NONCE
 t preload $P --volume "" --salt pre-$NONCE --nonce p
@@ -33,7 +33,11 @@ if [ "$(grep -c 'unable to parse duration \[%v\]: %w' $f)" = 1 ]; then
   t edit-a $R --nonce ea
   curl -sf "$D?flush=1" -o /out/edit-a.dump || echo "edit-a: dump failed" >> /out/summary.txt
   t plain-edit $P --volume $V --salt pv-$NONCE --nonce pe
-  { stamps first-c16 && stamps noop1 && stamps edit-a && reran first-c16 noop1 && reran noop1 edit-a; } || echo "re-run count failed" >> /out/summary.txt
+  if grep -qE '^[0-9a-f]{12} [0-9]+ms$' /out/first-c16.txt; then
+    { stamps first-c16 && stamps noop1 && stamps edit-a && reran first-c16 noop1 && reran noop1 edit-a; } || echo "re-run count failed" >> /out/summary.txt
+  else
+    echo "re-run check: stamps off; see run/execcounts.txt (exec.workload per replay)" >> /out/summary.txt
+  fi
 else
   echo "edit-a: expected one match in $f; edit skipped" >> /out/summary.txt
 fi
