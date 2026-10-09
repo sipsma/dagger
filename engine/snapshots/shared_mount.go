@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"errors"
+	"github.com/dagger/dagger/engine/wcprof"
 	"sync"
 	"time"
 
@@ -256,7 +257,9 @@ func (sr *immutableRef) MountShared(ctx context.Context) (string, mount.Mount, f
 	// The mount outlives this reader, so it must not end with its context.
 	ctx = context.WithoutCancel(ctx)
 	return sr.cm.sharedMounts.acquire(sr.SnapshotID(), func() (string, mount.Mount, func() error, error) {
+		_, refMountOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.refMount", wcprof.OpOpts{})
 		mountable, err := sr.Mount(ctx, true)
+		refMountOp.EndErr(err)
 		if err != nil {
 			return "", mount.Mount{}, nil, err
 		}
@@ -268,12 +271,20 @@ func (sr *immutableRef) MountShared(ctx context.Context) (string, mount.Mount, f
 			return "", mount.Mount{}, nil, errors.Join(errors.New("no mounts available from ref"), releaseView())
 		}
 		lm := sr.cm.localMounter(ms)
+		_, sysMountOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.syscallMount", wcprof.OpOpts{})
 		root, err := lm.Mount()
+		sysMountOp.EndErr(err)
 		if err != nil {
 			return "", mount.Mount{}, nil, errors.Join(err, releaseView())
 		}
 		return root, ms[0], func() error {
-			return errors.Join(lm.Unmount(), releaseView())
+			_, unmountOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.syscallUnmount", wcprof.OpOpts{})
+			err := lm.Unmount()
+			unmountOp.EndErr(err)
+			_, releaseOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.release", wcprof.OpOpts{})
+			relErr := releaseView()
+			releaseOp.EndErr(relErr)
+			return errors.Join(err, relErr)
 		}, nil
 	})
 }
