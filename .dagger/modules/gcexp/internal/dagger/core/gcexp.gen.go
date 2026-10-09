@@ -268,6 +268,12 @@ type GcexpReplayOpts struct {
 
 	// Default: 32
 	Concurrency int
+	// Write and read a per-package stamp that changes only when that
+	// package's exec ran. Off, the replay does only what a real build does;
+	// verify re-runs from exec counts instead.
+	//
+	// Default: true
+	Stamps bool
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -283,6 +289,10 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 		// `concurrency` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Concurrency) {
 			q = q.Arg("concurrency", opts[i].Concurrency)
+		}
+		// `stamps` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Stamps) {
+			q = q.Arg("stamps", opts[i].Stamps)
 		}
 	}
 	q = q.Arg("src", src)

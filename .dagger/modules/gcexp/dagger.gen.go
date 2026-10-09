@@ -471,7 +471,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg concurrency", err))
 				}
 			}
-			return (*Gcexp).Replay(&parent, ctx, src, nonce, salt, concurrency)
+			var stamps bool
+			if inputArgs["stamps"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["stamps"]), &stamps)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stamps", err))
+				}
+			}
+			return (*Gcexp).Replay(&parent, ctx, src, nonce, salt, concurrency, stamps)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -522,10 +529,10 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("Layered",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Layered builds in three steps with no engine changes:\n 1. list the non-main-module packages the build needs (reruns on any source change, cheap);\n 2. build those packages into a GOCACHE directory output, keyed on that list's\n    content plus go.mod/go.sum (a normal cached result, not a cache volume);\n 3. go build with GOCACHE seeded from step 2 (copy-on-write mount).").
-							WithSourceMap(dag.SourceMap("replay.go", 412, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 412, 46)}).
-							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 412, 69)}).
-							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 412, 83)})).
+							WithSourceMap(dag.SourceMap("replay.go", 489, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 489, 46)}).
+							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 489, 69)}).
+							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 489, 83)})).
 					WithFunction(
 						dag.Function("MountScale",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
@@ -538,32 +545,33 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("PackTool",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("PackTool builds the pack tool and reports its size. It is built once per\nengine and cached; harnesses call it before measuring so a measured first\nbuild excludes it.").
-							WithSourceMap(dag.SourceMap("replay.go", 216, 1))).
+							WithSourceMap(dag.SourceMap("replay.go", 262, 1))).
 					WithFunction(
 						dag.Function("Plain",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Plain builds the same package with one go build exec. With a non-empty\nvolume name, GOCACHE lives in that cache volume.").
-							WithSourceMap(dag.SourceMap("replay.go", 356, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 356, 44)}).
-							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 356, 67)}).
-							WithArg("volume", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 356, 81)}).
-							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 356, 96)})).
+							WithSourceMap(dag.SourceMap("replay.go", 433, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 433, 44)}).
+							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 433, 67)}).
+							WithArg("volume", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 433, 81)}).
+							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 433, 96)})).
 					WithFunction(
 						dag.Function("PlanDebug",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("PlanDebug shows how one package's block was parsed.").
-							WithSourceMap(dag.SourceMap("replay.go", 380, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 380, 48)}).
-							WithArg("importPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 380, 71)})).
+							WithSourceMap(dag.SourceMap("replay.go", 457, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 457, 48)}).
+							WithArg("importPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 457, 71)})).
 					WithFunction(
 						dag.Function("Replay",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Replay builds the main package at the root of src with one exec per package.\nIt returns the wall time and, per package, a stamp that changes only when\nthat package's exec actually ran.").
-							WithSourceMap(dag.SourceMap("replay.go", 227, 1)).
-							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 227, 45)}).
-							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 227, 68)}).
-							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 227, 82)}).
-							WithArg("concurrency", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 229, 2), DefaultValue: dagger.JSON("32")}))), nil
+							WithSourceMap(dag.SourceMap("replay.go", 273, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 273, 45)}).
+							WithArg("nonce", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 273, 68)}).
+							WithArg("salt", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 273, 82)}).
+							WithArg("concurrency", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 275, 2), DefaultValue: dagger.JSON("32")}).
+							WithArg("stamps", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Write and read a per-package stamp that changes only when that\npackage's exec ran. Off, the replay does only what a real build does;\nverify re-runs from exec counts instead.", SourceMap: dag.SourceMap("replay.go", 280, 2), DefaultValue: dagger.JSON("true")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

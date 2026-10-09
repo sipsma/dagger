@@ -172,8 +172,13 @@ func appendUniq(xs []string, x string) []string {
 
 // script renders a block as a standalone shell script with stable paths.
 func (b *block) script(blocks map[string]*block) string {
-	var sb strings.Builder
-	sb.WriteString("set -e\nmkdir -p /src /work/" + b.name + "\n")
+	// The script runs as few processes as possible: one mkdir for every
+	// directory it needs, heredocs written with the printf builtin instead of
+	// cat, and the package archive compiled straight to its final name.
+	dirs := []string{"/src", "/work/" + b.name}
+	var body strings.Builder
+	var heredoc []string
+	heredocTarget := ""
 	for _, l := range b.lines {
 		l = reBuildID.ReplaceAllString(l, "")
 		l = reConc.ReplaceAllString(l, " -c=4")
@@ -184,26 +189,62 @@ func (b *block) script(blocks map[string]*block) string {
 		l = reDepArchive.ReplaceAllStringFunc(l, func(s string) string {
 			id := reDepArchive.FindStringSubmatch(s)[1]
 			if id == b.id {
-				return s
+				if b.isMain {
+					return s
+				}
+				return "/work/" + b.name + "/" + b.name + ".a"
 			}
 			return "/work/lib/" + blocks[id].name + ".a"
 		})
 		l = reWorkRef.ReplaceAllStringFunc(l, func(s string) string {
 			return "/work/" + blocks[strings.TrimPrefix(s, "$WORK/")].name
 		})
-		sb.WriteString(l + "\n")
+		if heredocTarget != "" {
+			if l == "EOF" {
+				body.WriteString("printf '%s\\n'")
+				for _, h := range heredoc {
+					body.WriteString(" " + shQuote(h))
+				}
+				body.WriteString(" > " + heredocTarget + "\n")
+				heredoc, heredocTarget = nil, ""
+				continue
+			}
+			heredoc = append(heredoc, l)
+			continue
+		}
+		if m := reHeredoc.FindStringSubmatch(l); m != nil {
+			heredocTarget = m[1]
+			continue
+		}
+		if m := reMkdirLine.FindStringSubmatch(l); m != nil {
+			dirs = append(dirs, m[1])
+			if m[2] != "" {
+				body.WriteString(m[2] + "\n")
+			}
+			continue
+		}
+		body.WriteString(l + "\n")
 	}
-	if !b.isMain {
-		sb.WriteString("cp /work/" + b.name + "/_pkg_.a /work/" + b.name + "/" + b.name + ".a\n")
-	}
-	return sb.String()
+	return "set -e\nmkdir -p " + strings.Join(dirs, " ") + "\n" + body.String()
+}
+
+var (
+	// cat >TARGET << 'EOF' [# internal]
+	reHeredoc = regexp.MustCompile(`^cat >(\S+) << 'EOF'( # internal)?$`)
+	// mkdir -p DIR [&& REST]
+	reMkdirLine = regexp.MustCompile(`^mkdir -p (\S+)(?: && (.*))?$`)
+)
+
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 type result struct {
-	file  *dagger.File
-	stamp string
-	err   error
-	done  chan struct{}
+	file     *dagger.File
+	stamp    string
+	err      error // set before done closes; dependents read it
+	stampErr error // set after done closes
+	done     chan struct{}
 
 	ready, started, execDone, finished time.Duration
 }
@@ -232,6 +273,11 @@ func (m *Gcexp) PackTool(ctx context.Context) (string, error) {
 func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string, salt string,
 	// +default=32
 	concurrency int,
+	// Write and read a per-package stamp that changes only when that
+	// package's exec ran. Off, the replay does only what a real build does;
+	// verify re-runs from exec counts instead.
+	// +default=true
+	stamps bool,
 ) (string, error) {
 	start := time.Now()
 	mods, err := modCache(src).Sync(ctx)
@@ -254,6 +300,13 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		return "", err
 	}
 	packTool := packTool()
+	// Build the base container once: each package then starts from its ID
+	// instead of re-sending the from/withEnvVariable chain. The pack tool is
+	// mounted per package, so syncing the base never waits for its build.
+	base, err := goBase(salt).Sync(ctx)
+	if err != nil {
+		return "", err
+	}
 	results := map[string]*result{}
 	for id := range blocks {
 		results[id] = &result{done: make(chan struct{})}
@@ -265,8 +318,9 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		go func() {
 			defer wg.Done()
 			r := results[id]
-			defer close(r.done)
-			ctr := goBase(salt).WithMountedFile("/usr/local/bin/gopack", packTool)
+			doneOnce := sync.OnceFunc(func() { close(r.done) })
+			defer doneOnce()
+			ctr := base.WithMountedFile("/usr/local/bin/gopack", packTool)
 			var depFiles []*dagger.File
 			for _, d := range b.deps {
 				dr := results[d]
@@ -293,7 +347,15 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			r.started = time.Since(start)
-			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"}, noNest)
+			script := b.script(blocks)
+			if stamps {
+				// Shell builtins only: a random id and the script's own run time.
+				script = "read t0 _ < /proc/uptime\n" + script +
+					"read u < /proc/sys/kernel/random/uuid\nv=${u#*-}\nread t1 _ < /proc/uptime\n" +
+					"t0=${t0%.*}${t0#*.}\nt1=${t1%.*}${t1#*.}\n" +
+					"echo \"${u%%-*}${v%%-*} $(( (t1-t0)*10 ))ms\" > /stamp\n"
+			}
+			ran := ctr.WithExec([]string{"sh", "-c", script}, noNest)
 			out, err := ran.Directory("/work/" + b.name).Sync(ctx)
 			if err != nil {
 				r.err = fmt.Errorf("%s: %w", b.importPath, err)
@@ -309,7 +371,12 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 				r.err = fmt.Errorf("%s: output: %w", b.importPath, err)
 				return
 			}
-			r.stamp, r.err = ran.File("/stamp").Contents(ctx)
+			// Dependents only need the output; release them before the
+			// stamp read.
+			doneOnce()
+			if stamps {
+				r.stamp, r.stampErr = ran.File("/stamp").Contents(ctx)
+			}
 		}()
 	}
 	wg.Wait()
@@ -321,7 +388,12 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		if r.err != nil {
 			return "", r.err
 		}
-		lines = append(lines, fmt.Sprintf("%s %s", r.stamp, blocks[id].importPath))
+		if r.stampErr != nil {
+			return "", fmt.Errorf("%s: stamp: %w", blocks[id].importPath, r.stampErr)
+		}
+		if stamps {
+			lines = append(lines, fmt.Sprintf("%s %s", r.stamp, blocks[id].importPath))
+		}
 		sumQueue += r.started - r.ready
 		if f := strings.Fields(r.stamp); len(f) == 2 {
 			var ms int
@@ -339,7 +411,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	if len(timing) > 12 {
 		timing = timing[:12]
 	}
-	header := fmt.Sprintf("TIMING sumQueue=%s sumExec=%s sumPost=%s sumInsideContainer=%dms", sumQueue.Round(time.Millisecond), sumExec.Round(time.Millisecond), sumPost.Round(time.Millisecond), sumInside)
+	header := fmt.Sprintf("TIMING sumQueue=%s sumExec=%s sumPost=%s sumInsideContainer=%dms stamps=%t", sumQueue.Round(time.Millisecond), sumExec.Round(time.Millisecond), sumPost.Round(time.Millisecond), sumInside, stamps)
 	lines = append(timing, lines...)
 	sort.Slice(lines, func(i, j int) bool { return strings.Fields(lines[i])[1] < strings.Fields(lines[j])[1] })
 	size, err := results["b001"].file.Size(ctx)
