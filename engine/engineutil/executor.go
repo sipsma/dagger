@@ -280,6 +280,17 @@ func (c *Client) run(
 		c.runningMu.Unlock()
 
 		close(state.done)
+		// EXPERIMENT (g18 attribution): time the cleanups, each and in total.
+		if wcprof.Enabled(ctx) {
+			cleanupCtx, cleanupOp := wcprof.BeginOp(ctx, wcprof.OpKindExecPhase, "exec.cleanups", wcprof.OpOpts{Ident: state.id})
+			defer cleanupOp.EndErr(nil)
+			state.cleanups.Wrap = func(msg string, f cleanups.CleanupF) error {
+				startNS := wcprof.NowNS()
+				err := f()
+				wcprof.RecordOp(cleanupCtx, wcprof.OpKindExecPhase, "exec.cleanup:"+cleanupClass(msg), wcprof.OpOpts{Ident: state.id}, startNS, wcprof.NowNS(), wcprof.OutcomeOK)
+				return err
+			}
+		}
 		if err := state.cleanups.Run(); err != nil {
 			bklog.G(ctx).Errorf("executor run failed to cleanup: %v", err)
 			rerr = errors.Join(rerr, &ExecCleanupError{Err: err})
@@ -992,4 +1003,15 @@ func signalBlocked(status []byte, sig syscall.Signal) bool {
 		return err == nil && bits&(1<<(uint(sig)-1)) != 0
 	}
 	return false
+}
+
+// cleanupClass is a cleanup's message without its per-exec detail, such as a
+// mount target. EXPERIMENT (g18 attribution).
+func cleanupClass(msg string) string {
+	for _, prefix := range []string{"unmount from rootfs ", "remove mount temp dir "} {
+		if strings.HasPrefix(msg, prefix) {
+			return strings.TrimSpace(prefix)
+		}
+	}
+	return msg
 }

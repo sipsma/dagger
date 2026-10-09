@@ -89,8 +89,15 @@ func (t *initTiming) close() {
 // ok is false when there is none, e.g. /.init failed or was killed before it
 // reaped the command.
 func (t *initTiming) read() (startedNS, spawnedNS, exitedNS int64, ok bool) {
+	startedNS, spawnedNS, exitedNS, _, ok = t.read4()
+	return startedNS, spawnedNS, exitedNS, ok
+}
+
+// read4 is read plus when /.init exited (0 if it didn't report it).
+// EXPERIMENT (g18 attribution).
+func (t *initTiming) read4() (startedNS, spawnedNS, exitedNS, initExitNS int64, ok bool) {
 	if t == nil {
-		return 0, 0, 0, false
+		return 0, 0, 0, 0, false
 	}
 	// Our copy of the write end is the only one left once runc has exited;
 	// the report is one write of less than PIPE_BUF, so one read gets all of
@@ -100,23 +107,29 @@ func (t *initTiming) read() (startedNS, spawnedNS, exitedNS int64, ok bool) {
 	// non-blocking.
 	fd := int(t.r.Fd())
 	if err := unix.SetNonblock(fd, true); err != nil {
-		return 0, 0, 0, false
+		return 0, 0, 0, 0, false
 	}
 	buf := make([]byte, 128)
 	n, err := unix.Read(fd, buf)
 	if err != nil || n <= 0 {
-		return 0, 0, 0, false
+		return 0, 0, 0, 0, false
 	}
-	var started, spawned, exited int64
-	if _, err := fmt.Sscanf(string(buf[:n]), "%d %d %d\n", &started, &spawned, &exited); err != nil {
-		return 0, 0, 0, false
+	var started, spawned, exited, initExit int64
+	if _, err := fmt.Sscanf(string(buf[:n]), "%d %d %d %d\n", &started, &spawned, &exited, &initExit); err != nil {
+		initExit = 0
+	}
+	if _, err := fmt.Sscanf(string(buf[:n]), "%d %d %d", &started, &spawned, &exited); err != nil {
+		return 0, 0, 0, 0, false
 	}
 	nowNS, nowMono := wcprof.NowNS(), monotonicNS()
 	if nowMono == 0 || started <= 0 {
-		return 0, 0, 0, false
+		return 0, 0, 0, 0, false
 	}
 	toWcprof := func(mono int64) int64 { return nowNS - (nowMono - mono) }
-	return toWcprof(started), toWcprof(spawned), toWcprof(exited), true
+	if initExit > 0 {
+		initExit = toWcprof(initExit)
+	}
+	return toWcprof(started), toWcprof(spawned), toWcprof(exited), initExit, true
 }
 
 func monotonicNS() int64 {
@@ -141,7 +154,7 @@ func monotonicNS() int64 {
 // it releases the workload, so /.init can appear to start before it; the
 // boundaries are clamped to be ordered. A report that ends after the run is
 // not recorded.
-func recordProcessRunSplit(ctx context.Context, runID uint64, ident string, argv []string, processStartNS, endNS, startedNS, spawnedNS, exitedNS int64, outcome wcprof.Outcome) {
+func recordProcessRunSplit(ctx context.Context, runID uint64, ident string, argv []string, processStartNS, endNS, startedNS, spawnedNS, exitedNS, initExitNS int64, outcome wcprof.Outcome) {
 	b1 := max(startedNS, processStartNS)
 	b2 := max(spawnedNS, b1)
 	b3 := max(exitedNS, b2)
@@ -152,5 +165,11 @@ func recordProcessRunSplit(ctx context.Context, runID uint64, ident string, argv
 	wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.initStart", wcprof.OpOpts{Ident: ident}, processStartNS, b1, wcprof.OutcomeOK)
 	wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processSpawn", wcprof.OpOpts{Ident: ident}, b1, b2, wcprof.OutcomeOK)
 	wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.workload", wcprof.OpOpts{Ident: ident, WorkType: wcprof.WorkTypeUser, Argv: argv}, b2, b3, outcome)
-	wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processExit", wcprof.OpOpts{Ident: ident}, b3, endNS, wcprof.OutcomeOK)
+	exitID := wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processExit", wcprof.OpOpts{Ident: ident}, b3, endNS, wcprof.OutcomeOK)
+	// EXPERIMENT (g18 attribution): split the exit at /.init's own exit.
+	if b4 := initExitNS; exitID != 0 && b4 >= b3 && b4 <= endNS {
+		exitCtx := wcprof.ContextWithOpID(ctx, exitID)
+		wcprof.RecordOp(exitCtx, wcprof.OpKindExecPhase, "exec.processExit.init", wcprof.OpOpts{Ident: ident}, b3, b4, wcprof.OutcomeOK)
+		wcprof.RecordOp(exitCtx, wcprof.OpKindExecPhase, "exec.processExit.runtime", wcprof.OpOpts{Ident: ident}, b4, endNS, wcprof.OutcomeOK)
+	}
 }

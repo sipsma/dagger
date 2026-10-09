@@ -63,9 +63,10 @@ func TestInitReportsTiming(t *testing.T) {
 	require.NotContains(t, string(out), distconsts.InitTimingFDEnv, "the command doesn't inherit the variable")
 	require.NotContains(t, string(out), "fd3-leaked", "the command doesn't inherit the fd")
 
-	var started, spawned, exited int64
-	_, err = fmt.Fscanf(r, "%d %d %d\n", &started, &spawned, &exited)
+	var started, spawned, exited, initExit int64
+	_, err = fmt.Fscanf(r, "%d %d %d %d\n", &started, &spawned, &exited, &initExit)
 	require.NoError(t, err)
+	require.LessOrEqual(t, exited, initExit, "/.init exits after reaping the command")
 	require.Less(t, before, started)
 	require.LessOrEqual(t, started, spawned)
 	require.GreaterOrEqual(t, exited-spawned, int64(200*time.Millisecond), "the command ran between spawn and exit")

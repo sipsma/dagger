@@ -194,7 +194,8 @@ func mainInit() error {
 					unix.Kill(-child.Pid, syscall.SIGTERM)
 
 					if timing != nil {
-						fmt.Fprintf(timing, "%d %d %d\n", startedNS, spawnedNS, exitedNS)
+						// EXPERIMENT (g18 attribution): the 4th field is when /.init exits.
+						fmt.Fprintf(timing, "%d %d %d %d\n", startedNS, spawnedNS, exitedNS, monotonicNS())
 					}
 
 					// goodbye

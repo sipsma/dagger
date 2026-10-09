@@ -15,6 +15,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
@@ -78,6 +79,38 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 				ent.Name(), strings.TrimSpace(string(stat)), wchan,
 				strings.ReplaceAll(string(cmdline), "\x00", " "), stack)
 		}
+	}))
+	// EXPERIMENT (g18 attribution): cumulative CPU of the engine process, of
+	// the engine's cgroup (the engine plus the runtime processes it starts)
+	// and of the execs' parent cgroup (every container: /.init, the session
+	// helper and the command), for per-step deltas.
+	m.Handle("/debug/cpu", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		var r syscall.Rusage
+		_ = syscall.Getrusage(syscall.RUSAGE_SELF, &r)
+		self := time.Duration(r.Utime.Nano() + r.Stime.Nano())
+		_ = syscall.Getrusage(syscall.RUSAGE_CHILDREN, &r)
+		children := time.Duration(r.Utime.Nano() + r.Stime.Nano())
+		usage := func(dir string) int64 {
+			b, err := os.ReadFile(filepath.Join("/sys/fs/cgroup", dir, "cpu.stat"))
+			if err != nil {
+				return -1
+			}
+			for _, line := range strings.Split(string(b), "\n") {
+				if v, ok := strings.CutPrefix(line, "usage_usec "); ok {
+					n, _ := strconv.ParseInt(v, 10, 64)
+					return n
+				}
+			}
+			return -1
+		}
+		own := "/"
+		if b, err := os.ReadFile("/proc/self/cgroup"); err == nil {
+			if _, path, ok := strings.Cut(strings.TrimSpace(string(b)), "::"); ok {
+				own = path
+			}
+		}
+		fmt.Fprintf(rw, "engine_self_us %d\nengine_reaped_children_us %d\nengine_cgroup %s\nengine_cgroup_us %d\nexec_cgroup_us %d\n",
+			self.Microseconds(), children.Microseconds(), own, usage(own), usage("exec"))
 	}))
 	m.Handle("/debug/gc", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		runtime.GC()
