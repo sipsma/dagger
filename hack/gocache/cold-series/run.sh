@@ -8,7 +8,8 @@
 # dump. Outputs land in <outdir>/run/; afterwards a text report per run is written next to each dump
 # (cold*.reports.txt). INNER=inner-noop.sh instead counts re-executions in no-change replays
 # (run/reexec.txt: one exec.processRun means no package exec re-ran). INNER=inner-first.sh also dumps
-# the first replay on the fresh engine (first-c16.dump), after a plain-build preload.
+# the first replay on the fresh engine (first-c16.dump), after a plain-build preload. INNER=inner-edit.sh
+# profiles the first replay, a no-change replay and edit A. EXPMOD overrides the gcexp checkout.
 # DRY=1 prints the generated dagger script and exits.
 # INNER=inner-plain.sh runs plain cold `go build` vs cold replay instead (ORDER, default
 # "plain replay replay plain").
@@ -16,11 +17,11 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${1:-$HOME/gocache-cold-series-$(date -u +%Y%m%dT%H%M%SZ)}
 concs=${CONCS:-8 16 32 32 16 8}
-expmod=$HOME/gocache-bench/expmod; yq=$HOME/gocache-bench/yq
+expmod=${EXPMOD:-$HOME/gocache-bench/expmod}; yq=$HOME/gocache-bench/yq
 [ -d "$expmod/.git" ] && [ -d "$yq" ] || { echo "missing $expmod (with .git) or $yq" >&2; exit 2; }
 id=$(date +%s%N)
 mkdir -p "$out"
-{ echo "commit $(git rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; } > "$out/meta.txt"
+{ echo "commit $(git rev-parse HEAD)"; echo "expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; } > "$out/meta.txt"
 inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
@@ -38,7 +39,7 @@ for d in "$out"/run/noop*.dump; do
   [ -f "$d" ] || continue
   echo "$(basename "$d") $($W -view classes -kind exec_phase -top 1 "$d" | grep 'exec.processRun' | awk '{print "processRun_count=" $1}')" >> "$out/run/reexec.txt"
 done
-for d in "$out"/run/first*.dump "$out"/run/cold*.dump; do
+for d in "$out"/run/first*.dump "$out"/run/noop*.dump "$out"/run/edit*.dump "$out"/run/cold*.dump; do
   [ -f "$d" ] || continue
   r=${d%.dump}.reports.txt
   {
