@@ -1,0 +1,25 @@
+diff --git a/.dagger/modules/gcexp/replay.go b/.dagger/modules/gcexp/replay.go
+index d2567dc..ef66b6e 100644
+--- a/.dagger/modules/gcexp/replay.go
++++ b/.dagger/modules/gcexp/replay.go
+@@ -208,6 +208,9 @@ type result struct {
+ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string, salt string,
+ 	// +default=32
+ 	concurrency int,
++	// Attribution only: skip reading the per-package stamp file.
++	// +optional
++	noStamp bool,
+ ) (string, error) {
+ 	start := time.Now()
+ 	mods, err := modCache(src).Sync(ctx)
+@@ -285,6 +288,10 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
+ 				r.err = fmt.Errorf("%s: output: %w", b.importPath, err)
+ 				return
+ 			}
++			if noStamp {
++				r.stamp = "- 0ms"
++				return
++			}
+ 			r.stamp, r.err = ran.File("/stamp").Contents(ctx)
+ 		}()
+ 	}
