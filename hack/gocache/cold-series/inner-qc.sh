@@ -18,9 +18,13 @@ t noop1 $R --nonce n1
 curl -sf "$D?flush=1" -o /out/noop1.dump
 curl -sf "http://dagger-engine:6060/debug/pprof/profile?seconds=20" -o /out/noop-cpu.pprof &
 prof=$!
+# Contention deltas over the same window (empty unless the engine samples them; see CONTENTION in run.sh).
+curl -sf "http://dagger-engine:6060/debug/pprof/mutex?seconds=20" -o /out/noop-mutex.pprof &
+curl -sf "http://dagger-engine:6060/debug/pprof/block?seconds=20" -o /out/noop-block.pprof &
 i=0
 while kill -0 $prof 2>/dev/null; do i=$((i+1)); t noop-prof-$i $R --nonce np$i; done
 wait $prof || echo "noop-cpu.pprof: capture failed" >> /out/summary.txt
+wait || echo "contention capture failed" >> /out/summary.txt
 echo "noop-cpu.pprof spans $i no-change replays" >> /out/summary.txt
 curl -sf "$D?flush=1" -o /dev/null
 # Failures below are recorded, not fatal, so the dumps above are still exported.

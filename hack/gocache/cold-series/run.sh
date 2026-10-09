@@ -11,7 +11,8 @@
 # the first replay on the fresh engine (first-c16.dump), after a plain-build preload. INNER=inner-edit.sh
 # profiles the first replay, a no-change replay and edit A. INNER=inner-ns.sh adds plain go build references
 # (cold, no change and edit A with a warm GOCACHE volume) around the same three profiled replays.
-# INNER=inner-qc.sh is the per-request query handling capture (adds an engine CPU profile over no-change replays).
+# INNER=inner-qc.sh is the per-request query handling capture (adds an engine CPU profile over no-change replays;
+# with CONTENTION=1 the engine also samples mutex and block contention, captured over the same replays).
 # INNER=inner-cw.sh is the compile-work gap capture (needs the gcexp compile-work options).
 # EXPMOD overrides the gcexp checkout.
 # DRY=1 prints the generated dagger script and exits.
@@ -32,7 +33,7 @@ inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
 cidr=\$(\$dev | network-cidr)
-svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
+svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-env-variable _DAGGER_G22_CONTENTION "${CONTENTION:-}" | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
 engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-env-variable NONCE $id | with-env-variable CONCS "$concs" | with-env-variable ORDER "${ORDER:-plain replay replay plain}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
 container | from golang:1.26 | with-env-variable CGO_ENABLED 0 | with-directory /src \$(directory | with-file go.mod \$(host | file go.mod) | with-file go.sum \$(host | file go.sum) | with-directory engine/wcprof \$(host | directory engine/wcprof) | with-directory internal/enginelab/wcprofreport \$(host | directory .dagger/modules/engine-lab/wcprof-report)) | with-workdir /src | with-exec -- go build -o /out/wcprof-report ./internal/enginelab/wcprofreport | file /out/wcprof-report | export $out/wcprof-report
 DSH

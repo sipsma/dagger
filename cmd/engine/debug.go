@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -49,6 +50,11 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 	// uncomment these to get data from /mutex and /block
 	// runtime.SetMutexProfileFraction(1)
 	// runtime.SetBlockProfileRate(1)
+	// DIAGNOSTIC (DO NOT MERGE): contention profiles for the g22 query capture.
+	if os.Getenv("_DAGGER_G22_CONTENTION") != "" {
+		runtime.SetMutexProfileFraction(10)
+		runtime.SetBlockProfileRate(10000)
+	}
 
 	m.Handle("/debug/gc", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		runtime.GC()
