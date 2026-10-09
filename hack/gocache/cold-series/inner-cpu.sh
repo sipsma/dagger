@@ -25,4 +25,5 @@ curl -sf "$D?flush=1" -o /dev/null
 t cold1-r16c4 $R --salt r1-$NONCE --nonce 1 --concurrency 16
 curl -sf "$D?flush=1" -o /out/cold1-r16c4.dump
 t cold2-r16c4 $R --salt r2-$NONCE --nonce 2 --concurrency 16
+curl -sf "$D?flush=1" -o /out/cold2-r16c4.dump
 t cold3-r1c12 $R --salt r3-$NONCE --nonce 3 --concurrency 1 --gc-concurrency 12
