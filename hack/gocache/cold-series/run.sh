@@ -13,6 +13,7 @@
 # (cold, no change and edit A with a warm GOCACHE volume) around the same three profiled replays.
 # INNER=inner-cw.sh is the compile-work gap capture (needs the gcexp compile-work options).
 # INNER=inner-attr.sh is the g18 per-exec lifecycle attribution (needs the g18 attribution experiment).
+# INNER=inner-gc.sh measures the engine's CPU and memory per step (with ENGINE_GOGC/ENGINE_GOMEMLIMIT).
 # INNER=inner-cpuprof.sh measures the engine's CPU and takes a CPU profile (WCPROF=0 turns wcprof off).
 # EXPMOD overrides the gcexp checkout.
 # DRY=1 prints the generated dagger script and exits.
@@ -28,9 +29,12 @@ id=$(date +%s%N)
 mkdir -p "$out"
 steal() { awk '/^cpu /{print $9}' /proc/stat; }
 steal0=$(steal)
-{ echo "commit $(git rev-parse HEAD)"; echo "wcprof ${WCPROF:-1}"; echo "expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; echo "loadavg-start $(cat /proc/loadavg)"; } > "$out/meta.txt"
+{ echo "commit $(git rev-parse HEAD)"; echo "wcprof ${WCPROF:-1} GOGC=${ENGINE_GOGC:-default} GOMEMLIMIT=${ENGINE_GOMEMLIMIT:-default}"; echo "expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; echo "loadavg-start $(cat /proc/loadavg)"; } > "$out/meta.txt"
 # wcprof is on whenever _DAGGER_WCPROF is set; WCPROF=0 leaves it unset.
 wcprofenv="with-env-variable _DAGGER_WCPROF 1 |"; [ "${WCPROF:-1}" = 0 ] && wcprofenv=""
+# ENGINE_GOGC / ENGINE_GOMEMLIMIT set the engine's Go GC tuning.
+[ -n "${ENGINE_GOGC:-}" ] && wcprofenv="$wcprofenv with-env-variable GOGC $ENGINE_GOGC |"
+[ -n "${ENGINE_GOMEMLIMIT:-}" ] && wcprofenv="$wcprofenv with-env-variable GOMEMLIMIT $ENGINE_GOMEMLIMIT |"
 inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)

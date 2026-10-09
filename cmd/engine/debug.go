@@ -111,6 +111,20 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 		}
 		fmt.Fprintf(rw, "engine_self_us %d\nengine_reaped_children_us %d\nengine_cgroup %s\nengine_cgroup_us %d\nexec_cgroup_us %d\n",
 			self.Microseconds(), children.Microseconds(), own, usage(own), usage("exec"))
+		// The engine cgroup's memory (the engine plus the runtime processes it
+		// starts), and the Go heap, for GC tuning comparisons.
+		memFile := func(name string) string {
+			b, err := os.ReadFile(filepath.Join("/sys/fs/cgroup", own, name))
+			if err != nil {
+				return "-1"
+			}
+			return strings.TrimSpace(string(b))
+		}
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		fmt.Fprintf(rw, "go_env_gogc %q\ngo_memlimit_bytes %d\n", os.Getenv("GOGC"), debug.SetMemoryLimit(-1))
+		fmt.Fprintf(rw, "engine_memory_peak_bytes %s\nengine_memory_current_bytes %s\ngo_heap_inuse_bytes %d\ngo_sys_bytes %d\ngo_num_gc %d\ngo_gc_cpu_fraction %.4f\n",
+			memFile("memory.peak"), memFile("memory.current"), ms.HeapInuse, ms.Sys, ms.NumGC, ms.GCCPUFraction)
 	}))
 	m.Handle("/debug/gc", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		runtime.GC()
