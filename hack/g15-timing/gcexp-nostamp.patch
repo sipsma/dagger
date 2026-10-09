@@ -1,0 +1,37 @@
+diff -ru gcexp-a/.dagger/modules/gcexp/replay.go gcexp-b/.dagger/modules/gcexp/replay.go
+--- a/.dagger/modules/gcexp/replay.go	2026-10-08 23:43:32.896191230 +0000
++++ b/.dagger/modules/gcexp/replay.go	2026-10-09 02:13:33.757060684 +0000
+@@ -209,6 +209,9 @@
+ 	// +default=32
+ 	concurrency int,
+ ) (string, error) {
++	// Measurement option: a salt starting with "nostamp-" skips the
++	// per-package random stamp file and reading it back.
++	noStamp := strings.HasPrefix(salt, "nostamp-")
+ 	start := time.Now()
+ 	mods, err := modCache(src).Sync(ctx)
+ 	if err != nil {
+@@ -269,7 +272,11 @@
+ 			sem <- struct{}{}
+ 			defer func() { <-sem }()
+ 			r.started = time.Since(start)
+-			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"})
++			stampScript := "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"
++			if noStamp {
++				stampScript = ""
++			}
++			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + stampScript})
+ 			out, err := ran.Directory("/work/" + b.name).Sync(ctx)
+ 			if err != nil {
+ 				r.err = fmt.Errorf("%s: %w", b.importPath, err)
+@@ -285,6 +292,10 @@
+ 				r.err = fmt.Errorf("%s: output: %w", b.importPath, err)
+ 				return
+ 			}
++			if noStamp {
++				r.stamp = "nostamp 0ms"
++				return
++			}
+ 			r.stamp, r.err = ran.File("/stamp").Contents(ctx)
+ 		}()
+ 	}
