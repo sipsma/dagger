@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"dagger.io/dagger/core"
 
 	"dagger.io/dagger"
+	"github.com/dagger/testctx"
 )
 
 // Give a clean shutdown time to write its persistence checkpoint under load.
@@ -85,4 +88,22 @@ func shutDownNestedEngine(ctx context.Context, client **dagger.Client, upstream,
 		errs = errors.Join(errs, err)
 	}
 	return errs
+}
+
+// dumpStuckNestedEngine logs the goroutines and processes of a nested engine
+// whose graceful stop has been running for the given time.
+func dumpStuckNestedEngine(t *testctx.T, debugURL string, after time.Duration) {
+	client := &http.Client{Timeout: 20 * time.Second}
+	for _, path := range []string{"/debug/pprof/goroutine?debug=2", "/debug/processes"} {
+		var body []byte
+		resp, err := client.Get(debugURL + path)
+		if err == nil {
+			body, err = io.ReadAll(resp.Body)
+			resp.Body.Close()
+		}
+		if err != nil {
+			body = []byte(err.Error())
+		}
+		t.Logf("nested engine still stopping after %s; %s:\n%s", after, path, body)
+	}
 }
