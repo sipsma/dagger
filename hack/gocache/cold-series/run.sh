@@ -37,6 +37,7 @@ for d in "$out"/run/noop*.dump; do
   echo "$(basename "$d") $($W -view classes -kind exec_phase -top 1 "$d" | grep 'exec.processRun' | awk '{print "processRun_count=" $1}')" >> "$out/run/reexec.txt"
 done
 for d in "$out"/run/cold*.dump; do
+  [ -f "$d" ] || continue
   r=${d%.dump}.reports.txt
   {
     echo "### $(basename "$d")"
