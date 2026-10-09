@@ -17,6 +17,8 @@ R="-s call gcexp replay --src ./yq --salt r-$NONCE --concurrency 16"
 P="-s call gcexp plain --src ./yq"
 V=gocache-ns-$NONCE
 t preload $P --volume "" --salt pre-$NONCE --nonce p
+# Build the one-time pack tool (cached per engine) so measured first builds exclude it.
+t preload-pack -s call gcexp pack-tool
 t plain-cold $P --volume $V --salt pv-$NONCE --nonce pc
 t plain-noop $P --volume $V --salt pv-$NONCE --nonce pn
 curl -sf "$D?flush=1" -o /dev/null

@@ -15,6 +15,8 @@ D=http://dagger-engine:6060/debug/wcprof/dump
 P="-s call gcexp plain --src ./yq"
 R="-s call gcexp replay --src ./yq"
 t preload $P --volume "" --salt pre-$NONCE --nonce p
+# Build the one-time pack tool (cached per engine) so measured first builds exclude it.
+t preload-pack -s call gcexp pack-tool
 set -- $(cpu); b0=$1; i0=$2; sleep 10; set -- $(cpu)
 echo "idle-10s busy_cpu_s=$(secs $(($1-b0))) idle_cpu_s=$(secs $(($2-i0)))" >> /out/summary.txt
 t plain-p12 $P --volume p12-$NONCE --salt p12-$NONCE --nonce 1

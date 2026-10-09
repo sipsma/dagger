@@ -14,6 +14,8 @@ reran() {
 D=http://dagger-engine:6060/debug/wcprof/dump
 R="-s call gcexp replay --src ./yq --salt e-$NONCE --concurrency 16"
 t preload -s call gcexp plain --src ./yq --volume "" --salt pre-$NONCE --nonce p
+# Build the one-time pack tool (cached per engine) so measured first builds exclude it.
+t preload-pack -s call gcexp pack-tool
 curl -sf "$D?flush=1" -o /dev/null
 t first-c16 $R --nonce f
 curl -sf "$D?flush=1" -o /out/first-c16.dump

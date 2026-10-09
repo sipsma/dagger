@@ -13,6 +13,8 @@ D=http://dagger-engine:6060/debug/wcprof/dump
 P="-s call gcexp plain --src ./yq"
 R="-s call gcexp replay --src ./yq"
 t preload $P --volume "" --salt pre-$NONCE --nonce p
+# Build the one-time pack tool (cached per engine) so measured first builds exclude it.
+t preload-pack -s call gcexp pack-tool
 t plain-p12 $P --volume p12-$NONCE --salt p12-$NONCE --nonce 1 --trace
 t plain-c4 $P --volume c4-$NONCE --salt c4-$NONCE --nonce 2 --trace --gcflags all=-c=4
 t plain-p1 $P --volume p1-$NONCE --salt p1-$NONCE --nonce 3 --trace --p 1
