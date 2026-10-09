@@ -2,7 +2,7 @@
 # Cold-build per-exec overhead series for the gcexp replay (yq v4.49.2, 263 packages).
 # Run from the root of a dagger/dagger checkout:  hack/gocache/cold-series/run.sh [outdir]
 # Needs: dagger CLI on PATH; ~/gocache-bench/expmod (sipsma/dagger branch gocache-bench-gcexp, with .git)
-# and ~/gocache-bench/yq (yq v4.49.2 source). Env: CONCS (default "8 16 32 32 16 8").
+# and ~/gocache-bench/yq (yq v4.49.2 source). EXPMOD overrides the expmod path. Env: CONCS (default "8 16 32 32 16 8").
 # One dev engine (engine-dev, built from this checkout) runs as a service with wcprof and a fresh
 # state volume; one warm-up replay, then one cold replay (fresh salt) per CONCS entry, each with a wcprof
 # dump. Outputs land in <outdir>/run/; afterwards a text report per run is written next to each dump
@@ -13,11 +13,11 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${1:-$HOME/gocache-cold-series-$(date -u +%Y%m%dT%H%M%SZ)}
 concs=${CONCS:-8 16 32 32 16 8}
-expmod=$HOME/gocache-bench/expmod; yq=$HOME/gocache-bench/yq
+expmod=${EXPMOD:-$HOME/gocache-bench/expmod}; yq=$HOME/gocache-bench/yq
 [ -d "$expmod/.git" ] && [ -d "$yq" ] || { echo "missing $expmod (with .git) or $yq" >&2; exit 2; }
 id=$(date +%s%N)
 mkdir -p "$out"
-{ echo "commit $(git rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; } > "$out/meta.txt"
+{ echo "commit $(git rev-parse HEAD)"; echo "expmod $expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; } > "$out/meta.txt"
 inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
