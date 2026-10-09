@@ -274,6 +274,14 @@ type GcexpReplayOpts struct {
 	//
 	// Default: true
 	Stamps bool
+	// Comma-separated driver options to measure (prototype): "ro" mounts each
+	// package's inputs read-only; "pack" mounts the pack tool only where the
+	// package uses it; "slot" frees the concurrency slot when the exec is
+	// done; "overlap" builds the base container while planning; "redirect"
+	// runs the plan exec without a shell; "noinit" runs package execs
+	// without the injected init. Empty runs the first prototype unchanged.
+	// "merge" puts dependency archives inside the package's source mount.
+	Knobs string
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -293,6 +301,10 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 		// `stamps` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Stamps) {
 			q = q.Arg("stamps", opts[i].Stamps)
+		}
+		// `knobs` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Knobs) {
+			q = q.Arg("knobs", opts[i].Knobs)
 		}
 	}
 	q = q.Arg("src", src)
