@@ -203,6 +203,24 @@ type result struct {
 	ready, started, execDone, finished time.Duration
 }
 
+// packTool builds the pack tool that package execs with assembly use. The go
+// command packs archives in-process; per-package execs need a binary, and
+// "go tool pack" would build it from source in every fresh container.
+func packTool() *dagger.File {
+	return goBase("").WithExec([]string{"go", "build", "-o", "/gopack", "cmd/pack"}).File("/gopack")
+}
+
+// PackTool builds the pack tool and reports its size. It is built once per
+// engine and cached; harnesses call it before measuring so a measured first
+// build excludes it.
+func (m *Gcexp) PackTool(ctx context.Context) (string, error) {
+	size, err := packTool().Size(ctx)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("pack tool: %d bytes", size), nil
+}
+
 // Replay builds the main package at the root of src with one exec per package.
 // It returns the wall time and, per package, a stamp that changes only when
 // that package's exec actually ran.
@@ -230,7 +248,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	if err != nil {
 		return "", err
 	}
-	packTool := goBase("").WithExec([]string{"go", "build", "-o", "/gopack", "cmd/pack"}).File("/gopack")
+	packTool := packTool()
 	results := map[string]*result{}
 	for id := range blocks {
 		results[id] = &result{done: make(chan struct{})}

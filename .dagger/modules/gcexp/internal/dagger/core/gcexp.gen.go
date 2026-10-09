@@ -24,6 +24,7 @@ type Gcexp struct { // gcexp (../../../../../:0:0)
 	id         *ID
 	layered    *string
 	mountScale *string
+	packTool   *string
 	plain      *string
 	planDebug  *string
 	replay     *string
@@ -205,6 +206,21 @@ func (r *Gcexp) MountScale(ctx context.Context, n int, salt string, nonce string
 	q = q.Arg("n", n)
 	q = q.Arg("salt", salt)
 	q = q.Arg("nonce", nonce)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// PackTool builds the pack tool and reports its size. It is built once per
+// engine and cached; harnesses call it before measuring so a measured first
+// build excludes it.
+func (r *Gcexp) PackTool(ctx context.Context) (string, error) {
+	if r.packTool != nil {
+		return *r.packTool, nil
+	}
+	q := r.query.Select("packTool")
 
 	var response string
 
