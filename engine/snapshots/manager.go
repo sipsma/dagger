@@ -12,6 +12,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/labels"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/dagger/dagger/engine/snapshots/fsdiff"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/internal/buildkit/client"
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
@@ -411,7 +412,9 @@ func (cm *snapshotManager) New(ctx context.Context, s ImmutableRef, opts ...RefO
 	if err != nil {
 		return nil, errors.Wrap(err, "ensure lease for snapshot prepare")
 	}
+	_, prepOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "snap.new.prepare", wcprof.OpOpts{})
 	err = cm.Snapshotter.Prepare(ctx, snapshotID, parentSnapshotID)
+	prepOp.EndErr(err)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to prepare %v as %s", parentSnapshotID, snapshotID)
 	}
