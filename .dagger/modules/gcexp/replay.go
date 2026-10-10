@@ -871,6 +871,11 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	// that it runs.
 	// +default=["--version"]
 	versionArgs []string,
+	// Also build the package with plain go build, with and without a Go
+	// build ID, and report how those binaries compare with this one. A
+	// correctness check; it adds a build to the call.
+	// +default=false
+	compare bool,
 ) (string, error) {
 	start := time.Now()
 	opts, err := parseMode(mode)
@@ -982,8 +987,52 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("replay: %d packages, plan %s, total %s, binary %d bytes, runs: %s\n%s\n%s",
-		len(blocks), planDur.Round(time.Millisecond), time.Since(start).Round(time.Millisecond), size, strings.TrimSpace(version), header,
+	compared := ""
+	if compare {
+		// One container with the source and the replay's binary: plain builds
+		// with and without a Go build ID, then every comparison.
+		script := `set -e
+B="go build -trimpath -buildvcs=false"
+mkdir -p /out
+$B -o /out/plain PKG
+$B -ldflags=-buildid= -o /out/plain-noid PKG
+cp /in/replay /out/replay
+cd /out
+echo "== sizes"; ls -l plain plain-noid replay | awk '{print $5, $9}'
+echo "== sha256"; sha256sum plain plain-noid replay
+echo "== go build IDs"; for f in plain plain-noid replay; do echo "$f: [$(go tool buildid $f 2>&1)]"; done
+echo "== differing bytes"
+echo "plain vs replay: $(cmp -l plain replay 2>/dev/null | wc -l)"
+echo "plain-noid vs replay: $(cmp -l plain-noid replay 2>/dev/null | wc -l)"
+if cmp -s plain-noid replay; then echo "COMPARE plain-noid == replay"; else echo "COMPARE plain-noid != replay"; fi
+echo "== go version -m"; go version -m plain > vm-plain; go version -m replay > vm-replay
+sed 's/^plain:/BIN:/' vm-plain > a; sed 's/^replay:/BIN:/' vm-replay > b
+if diff a b > /dev/null; then echo "go version -m: identical"; else echo "go version -m: DIFFERENT"; diff a b || true; fi
+cat vm-replay
+echo "== ELF notes"; for f in plain replay; do echo "-- $f"; readelf -n $f 2>&1 | grep -E "Owner|NT_|Build ID|Go" || echo "(no readelf output)"; done
+echo "== sections"; for f in plain replay; do echo "-- $f: $(readelf -S -W $f 2>/dev/null | grep -E 'note' | awk '{print $2, $6}' | tr '\n' ' ')"; done
+echo "== a later go build onto an existing output"
+cd /src
+cp /out/plain /tmp/t-plain; cp /out/replay /tmp/t-replay
+echo "onto plain: $($B -x -o /tmp/t-plain PKG 2>&1 | grep -c '/link ') link runs; same bytes after: $(cmp -s /tmp/t-plain /out/plain && echo yes || echo no)"
+echo "onto replay: $($B -x -o /tmp/t-replay PKG 2>&1 | grep -c '/link ') link runs; same bytes as plain after: $(cmp -s /tmp/t-replay /out/plain && echo yes || echo no)"
+echo "== the plan's build ID handling (go build -n, main package)"
+$B -n -o /tmp/n PKG 2>&1 | grep -E -- "-buildid|buildid -w" | tail -3 | cut -c1-240`
+		script = strings.ReplaceAll(script, "PKG", pkg)
+		compared, err = goBase(salt).
+			WithMountedDirectory("/gomod", mods).
+			WithMountedDirectory("/src", src).
+			WithMountedFile("/in/replay", results["b001"].file).
+			WithWorkdir("/src").
+			WithEnvVariable("GOCACHE", "/tmp/gocache").
+			WithExec([]string{"sh", "-c", script}, noNest).
+			Stdout(ctx)
+		if err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("replay: %d packages, plan %s, total %s, binary %d bytes, runs: %s\n%s%s\n%s",
+		len(blocks), planDur.Round(time.Millisecond), time.Since(start).Round(time.Millisecond), size, strings.TrimSpace(version), compared, header,
 		strings.Join(lines, "\n")), nil
 }
 

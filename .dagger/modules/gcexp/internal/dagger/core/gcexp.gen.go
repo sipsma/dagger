@@ -416,6 +416,10 @@ type GcexpReplayOpts struct {
 	//
 	// Default: ["--version"]
 	VersionArgs []string
+	// Also build the package with plain go build, with and without a Go
+	// build ID, and report how those binaries compare with this one. A
+	// correctness check; it adds a build to the call.
+	Compare bool
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -447,6 +451,10 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 		// `versionArgs` optional argument
 		if !querybuilder.IsZeroValue(opts[i].VersionArgs) {
 			q = q.Arg("versionArgs", opts[i].VersionArgs)
+		}
+		// `compare` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Compare) {
+			q = q.Arg("compare", opts[i].Compare)
 		}
 	}
 	q = q.Arg("src", src)
