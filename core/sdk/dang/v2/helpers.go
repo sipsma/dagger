@@ -268,7 +268,12 @@ func retainDangObjectDirectives(ctx context.Context, env dang.ValueScope, dir st
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".dang" {
 			continue
 		}
-		root, err := parseDangFile(filepath.Join(dir, entry.Name()))
+		path := filepath.Join(dir, entry.Name())
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		root, err := parseDangSource(path, src)
 		if err != nil {
 			return err
 		}
@@ -360,36 +365,75 @@ func ensureModuleSelfTypes(schema *introspection.Schema, src *core.ModuleSource,
 // function of the module name and of the module's .dang files, and finding
 // them means parsing every file, which each function call would otherwise
 // repeat only to learn that the runtime schema already has all of them.
+//
+// It holds at most 256 modules' names; an entry is a 16-byte key and the
+// module's type names.
 var declaredTypeNames, _ = lru.New[string, []string](256) // error is impossible on positive size
 
-// parseDangFile is dang.ParseFile, replaceable so tests can count parses.
-var parseDangFile = dang.ParseFile
+// parseDangSource is dang.Parse, replaceable so tests can count parses.
+var parseDangSource = func(filename string, src []byte) (any, error) {
+	return dang.Parse(filename, src)
+}
+
+// dangSourceFile is one .dang file of a module's source directory.
+type dangSourceFile struct {
+	name    string
+	content []byte
+}
+
+// readDangSourceFiles reads the .dang files at the top level of dir. It
+// reports false when the directory or one of the files could not be read; the
+// files that could be read are still returned.
+func readDangSourceFiles(dir string) ([]dangSourceFile, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		slog.Debug("ensureModuleSelfTypes: read module dir", "dir", dir, "error", err)
+		return nil, false
+	}
+	complete := true
+	var files []dangSourceFile
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".dang" {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			slog.Debug("ensureModuleSelfTypes: read module file", "file", entry.Name(), "error", err)
+			complete = false
+			continue
+		}
+		files = append(files, dangSourceFile{name: entry.Name(), content: content})
+	}
+	return files, complete
+}
 
 // moduleDeclaredTypeNames returns the local names of the types a module
 // declares at the top level of its source. The result is shared between
 // callers and must not be modified.
+//
+// Each file is read once and the bytes that were read are both the memo key
+// and what is parsed, so a file that fails to parse fails for its content and
+// can be remembered. A directory or file that cannot be read is not: the
+// names found are returned, and the next call tries again.
 func moduleDeclaredTypeNames(modSrcDir, moduleName string) []string {
-	key, keyed := declaredTypeNamesKey(modSrcDir, moduleName)
-	if keyed {
+	files, complete := readDangSourceFiles(modSrcDir)
+	var key string
+	if complete {
+		key = declaredTypeNamesKey(moduleName, files)
 		if names, ok := declaredTypeNames.Get(key); ok {
 			return names
 		}
 	}
-	names, complete := parseModuleDeclaredTypeNames(modSrcDir, moduleName)
-	if keyed && complete {
+	names := parseDeclaredTypeNames(modSrcDir, moduleName, files)
+	if complete {
 		declaredTypeNames.Add(key, names)
 	}
 	return names
 }
 
 // declaredTypeNamesKey identifies a module's declared type names by its name
-// and the names and content of its .dang files. It reports false when the
-// directory or a file can't be read, in which case nothing is memoized.
-func declaredTypeNamesKey(modSrcDir, moduleName string) (string, bool) {
-	entries, err := os.ReadDir(modSrcDir)
-	if err != nil {
-		return "", false
-	}
+// and the names and content of its .dang files.
+func declaredTypeNamesKey(moduleName string, files []dangSourceFile) string {
 	h := xxh3.New()
 	writeField := func(b []byte) {
 		var size [8]byte
@@ -398,25 +442,17 @@ func declaredTypeNamesKey(modSrcDir, moduleName string) (string, bool) {
 		h.Write(b)
 	}
 	writeField([]byte(moduleName))
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".dang" {
-			continue
-		}
-		content, err := os.ReadFile(filepath.Join(modSrcDir, entry.Name()))
-		if err != nil {
-			return "", false
-		}
-		writeField([]byte(entry.Name()))
-		writeField(content)
+	for _, file := range files {
+		writeField([]byte(file.name))
+		writeField(file.content)
 	}
 	sum := h.Sum128().Bytes()
-	return string(sum[:]), true
+	return string(sum[:])
 }
 
-// parseModuleDeclaredTypeNames parses the module's source for its declared
-// type names. It reports false when the directory could not be read, so a
-// transient failure is not remembered.
-func parseModuleDeclaredTypeNames(modSrcDir, moduleName string) ([]string, bool) {
+// parseDeclaredTypeNames parses the module's source files for its declared
+// type names.
+func parseDeclaredTypeNames(modSrcDir, moduleName string, files []dangSourceFile) []string {
 	seen := map[string]struct{}{}
 	var names []string
 	add := func(name string) {
@@ -436,18 +472,10 @@ func parseModuleDeclaredTypeNames(modSrcDir, moduleName string) ([]string, bool)
 	// the rest of the source fails to parse.
 	add(strcase.ToCamel(moduleName))
 
-	entries, err := os.ReadDir(modSrcDir)
-	if err != nil {
-		slog.Debug("ensureModuleSelfTypes: read module dir", "dir", modSrcDir, "error", err)
-		return names, false
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".dang" {
-			continue
-		}
-		root, err := parseDangFile(filepath.Join(modSrcDir, entry.Name()))
+	for _, src := range files {
+		root, err := parseDangSource(filepath.Join(modSrcDir, src.name), src.content)
 		if err != nil {
-			slog.Debug("ensureModuleSelfTypes: parse module file", "file", entry.Name(), "error", err)
+			slog.Debug("ensureModuleSelfTypes: parse module file", "file", src.name, "error", err)
 			continue
 		}
 		file, ok := root.(*dang.FileBlock)
@@ -478,7 +506,7 @@ func parseModuleDeclaredTypeNames(modSrcDir, moduleName string) ([]string, bool)
 			}
 		}
 	}
-	return names, true
+	return names
 }
 
 func runDangDirForModuleTypes(ctx context.Context, dirPath string) (dang.ValueScope, error) {

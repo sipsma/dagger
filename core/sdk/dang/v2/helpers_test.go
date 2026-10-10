@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/vito/dang/v2/pkg/dang"
@@ -137,17 +138,21 @@ func TestIsDangSourceErrorIgnoresInfrastructureErrors(t *testing.T) {
 	require.False(t, isDangSourceError(fmt.Errorf("read module entrypoint directory: %w", errors.New("permission denied"))))
 }
 
-// countDangParses counts calls to parseDangFile until the test ends. Tests
-// using it must not run in parallel.
+// countDangParses counts calls to parseDangSource until the test ends, and
+// gives the test its own empty memo of declared type names. Tests using it
+// must not run in parallel.
 func countDangParses(t *testing.T) *int {
 	t.Helper()
 	var parses int
-	orig := parseDangFile
-	parseDangFile = func(path string, opts ...dang.Option) (any, error) {
+	origParse, origNames := parseDangSource, declaredTypeNames
+	parseDangSource = func(filename string, src []byte) (any, error) {
 		parses++
-		return orig(path, opts...)
+		return origParse(filename, src)
 	}
-	t.Cleanup(func() { parseDangFile = orig })
+	fresh, err := lru.New[string, []string](8)
+	require.NoError(t, err)
+	declaredTypeNames = fresh
+	t.Cleanup(func() { parseDangSource, declaredTypeNames = origParse, origNames })
 	return &parses
 }
 
@@ -217,6 +222,20 @@ func TestModuleDeclaredTypeNamesParsesSourceOnce(t *testing.T) {
 	require.NoError(t, os.Mkdir(missing, 0o755))
 	writeDangFiles(t, missing, map[string]string{"main.dang": "type Late {\n  n: Int! { 1 }\n}\n"})
 	require.Equal(t, []string{"MyMod", "Late"}, moduleDeclaredTypeNames(missing, "my-mod"))
+
+	// Nor is a file that cannot be read: the names of the others are returned,
+	// and the file's own once it can be read.
+	target := filepath.Join(t.TempDir(), "later.dang")
+	require.NoError(t, os.Symlink(target, filepath.Join(missing, "zlater.dang")))
+	before := *parses
+	require.Equal(t, []string{"MyMod", "Late"}, moduleDeclaredTypeNames(missing, "my-mod"))
+	require.Equal(t, []string{"MyMod", "Late"}, moduleDeclaredTypeNames(missing, "my-mod"))
+	require.Equal(t, before+2, *parses, "an incomplete read is parsed again each time")
+	require.NoError(t, os.WriteFile(target, []byte("type Later {\n  n: Int! { 1 }\n}\n"), 0o644))
+	require.Equal(t, []string{"MyMod", "Late", "Later"}, moduleDeclaredTypeNames(missing, "my-mod"))
+	require.Equal(t, before+4, *parses)
+	require.Equal(t, []string{"MyMod", "Late", "Later"}, moduleDeclaredTypeNames(missing, "my-mod"))
+	require.Equal(t, before+4, *parses)
 }
 
 // Object directives are put back on the environment by parsing every source
