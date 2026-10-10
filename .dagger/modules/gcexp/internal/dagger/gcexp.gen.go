@@ -272,15 +272,29 @@ func (r *Gcexp) PlainStd(ctx context.Context, volume string, salt string) (strin
 	return response, q.Execute(ctx)
 }
 
+// GcexpPlanCheckOpts contains options for Gcexp.PlanCheck
+type GcexpPlanCheckOpts struct {
+	// The main package to plan, relative to src.
+	//
+	// Default: "."
+	Pkg string
+}
+
 // PlanCheck compares the plan made from the whole source with the plan made
 // from its header pack, ignoring build IDs. It is the hdr mode's correctness
 // check: the two must render the same per-package scripts.
-func (r *Gcexp) PlanCheck(ctx context.Context, src *Directory) (string, error) {
+func (r *Gcexp) PlanCheck(ctx context.Context, src *Directory, opts ...GcexpPlanCheckOpts) (string, error) {
 	assertNotNil("src", src)
 	if r.planCheck != nil {
 		return *r.planCheck, nil
 	}
 	q := r.query.Select("planCheck")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+	}
 	q = q.Arg("src", src)
 
 	var response string
@@ -305,17 +319,31 @@ func (r *Gcexp) PlanDebug(ctx context.Context, src *Directory, importPath string
 	return response, q.Execute(ctx)
 }
 
+// GcexpPlanScriptsOpts contains options for Gcexp.PlanScripts
+type GcexpPlanScriptsOpts struct {
+	// The main package to plan, relative to src.
+	//
+	// Default: "."
+	Pkg string
+}
+
 // PlanScripts lists, per package in src's plan, its import path and a digest
 // of everything its exec depends on apart from its dependencies' outputs: the
 // rendered script and its source file lists. Two projects whose lines match
 // for a package build it with the same exec, given the same dependency
 // outputs and source contents.
-func (r *Gcexp) PlanScripts(ctx context.Context, src *Directory) (string, error) {
+func (r *Gcexp) PlanScripts(ctx context.Context, src *Directory, opts ...GcexpPlanScriptsOpts) (string, error) {
 	assertNotNil("src", src)
 	if r.planScripts != nil {
 		return *r.planScripts, nil
 	}
 	q := r.query.Select("planScripts")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+	}
 	q = q.Arg("src", src)
 
 	var response string
@@ -335,9 +363,18 @@ type GcexpReplayOpts struct {
 	//
 	// Default: true
 	Stamps bool
-	// g23 prototype modes, comma-separated: memo, coarse, lazy, hdr (see
-	// modeOpts). Empty runs driver v1 unchanged.
+	// g23 prototype modes, comma-separated: memo, coarse, lazy, hdr, prio,
+	// stdonly (see modeOpts). Empty runs driver v1 unchanged.
 	Mode string
+	// The main package to build, relative to src.
+	//
+	// Default: "."
+	Pkg string
+	// Arguments that make the built binary print its version, as a check
+	// that it runs.
+	//
+	// Default: ["--version"]
+	VersionArgs []string
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -361,6 +398,14 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 		// `mode` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Mode) {
 			q = q.Arg("mode", opts[i].Mode)
+		}
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+		// `versionArgs` optional argument
+		if !querybuilder.IsZeroValue(opts[i].VersionArgs) {
+			q = q.Arg("versionArgs", opts[i].VersionArgs)
 		}
 	}
 	q = q.Arg("src", src)

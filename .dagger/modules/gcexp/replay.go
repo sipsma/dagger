@@ -39,10 +39,11 @@ func goBase(salt string) *dagger.Container {
 		WithEnvVariable("GOMODCACHE", "/gomod")
 }
 
-// modCache downloads the module graph. Its key is go.mod and go.sum only.
+// modCache downloads the module graph. Its key is every go.mod and go.sum in
+// src: the root's, and those of modules a local replace points at.
 func modCache(src *dagger.Directory) *dagger.Directory {
 	return goBase("").
-		WithMountedDirectory("/src", src.Filter(dagger.DirectoryFilterOpts{Include: []string{"go.mod", "go.sum"}})).
+		WithMountedDirectory("/src", src.Filter(dagger.DirectoryFilterOpts{Include: []string{"**/go.mod", "**/go.sum"}})).
 		WithWorkdir("/src").
 		WithExec([]string{"go", "mod", "download"}, noNest).
 		Directory("/gomod")
@@ -324,16 +325,19 @@ func parseMode(s string) (modeOpts, error) {
 	return o, nil
 }
 
-const planCmd = "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"
+// planCmd plans building the main package pkg (a path relative to the source root).
+func planCmd(pkg string) string {
+	return "go build -n -trimpath -buildvcs=false -o /out/bin " + pkg + " 2> /plan.txt"
+}
 
 // fullPlan plans from the whole source: any edit re-runs it.
-func fullPlan(ctx context.Context, src, mods *dagger.Directory, salt string) (string, error) {
+func fullPlan(ctx context.Context, src, mods *dagger.Directory, salt, pkg string) (string, error) {
 	return goBase(salt).
 		WithMountedDirectory("/gomod", mods).
 		WithMountedDirectory("/src", src).
 		WithWorkdir("/src").
 		WithEnvVariable("GOCACHE", "/tmp/emptycache").
-		WithExec([]string{"sh", "-c", planCmd}, noNest).
+		WithExec([]string{"sh", "-c", planCmd(pkg)}, noNest).
 		File("/plan.txt").Contents(ctx)
 }
 
@@ -342,7 +346,7 @@ func fullPlan(ctx context.Context, src, mods *dagger.Directory, salt string) (st
 // content-addressed: a body-only edit leaves it byte-identical and the plan
 // exec is a cache hit. Build IDs in the plan then come from the headers, not
 // the real files; the per-package scripts drop them anyway.
-func headerPlan(ctx context.Context, src, mods *dagger.Directory, salt string) (string, error) {
+func headerPlan(ctx context.Context, src, mods *dagger.Directory, salt, pkg string) (string, error) {
 	hdr := hdrTool()
 	packed, err := goBase("").
 		WithMountedFile("/usr/local/bin/gohdr", hdr).
@@ -358,23 +362,27 @@ func headerPlan(ctx context.Context, src, mods *dagger.Directory, salt string) (
 		WithMountedFile("/src.hdr", packed.File("src.hdr")).
 		WithWorkdir("/src").
 		WithEnvVariable("GOCACHE", "/tmp/emptycache").
-		WithExec([]string{"sh", "-c", "gohdr unpack /src.hdr /src && " + planCmd}, noNest).
+		WithExec([]string{"sh", "-c", "gohdr unpack /src.hdr /src && " + planCmd(pkg)}, noNest).
 		File("/plan.txt").Contents(ctx)
 }
 
 // PlanCheck compares the plan made from the whole source with the plan made
 // from its header pack, ignoring build IDs. It is the hdr mode's correctness
 // check: the two must render the same per-package scripts.
-func (m *Gcexp) PlanCheck(ctx context.Context, src *dagger.Directory) (string, error) {
+func (m *Gcexp) PlanCheck(ctx context.Context, src *dagger.Directory,
+	// The main package to plan, relative to src.
+	// +default="."
+	pkg string,
+) (string, error) {
 	mods, err := modCache(src).Sync(ctx)
 	if err != nil {
 		return "", err
 	}
-	full, err := fullPlan(ctx, src, mods, "")
+	full, err := fullPlan(ctx, src, mods, "", pkg)
 	if err != nil {
 		return "", err
 	}
-	hdr, err := headerPlan(ctx, src, mods, "")
+	hdr, err := headerPlan(ctx, src, mods, "", pkg)
 	if err != nil {
 		return "", err
 	}
@@ -784,10 +792,17 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	// verify re-runs from exec counts instead.
 	// +default=true
 	stamps bool,
-	// g23 prototype modes, comma-separated: memo, coarse, lazy, hdr (see
-	// modeOpts). Empty runs driver v1 unchanged.
+	// g23 prototype modes, comma-separated: memo, coarse, lazy, hdr, prio,
+	// stdonly (see modeOpts). Empty runs driver v1 unchanged.
 	// +optional
 	mode string,
+	// The main package to build, relative to src.
+	// +default="."
+	pkg string,
+	// Arguments that make the built binary print its version, as a check
+	// that it runs.
+	// +default=["--version"]
+	versionArgs []string,
 ) (string, error) {
 	start := time.Now()
 	opts, err := parseMode(mode)
@@ -800,9 +815,9 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	}
 	var plan string
 	if opts.hdr {
-		plan, err = headerPlan(ctx, src, mods, salt)
+		plan, err = headerPlan(ctx, src, mods, salt, pkg)
 	} else {
-		plan, err = fullPlan(ctx, src, mods, salt)
+		plan, err = fullPlan(ctx, src, mods, salt, pkg)
 	}
 	if err != nil {
 		return "", err
@@ -895,7 +910,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		return "", err
 	}
 	version, err := goBase("").WithMountedFile("/bin/built", results["b001"].file).
-		WithExec([]string{"/bin/built", "--version"}, noNest).Stdout(ctx)
+		WithExec(append([]string{"/bin/built"}, versionArgs...), noNest).Stdout(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -1021,12 +1036,16 @@ func (m *Gcexp) Layered(ctx context.Context, src *dagger.Directory, nonce string
 // rendered script and its source file lists. Two projects whose lines match
 // for a package build it with the same exec, given the same dependency
 // outputs and source contents.
-func (m *Gcexp) PlanScripts(ctx context.Context, src *dagger.Directory) (string, error) {
+func (m *Gcexp) PlanScripts(ctx context.Context, src *dagger.Directory,
+	// The main package to plan, relative to src.
+	// +default="."
+	pkg string,
+) (string, error) {
 	mods, err := modCache(src).Sync(ctx)
 	if err != nil {
 		return "", err
 	}
-	plan, err := fullPlan(ctx, src, mods, "")
+	plan, err := fullPlan(ctx, src, mods, "", pkg)
 	if err != nil {
 		return "", err
 	}
@@ -1045,7 +1064,12 @@ func (m *Gcexp) PlanScripts(ctx context.Context, src *dagger.Directory) (string,
 		case len(b.srcFiles) == 0:
 			kind = "dep"
 		}
-		lines = append(lines, fmt.Sprintf("%s %s %s", b.importPath, kind, hex.EncodeToString(sum[:8])))
+		var deps []string
+		for _, d := range b.deps {
+			deps = append(deps, blocks[d].importPath)
+		}
+		sort.Strings(deps)
+		lines = append(lines, fmt.Sprintf("%s %s %s %s", b.importPath, kind, hex.EncodeToString(sum[:8]), strings.Join(deps, ",")))
 	}
 	sort.Strings(lines)
 	return strings.Join(lines, "\n"), nil
