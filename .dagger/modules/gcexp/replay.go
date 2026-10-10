@@ -3,8 +3,8 @@ package main
 // Prototype: replay the go command's own build plan ("go build -n") with one
 // Dagger exec per package, so Dagger caches each package compile separately.
 //
-// Scope: CGO_ENABLED=0, no go:embed, go build only. This is a measurement
-// prototype, not a product.
+// Scope: CGO_ENABLED=0, go build only. This is a measurement prototype, not a
+// product.
 
 import (
 	"container/heap"
@@ -80,6 +80,7 @@ func parsePlan(plan string) (map[string]*block, error) {
 	blocks := map[string]*block{}
 	var cur *block
 	cwd := "/src"
+	inEmbedcfg := false
 	lines := strings.Split(plan, "\n")
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
@@ -115,6 +116,20 @@ func parsePlan(plan string) (map[string]*block, error) {
 			}
 			cwd = d
 		}
+		// An embedcfg heredoc lists the files a package embeds, whatever
+		// their extension, as JSON that may span lines:
+		// {"Patterns":{...},"Files":{"name":"/abs/path",...}}.
+		if strings.Contains(line, "/embedcfg << 'EOF'") {
+			inEmbedcfg = true
+		}
+		if inEmbedcfg {
+			for _, m := range rePath.FindAllStringSubmatch(line, -1) {
+				addFile(cur, m[1])
+			}
+			if line == "EOF" || strings.HasSuffix(line, "}EOF") {
+				inEmbedcfg = false
+			}
+		}
 		// The go command writes embedcfg JSON without a trailing newline.
 		if strings.HasSuffix(line, "}EOF") {
 			cur.lines = append(cur.lines, strings.TrimSuffix(line, "EOF"), "EOF")
@@ -133,6 +148,22 @@ func parsePlan(plan string) (map[string]*block, error) {
 	for id, b := range blocks {
 		if b.importPath == "" {
 			return nil, fmt.Errorf("block %s has no package header", id)
+		}
+		// Assembly can #include headers from elsewhere in its module, which
+		// the plan never names: mount every header of the module.
+		for _, f := range b.modFiles {
+			if path.Ext(f) == ".s" {
+				if i := strings.Index(f, "@"); i >= 0 {
+					if j := strings.Index(f[i:], "/"); j >= 0 {
+						b.modFiles = appendUniq(b.modFiles, f[:i+j]+"/**/*.h")
+					}
+				}
+			}
+		}
+		for _, f := range b.srcFiles {
+			if path.Ext(f) == ".s" {
+				b.srcFiles = appendUniq(b.srcFiles, "**/*.h")
+			}
 		}
 		b.name = stableName(b.importPath)
 		b.isMain = id == "b001"
@@ -157,6 +188,11 @@ func addSource(b *block, p string) {
 	default:
 		return
 	}
+	addFile(b, p)
+}
+
+// addFile records an input file of the block, by its path in /src or /gomod.
+func addFile(b *block, p string) {
 	if rel, ok := strings.CutPrefix(p, "/src/"); ok {
 		b.srcFiles = appendUniq(b.srcFiles, rel)
 	} else if rel, ok := strings.CutPrefix(p, "/gomod/"); ok {
@@ -560,7 +596,7 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 				depFiles = append(depFiles, dr.file)
 			}
 			if len(depFiles) > 0 {
-				ctr = ctr.WithMountedDirectory("/work/lib", dag.Directory().WithFiles(".", depFiles))
+				ctr = ctr.WithMountedDirectory("/work/lib", assemble(ctx, depFiles))
 			}
 			if n.tierDeps {
 				ctr = ctr.WithMountedDirectory("/work/tier", w.tierDir, dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
@@ -581,7 +617,14 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 					"t0=${t0%.*}${t0#*.}\nt1=${t1%.*}${t1#*.}\n" +
 					"echo \"${u%%-*}${v%%-*} $(( (t1-t0)*10 ))ms\" > /stamp\n"
 			}
-			ran := ctr.WithExec([]string{"sh", "-c", script}, noNest)
+			// A script past the kernel's argument-size limit (the link's import
+			// config at dagger's scale) goes in through a file instead.
+			var ran *dagger.Container
+			if len(script) > 64<<10 {
+				ran = ctr.WithNewFile("/run.sh", script).WithExec([]string{"sh", "/run.sh"}, noNest)
+			} else {
+				ran = ctr.WithExec([]string{"sh", "-c", script}, noNest)
+			}
 			if w.lazy {
 				// Declared only: the engine evaluates it when the binary is read.
 				r.file = ran.Directory("/work/" + n.Name).File(n.output())
@@ -617,6 +660,31 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 		}
 	}
 	return results, nil
+}
+
+// assembleMax is how many separate outputs one withFiles directory can hold
+// and still be mounted: past roughly 400 the engine's overlay mount options
+// grow too long for the kernel ("mount options is too long").
+const assembleMax = 300
+
+// assemble returns a directory holding files. Up to assembleMax it is one
+// withFiles; beyond, the files go into chunks of assembleMax and one exec
+// copies the chunks into a single new directory.
+func assemble(ctx context.Context, files []*dagger.File) *dagger.Directory {
+	if len(files) <= assembleMax {
+		return dag.Directory().WithFiles(".", files)
+	}
+	ctr := dag.Container().From(goImage)
+	var cmd strings.Builder
+	cmd.WriteString("set -e; mkdir -p /out")
+	for i := 0; i*assembleMax < len(files); i++ {
+		end := min((i+1)*assembleMax, len(files))
+		dir := fmt.Sprintf("/in/%d", i)
+		ctr = ctr.WithMountedDirectory(dir, dag.Directory().WithFiles(".", files[i*assembleMax:end]),
+			dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
+		cmd.WriteString("; cp -a " + dir + "/. /out/")
+	}
+	return ctr.WithExec([]string{"sh", "-c", cmd.String()}, noNest).Directory("/out")
 }
 
 // tierSet is every block outside the workspace whose dependencies are all
@@ -750,7 +818,7 @@ func (m *Gcexp) Tier(ctx context.Context, spec string, mods *dagger.Directory, s
 	for _, n := range ns {
 		files = append(files, results[n.ID].file)
 	}
-	return dag.Directory().WithFiles(".", files).Sync(ctx)
+	return assemble(ctx, files).Sync(ctx)
 }
 
 // coarseTier runs every tier package's own script in one exec, ordered and
@@ -921,7 +989,11 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 
 // Plain builds the same package with one go build exec. With a non-empty
 // volume name, GOCACHE lives in that cache volume.
-func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, volume string, salt string) (string, error) {
+func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, volume string, salt string,
+	// The main package to build, relative to src.
+	// +default="."
+	pkg string,
+) (string, error) {
 	start := time.Now()
 	mods, err := modCache(src).Sync(ctx)
 	if err != nil {
@@ -937,7 +1009,7 @@ func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, 
 	} else {
 		ctr = ctr.WithEnvVariable("GOCACHE", "/tmp/gocache")
 	}
-	out, err := ctr.WithExec([]string{"sh", "-c", "go build -trimpath -buildvcs=false -o /out/bin . && go version"}, noNest).File("/out/bin").Size(ctx)
+	out, err := ctr.WithExec([]string{"sh", "-c", "go build -trimpath -buildvcs=false -o /out/bin " + pkg + " && go version"}, noNest).File("/out/bin").Size(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -959,7 +1031,11 @@ func (m *Gcexp) PlainStd(ctx context.Context, volume string, salt string) (strin
 }
 
 // PlanDebug shows how one package's block was parsed.
-func (m *Gcexp) PlanDebug(ctx context.Context, src *dagger.Directory, importPath string) (string, error) {
+func (m *Gcexp) PlanDebug(ctx context.Context, src *dagger.Directory, importPath string,
+	// The main package to plan, relative to src.
+	// +default="."
+	pkg string,
+) (string, error) {
 	mods, err := modCache(src).Sync(ctx)
 	if err != nil {
 		return "", err
@@ -969,7 +1045,7 @@ func (m *Gcexp) PlanDebug(ctx context.Context, src *dagger.Directory, importPath
 		WithMountedDirectory("/src", src).
 		WithWorkdir("/src").
 		WithEnvVariable("GOCACHE", "/tmp/emptycache").
-		WithExec([]string{"sh", "-c", "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"}, noNest).
+		WithExec([]string{"sh", "-c", "go build -n -trimpath -buildvcs=false -o /out/bin "+pkg+" 2> /plan.txt"}, noNest).
 		File("/plan.txt").Contents(ctx)
 	if err != nil {
 		return "", err

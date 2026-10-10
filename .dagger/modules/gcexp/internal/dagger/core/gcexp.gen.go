@@ -16,18 +16,22 @@ type Gcexp struct { // gcexp (../../../../../:0:0)
 	// field again.
 	refetchID bool
 
-	chain      *string
-	cutoff     *string
-	dirScale   *string
-	fanout     *string
-	goChain    *string
-	id         *ID
-	layered    *string
-	mountScale *string
-	packTool   *string
-	plain      *string
-	planDebug  *string
-	replay     *string
+	chain       *string
+	cutoff      *string
+	dirScale    *string
+	fanout      *string
+	goChain     *string
+	id          *ID
+	layered     *string
+	lazyCutoff  *string
+	mountScale  *string
+	packTool    *string
+	plain       *string
+	plainStd    *string
+	planCheck   *string
+	planDebug   *string
+	planScripts *string
+	replay      *string
 }
 
 func (r *Gcexp) WithGraphQLQuery(q *querybuilder.Selection) *Gcexp {
@@ -197,6 +201,23 @@ func (r *Gcexp) Layered(ctx context.Context, src *Directory, nonce string, salt 
 	return response, q.Execute(ctx)
 }
 
+// LazyCutoff checks early cutoff when nothing is synced between producer and
+// consumer. Each case builds a consumer over a file from a producer recipe
+// that differs from the reference's but writes identical bytes, and reports
+// whether the consumer's exec was reused.
+func (r *Gcexp) LazyCutoff(ctx context.Context, salt string) (string, error) {
+	if r.lazyCutoff != nil {
+		return *r.lazyCutoff, nil
+	}
+	q := r.query.Select("lazyCutoff")
+	q = q.Arg("salt", salt)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // MountScale runs one exec with n mounted files, each a distinct small file.
 func (r *Gcexp) MountScale(ctx context.Context, n int, salt string, nonce string) (string, error) {
 	if r.mountScale != nil {
@@ -213,9 +234,9 @@ func (r *Gcexp) MountScale(ctx context.Context, n int, salt string, nonce string
 	return response, q.Execute(ctx)
 }
 
-// PackTool builds the pack tool and reports its size. It is built once per
-// engine and cached; harnesses call it before measuring so a measured first
-// build excludes it.
+// PackTool builds the pack tool and the header tool and reports their sizes.
+// They are built once per engine and cached; harnesses call it before
+// measuring so a measured first build excludes them.
 func (r *Gcexp) PackTool(ctx context.Context) (string, error) {
 	if r.packTool != nil {
 		return *r.packTool, nil
@@ -228,14 +249,28 @@ func (r *Gcexp) PackTool(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
+// GcexpPlainOpts contains options for Gcexp.Plain
+type GcexpPlainOpts struct {
+	// The main package to build, relative to src.
+	//
+	// Default: "."
+	Pkg string
+}
+
 // Plain builds the same package with one go build exec. With a non-empty
 // volume name, GOCACHE lives in that cache volume.
-func (r *Gcexp) Plain(ctx context.Context, src *Directory, nonce string, volume string, salt string) (string, error) {
+func (r *Gcexp) Plain(ctx context.Context, src *Directory, nonce string, volume string, salt string, opts ...GcexpPlainOpts) (string, error) {
 	assertNotNil("src", src)
 	if r.plain != nil {
 		return *r.plain, nil
 	}
 	q := r.query.Select("plain")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+	}
 	q = q.Arg("src", src)
 	q = q.Arg("nonce", nonce)
 	q = q.Arg("volume", volume)
@@ -247,15 +282,110 @@ func (r *Gcexp) Plain(ctx context.Context, src *Directory, nonce string, volume 
 	return response, q.Execute(ctx)
 }
 
+// PlainStd builds the standard library into a GOCACHE volume, as a previous
+// build with the same toolchain would have, so a later Plain with that volume
+// starts with a warm standard library.
+func (r *Gcexp) PlainStd(ctx context.Context, volume string, salt string) (string, error) {
+	if r.plainStd != nil {
+		return *r.plainStd, nil
+	}
+	q := r.query.Select("plainStd")
+	q = q.Arg("volume", volume)
+	q = q.Arg("salt", salt)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// GcexpPlanCheckOpts contains options for Gcexp.PlanCheck
+type GcexpPlanCheckOpts struct {
+	// The main package to plan, relative to src.
+	//
+	// Default: "."
+	Pkg string
+}
+
+// PlanCheck compares the plan made from the whole source with the plan made
+// from its header pack, ignoring build IDs. It is the hdr mode's correctness
+// check: the two must render the same per-package scripts.
+func (r *Gcexp) PlanCheck(ctx context.Context, src *Directory, opts ...GcexpPlanCheckOpts) (string, error) {
+	assertNotNil("src", src)
+	if r.planCheck != nil {
+		return *r.planCheck, nil
+	}
+	q := r.query.Select("planCheck")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+	}
+	q = q.Arg("src", src)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// GcexpPlanDebugOpts contains options for Gcexp.PlanDebug
+type GcexpPlanDebugOpts struct {
+	// The main package to plan, relative to src.
+	//
+	// Default: "."
+	Pkg string
+}
+
 // PlanDebug shows how one package's block was parsed.
-func (r *Gcexp) PlanDebug(ctx context.Context, src *Directory, importPath string) (string, error) {
+func (r *Gcexp) PlanDebug(ctx context.Context, src *Directory, importPath string, opts ...GcexpPlanDebugOpts) (string, error) {
 	assertNotNil("src", src)
 	if r.planDebug != nil {
 		return *r.planDebug, nil
 	}
 	q := r.query.Select("planDebug")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+	}
 	q = q.Arg("src", src)
 	q = q.Arg("importPath", importPath)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// GcexpPlanScriptsOpts contains options for Gcexp.PlanScripts
+type GcexpPlanScriptsOpts struct {
+	// The main package to plan, relative to src.
+	//
+	// Default: "."
+	Pkg string
+}
+
+// PlanScripts lists, per package in src's plan, its import path and a digest
+// of everything its exec depends on apart from its dependencies' outputs: the
+// rendered script and its source file lists. Two projects whose lines match
+// for a package build it with the same exec, given the same dependency
+// outputs and source contents.
+func (r *Gcexp) PlanScripts(ctx context.Context, src *Directory, opts ...GcexpPlanScriptsOpts) (string, error) {
+	assertNotNil("src", src)
+	if r.planScripts != nil {
+		return *r.planScripts, nil
+	}
+	q := r.query.Select("planScripts")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+	}
+	q = q.Arg("src", src)
 
 	var response string
 
@@ -274,6 +404,18 @@ type GcexpReplayOpts struct {
 	//
 	// Default: true
 	Stamps bool
+	// g23 prototype modes, comma-separated: memo, coarse, lazy, hdr, prio,
+	// stdonly (see modeOpts). Empty runs driver v1 unchanged.
+	Mode string
+	// The main package to build, relative to src.
+	//
+	// Default: "."
+	Pkg string
+	// Arguments that make the built binary print its version, as a check
+	// that it runs.
+	//
+	// Default: ["--version"]
+	VersionArgs []string
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -294,6 +436,18 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 		if !querybuilder.IsZeroValue(opts[i].Stamps) {
 			q = q.Arg("stamps", opts[i].Stamps)
 		}
+		// `mode` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Mode) {
+			q = q.Arg("mode", opts[i].Mode)
+		}
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+		// `versionArgs` optional argument
+		if !querybuilder.IsZeroValue(opts[i].VersionArgs) {
+			q = q.Arg("versionArgs", opts[i].VersionArgs)
+		}
 	}
 	q = q.Arg("src", src)
 	q = q.Arg("nonce", nonce)
@@ -303,6 +457,42 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// GcexpTierOpts contains options for Gcexp.Tier
+type GcexpTierOpts struct {
+
+	// Default: 16
+	Concurrency int
+	// Build the tier in one exec under make -j instead of one exec per package.
+	Coarse bool
+}
+
+// Tier builds the packages in spec (the standard library and dependency
+// modules of a build) and returns a directory with one archive per package,
+// named <name>.a. It is a module function, so the whole tier is one cached
+// call: unchanged, a build pays one cache hit for it instead of walking it.
+func (r *Gcexp) Tier(spec string, mods *Directory, salt string, opts ...GcexpTierOpts) *Directory {
+	assertNotNil("mods", mods)
+	q := r.query.Select("tier")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `concurrency` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Concurrency) {
+			q = q.Arg("concurrency", opts[i].Concurrency)
+		}
+		// `coarse` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Coarse) {
+			q = q.Arg("coarse", opts[i].Coarse)
+		}
+	}
+	q = q.Arg("spec", spec)
+	q = q.Arg("mods", mods)
+	q = q.Arg("salt", salt)
+
+	return &Directory{
+		query:     q,
+		refetchID: r.refetchID,
+	}
 }
 
 func (r *Query) Gcexp() *Gcexp { // gcexp (../../../../../:0:0)
