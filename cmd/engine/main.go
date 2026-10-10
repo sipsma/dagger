@@ -472,21 +472,23 @@ func main() { //nolint:gocyclo
 		}
 
 		// Engine logs go through one queue, written to stderr by a background
-		// goroutine in the order they were logged, so hot paths don't wait on
-		// each other's writes. WARN and worse wait until written, and the queue
-		// is flushed on exit.
+		// goroutine in the order they were logged. Each log call still waits
+		// until its line is written, but concurrent calls share one write
+		// instead of queueing for one each.
 		engineLogWriter = slog.NewWriter(os.Stderr, 1<<20)
-		engineLogWriter.SyncWarn = true
 		defer engineLogWriter.Flush()
 		logrus.RegisterExitHandler(engineLogWriter.Flush)
-		logrus.SetOutput(engineLogWriter)
+		logrus.SetOutput(slog.SyncWriter{Writer: engineLogWriter})
 		// The writer is safe for concurrent use, so logrus needn't format
 		// every entry under its global lock.
 		logrus.StandardLogger().SetNoLock()
 		noiseReduceHook.ignoreLogger.SetNoLock()
-		slog.SetDefault(slog.New(slog.NewTextHandler(engineLogWriter, &slog.HandlerOptions{
-			Level: slogLevel,
-		})))
+		slog.SetDefault(slog.New(slog.FlushHandler{
+			Handler: slog.NewTextHandler(engineLogWriter, &slog.HandlerOptions{
+				Level: slogLevel,
+			}),
+			W: engineLogWriter,
+		}))
 
 		extraDebugEnabled := slogLevel == slog.LevelExtraDebug || slogLevel == slog.LevelTrace
 		enabledEbpfPrgs := enabledEbpfPrograms(extraDebugEnabled)
