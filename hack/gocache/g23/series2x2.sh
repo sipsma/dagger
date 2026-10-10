@@ -14,4 +14,4 @@ for slot in ${SLOTS:?set SLOTS}; do
   dir=${!eng:?set $eng to a dagger checkout}
   (cd "$dir" && G23_ARGS="$arm${G23_EXTRA:+ $G23_EXTRA}" hack/gocache/g23/run.sh "$out/$n-$eng-$arm") > "$out.$n-$eng-$arm.log" 2>&1 || echo "slot $n-$eng-$arm failed: see $out.$n-$eng-$arm.log"
 done
-for d in "$out"/*/; do echo "== $d"; head -1 "$d/meta.txt"; cat "$d/run/summary.txt" 2>/dev/null; cat "$d/run/execcounts.txt" 2>/dev/null; done
+for d in "$out"/*/; do echo "== $d"; head -1 "$d/meta.txt" 2>/dev/null || true; cat "$d/run/summary.txt" 2>/dev/null || true; cat "$d/run/execcounts.txt" 2>/dev/null || true; done

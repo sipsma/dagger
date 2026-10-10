@@ -13,4 +13,5 @@ for arm in ${ARMS:?set ARMS}; do
   n=$((n+1))
   G23_ARGS="$arm${G23_EXTRA:+ $G23_EXTRA}" "$here/run.sh" "$out/$n-$arm" > "$out.$n-$arm.log" 2>&1 || echo "slot $n-$arm failed: see $out.$n-$arm.log"
 done
-for d in "$out"/*/; do echo "== $d"; cat "$d/run/summary.txt" 2>/dev/null; cat "$d/run/execcounts.txt" 2>/dev/null; done
+# A check slot takes no dumps, so it has no execcounts.txt.
+for d in "$out"/*/; do echo "== $d"; cat "$d/run/summary.txt" 2>/dev/null || true; cat "$d/run/execcounts.txt" 2>/dev/null || true; done
