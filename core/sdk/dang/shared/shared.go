@@ -22,6 +22,7 @@ import (
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
+	"github.com/dagger/dagger/engine/wcprof"
 	telemetry "github.com/dagger/otel-go"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 	"go.opentelemetry.io/otel/propagation"
@@ -37,6 +38,13 @@ import (
 // for container execs: workspace operations run under a scope other than the
 // client their request metadata names, and the session only accepts a child
 // registered by its held parent scope.
+// ProfStep begins a wcprof op for one step of a Dang function call and
+// returns the function that ends it. DIAGNOSTIC ONLY (DO NOT MERGE).
+func ProfStep(ctx context.Context, class string) func() {
+	_, op := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, class, wcprof.OpOpts{})
+	return func() { op.End(wcprof.OutcomeOK) }
+}
+
 func WithNestedClientServer(
 	ctx context.Context,
 	query *core.Query,
@@ -51,11 +59,17 @@ func WithNestedClientServer(
 		return nil, err
 	}
 
+	endTransport := ProfStep(ctx, "dang.registerTransport")
 	transport, err := query.RegisterNestedClientTransport(ctx, nestedClientMetadata, parentClientID)
+	endTransport()
 	if err != nil {
 		return nil, fmt.Errorf("register nested client transport: %w", err)
 	}
-	defer transport.Close()
+	defer func() {
+		end := ProfStep(ctx, "dang.transportClose")
+		transport.Close()
+		end()
+	}()
 
 	httpSrv := &http.Server{
 		ReadHeaderTimeout: 10 * time.Second,
@@ -78,13 +92,16 @@ func serveNestedClient(
 	httpTransport *http.Transport,
 	fn func(ctx context.Context, gqlClient graphql.Client) ([]byte, error),
 ) ([]byte, error) {
+	endListen := ProfStep(ctx, "dang.listen")
 	l, err := net.Listen("tcp", "127.0.0.1:0")
+	endListen()
 	if err != nil {
 		return nil, fmt.Errorf("listen: %w", err)
 	}
 	defer l.Close()
 
 	defer func() {
+		defer ProfStep(ctx, "dang.serverShutdown")()
 		// A request that arrives while the pool's connection is busy starts a
 		// second dial. If the busy request finishes first, the waiting one
 		// reuses the freed connection and the new dial lands with nothing to

@@ -69,15 +69,20 @@ func (r *runtime) eval(
 		self := moduleContext.Self()
 		module := dangModule{name: self.Name(), originalName: self.OriginalName}
 
+		endFn := dangshared.ProfStep(ctx, "dang.function")
 		result, err := callDangFunction(ctx, env, fnCall, module)
+		endFn()
 		if err != nil {
 			return nil, err
 		}
 
+		endFlush := dangshared.ProfStep(ctx, "dang.flushTelemetry")
 		if flushErr := query.Server.FlushSessionTelemetry(ctx); flushErr != nil {
 			slog.Debug("failed to flush telemetry after Dang eval", "error", flushErr)
 		}
+		endFlush()
 
+		defer dangshared.ProfStep(ctx, "dang.marshalResult")()
 		return json.Marshal(result)
 	})
 }
@@ -96,12 +101,17 @@ func evalDangSource(
 ) ([]byte, error) {
 	return dangshared.WithNestedClientServer(ctx, query, nestedClientMetadata, inertAttachables, fnCall, moduleContext, func(ctx context.Context, gqlClient graphql.Client) ([]byte, error) {
 		var intro introspection.Response
+		endOpen := dangshared.ProfStep(ctx, "dang.schemaOpen")
 		f, err := schemaFile.Self().Open(ctx, dagql.ObjectResult[*core.File]{Result: schemaFile})
+		endOpen()
 		if err != nil {
 			return nil, fmt.Errorf("open schema file: %w", err)
 		}
 		defer f.Close()
-		if err := json.NewDecoder(f).Decode(&intro); err != nil {
+		endDecode := dangshared.ProfStep(ctx, "dang.schemaDecode")
+		err = json.NewDecoder(f).Decode(&intro)
+		endDecode()
+		if err != nil {
 			return nil, fmt.Errorf("decode schema: %w", err)
 		}
 
@@ -131,6 +141,7 @@ func evalDangSource(
 
 		modCtx := modSource.Self().ContextDirectory
 		var env dang.ValueScope
+		endMount := dangshared.ProfStep(ctx, "dang.mountSource")
 		err = modCtx.Self().Mount(ctx, modCtx, func(path string) error {
 			modSrcDir := filepath.Join(path, modSource.Self().SourceSubpath)
 
@@ -144,17 +155,23 @@ func evalDangSource(
 			// for its declared types. At runtime the served schema already
 			// includes the module's own types (Module.IncludeSelfInDeps), so
 			// this is a no-op then.
+			endSelf := dangshared.ProfStep(ctx, "dang.selfTypes")
 			ensureModuleSelfTypes(intro.Schema, modSource.Self(), modSrcDir)
+			endSelf()
 
+			endRun := dangshared.ProfStep(ctx, "dang.runDir")
 			env, err = runSource(ctx, modSrcDir)
+			endRun()
 			if err != nil {
 				if isDangSourceError(err) {
 					return reportDangSourceError(stdio.Stderr, err)
 				}
 				return fmt.Errorf("run dir: %w", err)
 			}
+			defer dangshared.ProfStep(ctx, "dang.retainDirectives")()
 			return retainDangObjectDirectives(ctx, env, modSrcDir)
 		})
+		endMount()
 		if err != nil {
 			if errors.As(err, new(*dangSourceError)) {
 				// Already reported to stderr; the message is intentionally

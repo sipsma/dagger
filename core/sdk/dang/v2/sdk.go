@@ -117,13 +117,18 @@ func (r *runtime) Call(
 	if err != nil {
 		return fmt.Errorf("current query: %w", err)
 	}
+	endSchemaFile := dangshared.ProfStep(ctx, "dang.schemaFile")
 	schemaJSONFile, err := r.deps.SchemaIntrospectionJSONFileForModule(ctx)
+	endSchemaFile()
 	if err != nil {
 		return fmt.Errorf("get schema introspection: %w", err)
 	}
+	endEval := dangshared.ProfStep(ctx, "dang.eval")
 	outputBytes, err := r.eval(ctx, query, schemaJSONFile, nestedClientMetadata, true /* inert attachables */, fnCall, moduleContext)
+	endEval()
 	if err != nil {
 		return err
 	}
+	defer dangshared.ProfStep(ctx, "dang.returnValue")()
 	return fnCall.ReturnValue(ctx, core.JSON(outputBytes))
 }
