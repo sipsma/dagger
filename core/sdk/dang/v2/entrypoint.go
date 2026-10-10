@@ -57,6 +57,7 @@ func EntrypointModuleTypes(
 		true, /* inert attachables */
 		nil,
 		moduleContext,
+		false, /* the entrypoint's own types() builds the typedefs */
 		runEntrypointDir,
 		func(ctx context.Context, env dang.ValueScope) ([]byte, error) {
 			entrypointName, err := findModuleEntrypoint(env)
@@ -152,6 +153,7 @@ func (r *entrypointRuntime) Call(
 		true, /* inert attachables */
 		fnCall,
 		moduleContext,
+		false, /* a function call reads no object directives */
 		runEntrypointDir,
 		func(ctx context.Context, env dang.ValueScope) ([]byte, error) {
 			entrypointName, err := findModuleEntrypoint(env)
