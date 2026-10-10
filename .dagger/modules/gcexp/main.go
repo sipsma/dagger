@@ -162,3 +162,74 @@ func (m *Gcexp) DirScale(ctx context.Context, n int, salt string, nonce string) 
 	}
 	return fmt.Sprintf("withFiles n=%d: %s (%s)", n, time.Since(start).Round(time.Millisecond), strings.TrimSpace(out)), nil
 }
+
+// LazyCutoff checks early cutoff when nothing is synced between producer and
+// consumer. Each case builds a consumer over a file from a producer recipe
+// that differs from the reference's but writes identical bytes, and reports
+// whether the consumer's exec was reused.
+func (m *Gcexp) LazyCutoff(ctx context.Context, salt string) (string, error) {
+	producer := func(v string) *dagger.Container {
+		return base().
+			WithEnvVariable("V", v).
+			WithExec([]string{"sh", "-c", "mkdir -p /out; echo same-" + salt + " > /out/x"})
+	}
+	consumer := func(f *dagger.File) (string, error) {
+		out, err := base().
+			WithEnvVariable("SALT", salt).
+			WithMountedFile("/in", f).
+			WithExec([]string{"sh", "-c", "cat /in >/dev/null; head -c 8 /dev/urandom | od -An -tx1 > /stamp"}).
+			File("/stamp").Contents(ctx)
+		return strings.TrimSpace(out), err
+	}
+	var lines []string
+	// Reference: the barrier pattern (directory synced, then the file).
+	d, err := producer("ref").Directory("/out").Sync(ctx)
+	if err != nil {
+		return "", err
+	}
+	ref, err := consumer(d.File("x"))
+	if err != nil {
+		return "", err
+	}
+	// Case 1: the file is selected from an unevaluated directory and the
+	// consumer is evaluated directly.
+	s1, err := consumer(producer("lazy1").Directory("/out").File("x"))
+	if err != nil {
+		return "", err
+	}
+	lines = append(lines, fmt.Sprintf("lazy file, consumer forced:          reused=%v", s1 == ref))
+	// Case 2: the file is selected lazily, then its producer's directory is
+	// synced separately before the consumer is evaluated.
+	p2 := producer("lazy2")
+	f2 := p2.Directory("/out").File("x")
+	if _, err := p2.Directory("/out").Sync(ctx); err != nil {
+		return "", err
+	}
+	s2, err := consumer(f2)
+	if err != nil {
+		return "", err
+	}
+	lines = append(lines, fmt.Sprintf("lazy file, producer synced first:    reused=%v", s2 == ref))
+	// Case 3: the same, but the file itself is synced before the consumer.
+	p3 := producer("lazy3")
+	f3, err := p3.Directory("/out").File("x").Sync(ctx)
+	if err != nil {
+		return "", err
+	}
+	s3, err := consumer(f3)
+	if err != nil {
+		return "", err
+	}
+	lines = append(lines, fmt.Sprintf("lazy file, file synced first:        reused=%v", s3 == ref))
+	// Case 4: the barrier pattern with a different recipe (control: expected reused).
+	d4, err := producer("barrier4").Directory("/out").Sync(ctx)
+	if err != nil {
+		return "", err
+	}
+	s4, err := consumer(d4.File("x"))
+	if err != nil {
+		return "", err
+	}
+	lines = append(lines, fmt.Sprintf("barrier (dir synced, then file):     reused=%v", s4 == ref))
+	return strings.Join(lines, "\n"), nil
+}

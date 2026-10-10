@@ -19,6 +19,7 @@ type Gcexp struct { // gcexp (../../../../../:0:0)
 	goChain    *string
 	id         *ID
 	layered    *string
+	lazyCutoff *string
 	mountScale *string
 	packTool   *string
 	plain      *string
@@ -177,6 +178,23 @@ func (r *Gcexp) Layered(ctx context.Context, src *Directory, nonce string, salt 
 	q := r.query.Select("layered")
 	q = q.Arg("src", src)
 	q = q.Arg("nonce", nonce)
+	q = q.Arg("salt", salt)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// LazyCutoff checks early cutoff when nothing is synced between producer and
+// consumer. Each case builds a consumer over a file from a producer recipe
+// that differs from the reference's but writes identical bytes, and reports
+// whether the consumer's exec was reused.
+func (r *Gcexp) LazyCutoff(ctx context.Context, salt string) (string, error) {
+	if r.lazyCutoff != nil {
+		return *r.lazyCutoff, nil
+	}
+	q := r.query.Select("lazyCutoff")
 	q = q.Arg("salt", salt)
 
 	var response string
