@@ -86,7 +86,8 @@ if [ "$order" = check ]; then
   for arm in $all; do preload $arm; check $arm; probe $arm; done
   for arm in ${all#A }; do
     for c in keys digest nonmain tests batch otherws; do
-      if diff <(grep -v -E 'Full trace|^$|wall_ms' /out/A-$c.txt) <(grep -v -E 'Full trace|^$|wall_ms' /out/$arm-$c.txt) > /out/diff-$arm-$c.txt; then echo "check $arm $c: same" >> /out/summary.txt; else echo "check $arm $c: DIFFERENT" >> /out/summary.txt; fi
+      # Error messages carry span ids, which differ on every run.
+      if diff <(grep -v -E 'Full trace|^$|wall_ms' /out/A-$c.txt | sed 's/ \[traceparent:[^]]*\]//') <(grep -v -E 'Full trace|^$|wall_ms' /out/$arm-$c.txt | sed 's/ \[traceparent:[^]]*\]//') > /out/diff-$arm-$c.txt; then echo "check $arm $c: same" >> /out/summary.txt; else echo "check $arm $c: DIFFERENT" >> /out/summary.txt; fi
     done
   done
   exit 0
