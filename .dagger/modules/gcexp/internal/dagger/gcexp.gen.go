@@ -23,6 +23,7 @@ type Gcexp struct { // gcexp (../../../../../:0:0)
 	mountScale *string
 	packTool   *string
 	plain      *string
+	plainStd   *string
 	planCheck  *string
 	planDebug  *string
 	replay     *string
@@ -244,6 +245,23 @@ func (r *Gcexp) Plain(ctx context.Context, src *Directory, nonce string, volume 
 	q := r.query.Select("plain")
 	q = q.Arg("src", src)
 	q = q.Arg("nonce", nonce)
+	q = q.Arg("volume", volume)
+	q = q.Arg("salt", salt)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// PlainStd builds the standard library into a GOCACHE volume, as a previous
+// build with the same toolchain would have, so a later Plain with that volume
+// starts with a warm standard library.
+func (r *Gcexp) PlainStd(ctx context.Context, volume string, salt string) (string, error) {
+	if r.plainStd != nil {
+		return *r.plainStd, nil
+	}
+	q := r.query.Select("plainStd")
 	q = q.Arg("volume", volume)
 	q = q.Arg("salt", salt)
 

@@ -292,7 +292,10 @@ func (m *Gcexp) PackTool(ctx context.Context) (string, error) {
 //	        body-only edit makes the plan a cache hit.
 //	prio    give free exec slots to the ready package with the longest chain
 //	        of dependents above it first, instead of in arrival order.
-type modeOpts struct{ memo, coarse, lazy, hdr, prio bool }
+//	stdonly build only the plan's standard-library packages, per package,
+//	        and stop: a later build with the same salt then starts with a warm
+//	        standard library, as if another build with this toolchain had run.
+type modeOpts struct{ memo, coarse, lazy, hdr, prio, stdonly bool }
 
 func parseMode(s string) (modeOpts, error) {
 	var o modeOpts
@@ -309,6 +312,8 @@ func parseMode(s string) (modeOpts, error) {
 			o.hdr = true
 		case "prio":
 			o.prio = true
+		case "stdonly":
+			o.stdonly = true
 		default:
 			return o, fmt.Errorf("unknown mode %q", n)
 		}
@@ -639,6 +644,35 @@ func tierSet(blocks map[string]*block) map[string]bool {
 	return tier
 }
 
+// stdSet is the plan's standard-library packages: blocks that read neither
+// the workspace nor the module cache, and whose dependencies are the same.
+func stdSet(blocks map[string]*block) map[string]bool {
+	memo := map[string]bool{}
+	var isStd func(id string) bool
+	isStd = func(id string) bool {
+		if v, ok := memo[id]; ok {
+			return v
+		}
+		memo[id] = false
+		b := blocks[id]
+		v := len(b.srcFiles) == 0 && len(b.modFiles) == 0 && !b.isMain
+		for _, d := range b.deps {
+			if !isStd(d) {
+				v = false
+			}
+		}
+		memo[id] = v
+		return v
+	}
+	std := map[string]bool{}
+	for id := range blocks {
+		if isStd(id) {
+			std[id] = true
+		}
+	}
+	return std
+}
+
 func toNode(b *block, blocks map[string]*block, tier map[string]bool) *node {
 	n := &node{ID: b.id, Name: b.name, ImportPath: b.importPath, Deps: b.deps, IsMain: b.isMain,
 		SrcFiles: append([]string(nil), b.srcFiles...), ModFiles: append([]string(nil), b.modFiles...),
@@ -807,6 +841,18 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 			nodes[id] = toNode(b, blocks, tier)
 		}
 	}
+	if opts.stdonly {
+		std := stdSet(blocks)
+		for id := range nodes {
+			if !std[id] {
+				delete(nodes, id)
+			}
+		}
+		if _, err := w.walk(ctx, nodes); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("stdonly: %d of %d packages, total %s", len(nodes), len(blocks), time.Since(start).Round(time.Millisecond)), nil
+	}
 	results, err := w.walk(ctx, nodes)
 	if err != nil {
 		return "", err
@@ -881,6 +927,20 @@ func (m *Gcexp) Plain(ctx context.Context, src *dagger.Directory, nonce string, 
 		return "", err
 	}
 	return fmt.Sprintf("plain (volume=%q): total %s, binary %d bytes", volume, time.Since(start).Round(time.Millisecond), out), nil
+}
+
+// PlainStd builds the standard library into a GOCACHE volume, as a previous
+// build with the same toolchain would have, so a later Plain with that volume
+// starts with a warm standard library.
+func (m *Gcexp) PlainStd(ctx context.Context, volume string, salt string) (string, error) {
+	start := time.Now()
+	_, err := goBase(salt).
+		WithMountedCache("/gocache", dag.CacheVolume(volume)).WithEnvVariable("GOCACHE", "/gocache").
+		WithExec([]string{"go", "build", "-trimpath", "-buildvcs=false", "std"}, noNest).Sync(ctx)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("plain std (volume=%q): total %s", volume, time.Since(start).Round(time.Millisecond)), nil
 }
 
 // PlanDebug shows how one package's block was parsed.
