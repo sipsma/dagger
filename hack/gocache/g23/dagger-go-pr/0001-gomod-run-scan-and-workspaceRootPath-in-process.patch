@@ -1,0 +1,104 @@
+From 1323b0b03c5a18cd1403dba45755cec0466a72fa Mon Sep 17 00:00:00 2001
+From: Erik Sipsma <erik@sipsma.dev>
+Date: Sat, 10 Oct 2026 04:16:17 +0000
+Subject: [PATCH 1/2] gomod: run scan and workspaceRootPath in process
+
+gomod called its own scan and workspaceRootPath through the module's
+API, so each one was a separate module call with the fixed cost of one.
+On yq, a build call made 14 calls into Dang modules, four of them these.
+Called in process, the scan builds the same container, so it is the
+same cached exec.
+
+Signed-off-by: Erik Sipsma <erik@sipsma.dev>
+---
+ gomod/main.dang | 43 +++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 37 insertions(+), 6 deletions(-)
+
+diff --git a/gomod/main.dang b/gomod/main.dang
+index e30864a..7ef93a2 100644
+--- a/gomod/main.dang
++++ b/gomod/main.dang
+@@ -569,10 +569,42 @@ type GoMod {
+   nestedRoots(ws: Workspace!): [String!]! {
+     ws
+       .findRoots(start: "/" + subpath(""), markers: ["go.mod"])
+-      .map { root => gomod.workspaceRootPath(ws, root) }
++      .map { root => rootPath(ws, root) }
+       .filter { root => root != path }
+   }
+ 
++  # Gomod.workspaceRootPath, in process: calling it through gomod is a module
++  # call, with the fixed per-call cost of one, for a few string operations.
++  let rootPath(ws: Workspace!, cwdPath: String!): String! {
++    let segments = cwdPath.split("/").filter { segment => segment != "" and segment != "." }
++    let up = segments.filter { segment => segment == ".." }.length
++    let down = segments.filter { segment => segment != ".." }
++    let resolved = ws.cwd.split("/").filter { segment => segment != "" }.dropLast(up) + down
++
++    if (resolved.length == 0) { "." } else { resolved.join("/") }
++  }
++
++  # Gomod.scan, in process. It builds the same container, so it is the same
++  # cached exec; calling gomod.scan instead would add a module call each time.
++  let scanned(ws: Workspace!, test: Boolean!, generate: Boolean!): Directory! {
++    let testFlags = if (test) { ["--test"] } else { [] }
++    let generateFlags = if (generate) { ["--generate"] } else { [] }
++    container
++      .from("golang:" + gomod.scannerVersion + "-alpine")
++      .withMountedCache("/go/pkg/mod", cacheVolume("go-mod"))
++      .withEnvVariable("GOMODCACHE", "/go/pkg/mod")
++      .withMountedCache("/root/.cache/go-build", cacheVolume("go-build"))
++      .withEnvVariable("GOCACHE", "/root/.cache/go-build")
++      .withoutEntrypoint
++      .withWorkdir("/helpers/go-includes")
++      .withDirectory("/helpers/go-includes", currentModule.source.directory("helpers/go-includes"))
++      .withExec(["go", "build", "-o", "/usr/local/bin/go-includes", "."])
++      .withDirectory("/ws", ws.directory("/", include: ["**/*.go", "**/go.mod"]))
++      .withWorkdir("/ws")
++      .withExec(["go-includes", "--all", "--output-dir", "/output"] + testFlags + generateFlags)
++      .directory("/output")
++  }
++
+   # A workspace path made relative to this module root.
+   let relative(file: String!): String! {
+     if (path == ".") { file } else { file.trimPrefix(path + "/") }
+@@ -619,7 +651,7 @@ type GoMod {
+     test: Boolean! = false,
+     generate: Boolean! = false,
+   ): String {
+-    let failure = gomod.scan(ws, test: test, generate: generate).file(outputStem + ".err").contents.trimSpace
++    let failure = scanned(ws, test, generate).file(outputStem + ".err").contents.trimSpace
+     if (failure == "") { null } else { failure }
+   }
+ 
+@@ -629,7 +661,7 @@ type GoMod {
+     generate: Boolean!,
+     suffix: String!,
+   ): [String!]! {
+-    let output = gomod.scan(ws, test: test, generate: generate)
++    let output = scanned(ws, test, generate)
+     let failure = output.file(outputStem + ".err").contents.trimSpace
+     if (failure != "") {
+       raise failure
+@@ -667,7 +699,7 @@ type GoMod {
+   patch that has no image yet would otherwise stop the module being checked.
+   """
+   goVersion(ws: Workspace!): String {
+-    let declared = gomod.scan(ws).file(outputStem + ".goversion").contents.trimSpace
++    let declared = scanned(ws, false, false).file(outputStem + ".goversion").contents.trimSpace
+     if (declared == "") { null } else { declared }
+   }
+ 
+@@ -687,8 +719,7 @@ type GoMod {
+   against its own workspace.
+   """
+   generateContainer(ws: Workspace!, directory: String!): String! {
+-    gomod
+-      .scan(ws, generate: true)
++    scanned(ws, false, true)
+       .file(stemFor(directory) + ".generatecontainer")
+       .contents
+       .trimSpace
+-- 
+2.43.0
+
