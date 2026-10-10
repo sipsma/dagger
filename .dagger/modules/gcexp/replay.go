@@ -1015,3 +1015,38 @@ func (m *Gcexp) Layered(ctx context.Context, src *dagger.Directory, nonce string
 	return fmt.Sprintf("layered: list %s, deps cache %s, total %s, binary %d bytes",
 		t1.Round(time.Millisecond), (t2 - t1).Round(time.Millisecond), time.Since(start).Round(time.Millisecond), size), nil
 }
+
+// PlanScripts lists, per package in src's plan, its import path and a digest
+// of everything its exec depends on apart from its dependencies' outputs: the
+// rendered script and its source file lists. Two projects whose lines match
+// for a package build it with the same exec, given the same dependency
+// outputs and source contents.
+func (m *Gcexp) PlanScripts(ctx context.Context, src *dagger.Directory) (string, error) {
+	mods, err := modCache(src).Sync(ctx)
+	if err != nil {
+		return "", err
+	}
+	plan, err := fullPlan(ctx, src, mods, "")
+	if err != nil {
+		return "", err
+	}
+	blocks, err := parsePlan(plan)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, b := range blocks {
+		n := toNode(b, blocks, nil)
+		sum := sha256.Sum256([]byte(n.Script + "\x00" + strings.Join(n.SrcFiles, ",") + "\x00" + strings.Join(n.ModFiles, ",")))
+		kind := "ws"
+		switch {
+		case len(b.srcFiles) == 0 && len(b.modFiles) == 0:
+			kind = "std"
+		case len(b.srcFiles) == 0:
+			kind = "dep"
+		}
+		lines = append(lines, fmt.Sprintf("%s %s %s", b.importPath, kind, hex.EncodeToString(sum[:8])))
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "\n"), nil
+}

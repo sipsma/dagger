@@ -486,6 +486,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Gcexp).PlanDebug(&parent, ctx, src, importPath)
+		case "PlanScripts":
+			var parent Gcexp
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var src *dagger.Directory
+			if inputArgs["src"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["src"]), &src)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg src", err))
+				}
+			}
+			return (*Gcexp).PlanScripts(&parent, ctx, src)
 		case "Replay":
 			var parent Gcexp
 			err = json.Unmarshal(parentJSON, &parent)
@@ -679,6 +693,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithSourceMap(dag.SourceMap("replay.go", 947, 1)).
 							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 947, 48)}).
 							WithArg("importPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 947, 71)})).
+					WithFunction(
+						dag.Function("PlanScripts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("PlanScripts lists, per package in src's plan, its import path and a digest\nof everything its exec depends on apart from its dependencies' outputs: the\nrendered script and its source file lists. Two projects whose lines match\nfor a package build it with the same exec, given the same dependency\noutputs and source contents.").
+							WithSourceMap(dag.SourceMap("replay.go", 1024, 1)).
+							WithArg("src", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replay.go", 1024, 50)})).
 					WithFunction(
 						dag.Function("Replay",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).

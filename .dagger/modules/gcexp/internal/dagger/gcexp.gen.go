@@ -12,21 +12,22 @@ import (
 type Gcexp struct { // gcexp (../../../../../:0:0)
 	query *querybuilder.Selection
 
-	chain      *string
-	cutoff     *string
-	dirScale   *string
-	fanout     *string
-	goChain    *string
-	id         *ID
-	layered    *string
-	lazyCutoff *string
-	mountScale *string
-	packTool   *string
-	plain      *string
-	plainStd   *string
-	planCheck  *string
-	planDebug  *string
-	replay     *string
+	chain       *string
+	cutoff      *string
+	dirScale    *string
+	fanout      *string
+	goChain     *string
+	id          *ID
+	layered     *string
+	lazyCutoff  *string
+	mountScale  *string
+	packTool    *string
+	plain       *string
+	plainStd    *string
+	planCheck   *string
+	planDebug   *string
+	planScripts *string
+	replay      *string
 }
 
 func (r *Gcexp) WithGraphQLQuery(q *querybuilder.Selection) *Gcexp {
@@ -297,6 +298,25 @@ func (r *Gcexp) PlanDebug(ctx context.Context, src *Directory, importPath string
 	q := r.query.Select("planDebug")
 	q = q.Arg("src", src)
 	q = q.Arg("importPath", importPath)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// PlanScripts lists, per package in src's plan, its import path and a digest
+// of everything its exec depends on apart from its dependencies' outputs: the
+// rendered script and its source file lists. Two projects whose lines match
+// for a package build it with the same exec, given the same dependency
+// outputs and source contents.
+func (r *Gcexp) PlanScripts(ctx context.Context, src *Directory) (string, error) {
+	assertNotNil("src", src)
+	if r.planScripts != nil {
+		return *r.planScripts, nil
+	}
+	q := r.query.Select("planScripts")
+	q = q.Arg("src", src)
 
 	var response string
 
