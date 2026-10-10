@@ -3,9 +3,10 @@
 # nomask (no masked/readonly paths), nocg (--cgroup-manager=disabled). Per variant: 40 serial run+delete,
 # then 160 run+delete with 16 concurrent workers; two rounds in reversed order.
 set -e
-apk add --no-cache jq coreutils strace >/dev/null
+apk add --no-cache jq coreutils strace util-linux >/dev/null
+# util-linux mount: busybox's "mount -o remount,ro" fails here ("can't find /ro in /proc/mounts").
 ns() { date +%s%N; }
-mkdir -p /w /ro && cp /crun /w/crun && chmod +x /w/crun
+mkdir -p /w /ro /b/traces && cp /crun /w/crun && chmod +x /w/crun
 mount -t tmpfs tmpfs /ro && cp /crun /ro/crun && chmod +x /ro/crun && mount -o remount,ro /ro
 /w/crun --version | head -1
 base='.root.path="/b/rootfs" | .process.args=["/bin/true"] | .process.env=["PATH=/bin:/usr/bin"] | .process.cwd="/" | .linux.namespaces |= map(if .type=="network" then {type:"network"} else . end) | .linux.cgroupsPath="/g18b/x"'
@@ -25,8 +26,8 @@ for round in 1 2; do
   done
 done
 echo "--- one straced base start (clone3 result, execve count, subtree_control writes):"
-strace -f -o /tmp/st /w/crun run --keep -b /v/full st1 >/dev/null 2>&1 || true; /w/crun delete st1 || true
-grep -E 'clone3\(' /tmp/st | sed 's/stack=.*}/.../' | cut -c1-200 | head -3
-echo "execve: $(grep -c 'execve(' /tmp/st)  subtree_control writes: $(grep -c 'subtree_control' /tmp/st)  memfd_create: $(grep -c memfd_create /tmp/st)  total syscalls: $(wc -l < /tmp/st)"
-strace -f -o /tmp/st2 /ro/crun run --keep -b /v/full st2 >/dev/null 2>&1 || true; /ro/crun delete st2 || true
-echo "ro: execve: $(grep -c 'execve(' /tmp/st2)  memfd_create: $(grep -c memfd_create /tmp/st2)  total syscalls: $(wc -l < /tmp/st2)"
+strace -f -o /b/traces/st /w/crun run --keep -b /v/full st1 >/dev/null 2>&1 || true; /w/crun delete st1 || true
+grep -E 'clone3\(' /b/traces/st | sed 's/stack=.*}/.../' | cut -c1-200 | head -3
+echo "execve: $(grep -c 'execve(' /b/traces/st)  subtree_control writes: $(grep -c 'subtree_control' /b/traces/st)  memfd_create: $(grep -c memfd_create /b/traces/st)  total syscalls: $(wc -l < /b/traces/st)"
+strace -f -o /b/traces/st2 /ro/crun run --keep -b /v/full st2 >/dev/null 2>&1 || true; /ro/crun delete st2 || true
+echo "ro: execve: $(grep -c 'execve(' /b/traces/st2)  memfd_create: $(grep -c memfd_create /b/traces/st2)  total syscalls: $(wc -l < /b/traces/st2)"
