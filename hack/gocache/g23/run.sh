@@ -44,6 +44,17 @@ for d in "$out"/run/*.dump; do
     echo "## calls by self time"; $W -view classes -kind call -top 40 "$d"
     echo "## calls by count"; $W -view classes -kind call -sort count -top 40 "$d"
     echo "## waits"; $W -view waits -top 20 "$d"
+    echo "## dang.* steps (g22 timing points)"; $W -view classes -kind session_phase -class '^dang[.]' -sort dur -top 30 "$d"
+    echo "## module function executions"; $W -view classes -kind call_exec -class ':' -sort dur -top 30 "$d"
+    echo "## module function executions, by child composition"; $W -view breakdown -kind call_exec -class ':' "$d"
+    echo "## session phases"; $W -view classes -kind session_phase -sort dur -top 30 "$d"
+    echo "## clients"; $W -view clients "$d"
   } > "$r" 2>&1
+done
+# CPU profiles (INNER=inner-dangcall.sh): text reports next to each profile.
+for p in "$out"/run/*.pprof; do
+  [ -f "$p" ] || continue
+  b=$(basename "$p" .pprof)
+  dagger -s -c "container | from golang:1.26 | with-file /p.pprof \$(host | file $p) | with-file /r.sh \$(host | file $here/pprof-dang.sh) | with-exec -- sh /r.sh | stdout" > "$out/run/$b.pprof.txt" 2>&1 || echo "pprof report for $b failed" >> "$out/run/summary.txt"
 done
 echo "outputs in $out"; cat "$out/run/summary.txt"
