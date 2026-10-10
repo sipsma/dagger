@@ -61,10 +61,10 @@ var (
 	reMkdir   = regexp.MustCompile(`^mkdir -p \$WORK/(b\d+)/`)
 	reWorkRef = regexp.MustCompile(`\$WORK/(b\d+)`)
 	// A /src or /gomod path starts a token, so /usr/local/go/src/... does not match.
-	rePath    = regexp.MustCompile(`(?:^|[\s"'=])((?:/src|/gomod)(?:/[^\s"';=]*)?)`)
-	reRelFile = regexp.MustCompile(`(^|\s)\./([^\s"';]+)`)
-	reBuildID = regexp.MustCompile(`\s-buildid[ =]\S+`)
-	reConc    = regexp.MustCompile(`\s-c=\d+`)
+	rePath       = regexp.MustCompile(`(?:^|[\s"'=])((?:/src|/gomod)(?:/[^\s"';=]*)?)`)
+	reRelFile    = regexp.MustCompile(`(^|\s)\./([^\s"';]+)`)
+	reBuildID    = regexp.MustCompile(`\s-buildid[ =]\S+`)
+	reConc       = regexp.MustCompile(`\s-c=\d+`)
 	reDepArchive = regexp.MustCompile(`\$WORK/(b\d+)/_pkg_\.a`)
 )
 
@@ -264,15 +264,25 @@ func packTool() *dagger.File {
 	return goBase("").WithExec([]string{"go", "build", "-o", "/gopack", "cmd/pack"}, noNest).File("/gopack")
 }
 
-// PackTool builds the pack tool and reports its size. It is built once per
-// engine and cached; harnesses call it before measuring so a measured first
-// build excludes it.
+// PackTool builds the pack tool and the header tool and reports their sizes.
+// They are built once per engine and cached; harnesses call it before
+// measuring so a measured first build excludes them.
 func (m *Gcexp) PackTool(ctx context.Context) (string, error) {
 	size, err := packTool().Size(ctx)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("pack tool: %d bytes", size), nil
+	hdrSize, err := hdrTool().Size(ctx)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("pack tool: %d bytes, header tool: %d bytes", size, hdrSize), nil
+}
+
+// samePlan reports whether two "go build -n" plans differ only in build IDs,
+// which the per-package scripts drop anyway.
+func samePlan(a, b string) bool {
+	return reBuildID.ReplaceAllString(a, "") == reBuildID.ReplaceAllString(b, "")
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -288,11 +298,10 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	stamps bool,
 	// Comma-separated driver options to measure (prototype): "ro" mounts each
 	// package's inputs read-only; "pack" mounts the pack tool only where the
-	// package uses it; "slot" frees the concurrency slot when the exec is
-	// done; "overlap" builds the base container while planning; "redirect"
-	// runs the plan exec without a shell; "noinit" runs package execs
-	// without the injected init. Empty runs the first prototype unchanged.
-	// "merge" puts dependency archives inside the package's source mount.
+	// package uses it; "noinit" runs package execs without the injected
+	// init; "spec" starts the walk from a plan keyed on the source headers
+	// while the real plan is verified; "specbad" (test only) makes that
+	// plan wrong. Empty runs the first prototype unchanged.
 	// +optional
 	knobs string,
 ) (string, error) {
@@ -301,7 +310,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	for _, n := range strings.Split(knobs, ",") {
 		switch n = strings.TrimSpace(n); n {
 		case "":
-		case "ro", "pack", "slot", "overlap", "redirect", "noinit", "merge":
+		case "ro", "pack", "noinit", "spec", "specbad":
 			k[n] = true
 		default:
 			return "", fmt.Errorf("unknown knob %q", n)
@@ -318,34 +327,68 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		base, err = goBase(salt).Sync(ctx)
 		baseErr <- err
 	}
-	if k["overlap"] {
+	if k["spec"] {
 		go syncBase()
 	}
 	mods, err := modCache(src).Sync(ctx)
 	if err != nil {
 		return "", err
 	}
-	planCtr := goBase(salt).
-		WithMountedDirectory("/gomod", mods).
-		WithMountedDirectory("/src", src).
-		WithWorkdir("/src").
-		WithEnvVariable("GOCACHE", "/tmp/emptycache")
-	if k["redirect"] {
-		planCtr = planCtr.WithExec([]string{"go", "build", "-n", "-trimpath", "-buildvcs=false", "-o", "/out/bin", "."},
-			dagger.ContainerWithExecOpts{DisableDaggerInDagger: true, RedirectStderr: "/plan.txt"})
+	const planCmd = "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"
+	type planResult struct {
+		text string
+		err  error
+	}
+	realPlan := make(chan planResult, 1)
+	go func() {
+		text, err := goBase(salt).
+			WithMountedDirectory("/gomod", mods).
+			WithMountedDirectory("/src", src).
+			WithWorkdir("/src").
+			WithEnvVariable("GOCACHE", "/tmp/emptycache").
+			WithExec([]string{"sh", "-c", planCmd}, noNest).
+			File("/plan.txt").Contents(ctx)
+		realPlan <- planResult{text, err}
+	}()
+	// With "spec", a second plan is made from the source headers only. Its
+	// input does not change when a function body does, so after such an
+	// edit it is a cache hit and the walk starts without waiting for the
+	// real plan. The real plan still decides: see below.
+	var specPlan chan planResult
+	if k["spec"] {
+		specPlan = make(chan planResult, 1)
+		go func() {
+			hdr := hdrTool()
+			packCmd := "pack"
+			if k["specbad"] {
+				packCmd = "pack-bad"
+			}
+			packed, err := goBase("").
+				WithMountedFile("/usr/local/bin/gohdr", hdr).
+				WithMountedDirectory("/src", src).
+				WithExec([]string{"gohdr", packCmd, "/src", "/hdr/src.hdr"}, noNest).
+				Directory("/hdr").Sync(ctx)
+			if err != nil {
+				specPlan <- planResult{"", err}
+				return
+			}
+			// Content-addressed: an unchanged pack is the same file.
+			packFile, err := packed.File("src.hdr").Sync(ctx)
+			if err != nil {
+				specPlan <- planResult{"", err}
+				return
+			}
+			text, err := goBase(salt).
+				WithMountedFile("/usr/local/bin/gohdr", hdr).
+				WithMountedDirectory("/gomod", mods).
+				WithMountedFile("/src.hdr", packFile).
+				WithWorkdir("/src").
+				WithEnvVariable("GOCACHE", "/tmp/emptycache").
+				WithExec([]string{"sh", "-c", "gohdr unpack /src.hdr /src && " + planCmd}, noNest).
+				File("/plan.txt").Contents(ctx)
+			specPlan <- planResult{text, err}
+		}()
 	} else {
-		planCtr = planCtr.WithExec([]string{"sh", "-c", "go build -n -trimpath -buildvcs=false -o /out/bin . 2> /plan.txt"}, noNest)
-	}
-	plan, err := planCtr.File("/plan.txt").Contents(ctx)
-	if err != nil {
-		return "", err
-	}
-	planDur := time.Since(start)
-	blocks, err := parsePlan(plan)
-	if err != nil {
-		return "", err
-	}
-	if !k["overlap"] {
 		syncBase()
 	}
 	if err := <-baseErr; err != nil {
@@ -357,117 +400,200 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	// withMountedFile has no read-only option, so with "ro" the pack tool
 	// comes in a read-only directory mount instead.
 	packDir := dag.Directory().WithFile("gopack", packTool)
-	results := map[string]*result{}
-	for id := range blocks {
-		results[id] = &result{done: make(chan struct{})}
-	}
-	sem := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
-	for id, b := range blocks {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			r := results[id]
-			doneOnce := sync.OnceFunc(func() { close(r.done) })
-			defer doneOnce()
-			packPath, libDir := "/usr/local/bin/gopack", "/work/lib"
-			if k["ro"] {
-				packPath = "/opt/gopack/gopack"
-			}
-			// With "merge", a package whose sources come from one mount gets
-			// its dependency archives inside that mount: one input mount
-			// instead of two.
-			mergeInto := ""
-			if k["merge"] && len(b.deps) > 0 {
-				switch {
-				case len(b.srcFiles) > 0 && len(b.modFiles) == 0:
-					mergeInto = "/src"
-				case len(b.modFiles) > 0 && len(b.srcFiles) == 0:
-					mergeInto = "/gomod"
-				}
-				if mergeInto != "" {
-					libDir = mergeInto + "/_gcexp_lib"
-				}
-			}
-			script := b.script(blocks, packPath, libDir, k["ro"])
-			ctr := base
-			if !k["pack"] || strings.Contains(script, packPath) {
+	walk := func(ctx context.Context, blocks map[string]*block) (map[string]*result, error) {
+		results := map[string]*result{}
+		for id := range blocks {
+			results[id] = &result{done: make(chan struct{})}
+		}
+		sem := make(chan struct{}, concurrency)
+		var wg sync.WaitGroup
+		for id, b := range blocks {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				r := results[id]
+				doneOnce := sync.OnceFunc(func() { close(r.done) })
+				defer doneOnce()
+				packPath, libDir := "/usr/local/bin/gopack", "/work/lib"
 				if k["ro"] {
-					ctr = ctr.WithMountedDirectory("/opt/gopack", packDir, mountOpts)
-				} else {
-					ctr = ctr.WithMountedFile("/usr/local/bin/gopack", packTool)
+					packPath = "/opt/gopack/gopack"
 				}
-			}
-			var depFiles []*dagger.File
-			for _, d := range b.deps {
-				dr := results[d]
-				<-dr.done
-				if dr.err != nil {
-					r.err = fmt.Errorf("dep %s: %w", blocks[d].importPath, dr.err)
+				script := b.script(blocks, packPath, libDir, k["ro"])
+				ctr := base
+				if !k["pack"] || strings.Contains(script, packPath) {
+					if k["ro"] {
+						ctr = ctr.WithMountedDirectory("/opt/gopack", packDir, mountOpts)
+					} else {
+						ctr = ctr.WithMountedFile("/usr/local/bin/gopack", packTool)
+					}
+				}
+				var depFiles []*dagger.File
+				for _, d := range b.deps {
+					dr := results[d]
+					<-dr.done
+					if dr.err != nil {
+						r.err = fmt.Errorf("dep %s: %w", blocks[d].importPath, dr.err)
+						return
+					}
+					depFiles = append(depFiles, dr.file)
+				}
+				if len(depFiles) > 0 {
+					ctr = ctr.WithMountedDirectory("/work/lib", dag.Directory().WithFiles(".", depFiles), mountOpts)
+				}
+				r.ready = time.Since(start)
+				defer func() { r.finished = time.Since(start) }()
+				if len(b.srcFiles) > 0 {
+					sort.Strings(b.srcFiles)
+					ctr = ctr.WithMountedDirectory("/src", src.Filter(dagger.DirectoryFilterOpts{Include: b.srcFiles}), mountOpts)
+				}
+				if len(b.modFiles) > 0 {
+					sort.Strings(b.modFiles)
+					ctr = ctr.WithMountedDirectory("/gomod", mods.Filter(dagger.DirectoryFilterOpts{Include: b.modFiles}), mountOpts)
+				}
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				r.started = time.Since(start)
+				if stamps {
+					// Shell builtins only: a random id and the script's own run time.
+					script = "read t0 _ < /proc/uptime\n" + script +
+						"read u < /proc/sys/kernel/random/uuid\nv=${u#*-}\nread t1 _ < /proc/uptime\n" +
+						"t0=${t0%.*}${t0#*.}\nt1=${t1%.*}${t1#*.}\n" +
+						"echo \"${u%%-*}${v%%-*} $(( (t1-t0)*10 ))ms\" > /stamp\n"
+				}
+				ran := ctr.WithExec([]string{"sh", "-c", script}, execOpts)
+				out, err := ran.Directory("/work/" + b.name).Sync(ctx)
+				if err != nil {
+					r.err = fmt.Errorf("%s: %w", b.importPath, err)
 					return
 				}
-				depFiles = append(depFiles, dr.file)
-			}
-			if len(depFiles) > 0 && mergeInto == "" {
-				ctr = ctr.WithMountedDirectory("/work/lib", dag.Directory().WithFiles(".", depFiles), mountOpts)
-			}
-			r.ready = time.Since(start)
-			defer func() { r.finished = time.Since(start) }()
-			if len(b.srcFiles) > 0 {
-				sort.Strings(b.srcFiles)
-				in := src.Filter(dagger.DirectoryFilterOpts{Include: b.srcFiles})
-				if mergeInto == "/src" {
-					in = in.WithFiles("_gcexp_lib", depFiles)
+				r.execDone = time.Since(start)
+				if b.isMain {
+					r.file = out.File("exe/a.out")
+				} else {
+					r.file = out.File(b.name + ".a")
 				}
-				ctr = ctr.WithMountedDirectory("/src", in, mountOpts)
-			}
-			if len(b.modFiles) > 0 {
-				sort.Strings(b.modFiles)
-				in := mods.Filter(dagger.DirectoryFilterOpts{Include: b.modFiles})
-				if mergeInto == "/gomod" {
-					in = in.WithFiles("_gcexp_lib", depFiles)
+				if _, err := r.file.Sync(ctx); err != nil {
+					r.err = fmt.Errorf("%s: output: %w", b.importPath, err)
+					return
 				}
-				ctr = ctr.WithMountedDirectory("/gomod", in, mountOpts)
+				// Dependents only need the output; release them before the
+				// stamp read.
+				doneOnce()
+				if stamps {
+					r.stamp, r.stampErr = ran.File("/stamp").Contents(ctx)
+				}
+			}()
+		}
+		wg.Wait()
+		for _, r := range results {
+			if r.err != nil {
+				return results, r.err
 			}
-			sem <- struct{}{}
-			freeSlot := sync.OnceFunc(func() { <-sem })
-			defer freeSlot()
-			r.started = time.Since(start)
-			if stamps {
-				// Shell builtins only: a random id and the script's own run time.
-				script = "read t0 _ < /proc/uptime\n" + script +
-					"read u < /proc/sys/kernel/random/uuid\nv=${u#*-}\nread t1 _ < /proc/uptime\n" +
-					"t0=${t0%.*}${t0#*.}\nt1=${t1%.*}${t1#*.}\n" +
-					"echo \"${u%%-*}${v%%-*} $(( (t1-t0)*10 ))ms\" > /stamp\n"
-			}
-			ran := ctr.WithExec([]string{"sh", "-c", script}, execOpts)
-			out, err := ran.Directory("/work/" + b.name).Sync(ctx)
-			if err != nil {
-				r.err = fmt.Errorf("%s: %w", b.importPath, err)
-				return
-			}
-			if k["slot"] {
-				freeSlot()
-			}
-			r.execDone = time.Since(start)
-			if b.isMain {
-				r.file = out.File("exe/a.out")
-			} else {
-				r.file = out.File(b.name + ".a")
-			}
-			if _, err := r.file.Sync(ctx); err != nil {
-				r.err = fmt.Errorf("%s: output: %w", b.importPath, err)
-				return
-			}
-			// Dependents only need the output; release them before the
-			// stamp read.
-			doneOnce()
-			if stamps {
-				r.stamp, r.stampErr = ran.File("/stamp").Contents(ctx)
-			}
-		}()
+		}
+		return results, nil
 	}
-	wg.Wait()
+
+	// Choose the plan the walk starts from. Without "spec" it is the real
+	// plan. With it, a speculative plan that arrives first starts the walk;
+	// when the real plan arrives, the two must match apart from build IDs,
+	// or the speculative walk is cancelled and redone from the real plan.
+	var blocks map[string]*block
+	var results map[string]*result
+	var planDur time.Duration
+	specState := "off"
+	walkReal := func(real planResult) error {
+		if real.err != nil {
+			return real.err
+		}
+		var err error
+		if blocks, err = parsePlan(real.text); err != nil {
+			return err
+		}
+		results, err = walk(ctx, blocks)
+		return err
+	}
+	if specPlan == nil {
+		real := <-realPlan
+		planDur = time.Since(start)
+		if err := walkReal(real); err != nil {
+			return "", err
+		}
+	} else {
+		var real, spec planResult
+		gotReal := false
+		if k["specbad"] {
+			spec = <-specPlan
+		} else {
+			select {
+			case real = <-realPlan:
+				gotReal = true
+			case spec = <-specPlan:
+			}
+		}
+		planDur = time.Since(start)
+		var specBlocks map[string]*block
+		if !gotReal && spec.err == nil {
+			specBlocks, spec.err = parsePlan(spec.text)
+		}
+		if gotReal || spec.err != nil {
+			// No speculative plan in time. Walk from the real one, and let
+			// the speculative plan finish so it is cached for the next run.
+			specState = "late"
+			if !gotReal {
+				specState = "failed"
+				real = <-realPlan
+				planDur = time.Since(start)
+			}
+			if err := walkReal(real); err != nil {
+				return "", err
+			}
+			if gotReal {
+				<-specPlan
+			}
+		} else {
+			type walkResult struct {
+				results map[string]*result
+				err     error
+			}
+			specCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			specWalk := make(chan walkResult, 1)
+			go func() {
+				r, err := walk(specCtx, specBlocks)
+				specWalk <- walkResult{r, err}
+			}()
+			var done *walkResult
+			if k["specbad"] {
+				// Test only: let the wrong walk run to its end first.
+				w := <-specWalk
+				done = &w
+			}
+			real = <-realPlan
+			if real.err != nil {
+				return "", real.err
+			}
+			if samePlan(spec.text, real.text) {
+				specState = "hit"
+				if done == nil {
+					w := <-specWalk
+					done = &w
+				}
+				if done.err != nil {
+					return "", done.err
+				}
+				blocks, results = specBlocks, done.results
+			} else {
+				specState = "mismatch"
+				cancel()
+				if done == nil {
+					<-specWalk
+				}
+				if err := walkReal(real); err != nil {
+					return "", err
+				}
+			}
+		}
+	}
 	var lines []string
 	var timing []string
 	var sumExec, sumPost, sumQueue time.Duration
@@ -491,15 +617,15 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		sumExec += r.execDone - r.started
 		sumPost += r.finished - r.execDone
 		timing = append(timing, fmt.Sprintf("%8s ready=%-8s exec=%-8s post=%-8s deps=%-3d %s",
-			(r.execDone - r.started).Round(time.Millisecond), r.ready.Round(time.Millisecond),
-			(r.execDone - r.started).Round(time.Millisecond), (r.finished - r.execDone).Round(time.Millisecond),
+			(r.execDone-r.started).Round(time.Millisecond), r.ready.Round(time.Millisecond),
+			(r.execDone-r.started).Round(time.Millisecond), (r.finished-r.execDone).Round(time.Millisecond),
 			len(blocks[id].deps), blocks[id].importPath))
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(timing)))
 	if len(timing) > 12 {
 		timing = timing[:12]
 	}
-	header := fmt.Sprintf("TIMING sumQueue=%s sumExec=%s sumPost=%s sumInsideContainer=%dms stamps=%t knobs=%q", sumQueue.Round(time.Millisecond), sumExec.Round(time.Millisecond), sumPost.Round(time.Millisecond), sumInside, stamps, knobs)
+	header := fmt.Sprintf("TIMING sumQueue=%s sumExec=%s sumPost=%s sumInsideContainer=%dms spec=%s stamps=%t knobs=%q", sumQueue.Round(time.Millisecond), sumExec.Round(time.Millisecond), sumPost.Round(time.Millisecond), sumInside, specState, stamps, knobs)
 	lines = append(timing, lines...)
 	sort.Slice(lines, func(i, j int) bool { return strings.Fields(lines[i])[1] < strings.Fields(lines[j])[1] })
 	size, err := results["b001"].file.Size(ctx)
