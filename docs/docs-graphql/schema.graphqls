@@ -1455,6 +1455,9 @@ type Container implements Exportable & Node & Syncer {
     """Set the owner to the container's current user."""
     inheritOwner: Boolean = false
 
+    """Mount the file read-only."""
+    readOnly: Boolean = false
+
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
     environment variables defined in the container (e.g. "/$VAR/foo.txt").

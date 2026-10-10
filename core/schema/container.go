@@ -411,6 +411,8 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
 				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
+				dagql.Arg("readOnly").Doc(`Mount the file read-only.`).
+					View(AfterVersion("v1.0.0-beta.17")),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
@@ -2797,6 +2799,7 @@ type containerWithMountedFileArgs struct {
 	Source       core.FileID
 	Owner        string `default:""`
 	InheritOwner bool   `default:"false"`
+	ReadOnly     bool   `default:"false"`
 	Expand       bool   `default:"false"`
 }
 
@@ -2835,11 +2838,11 @@ func (s *containerSchema) withMountedFile(ctx context.Context, parent dagql.Obje
 		Target:    target,
 		Source:    file,
 		Owner:     owner,
-		Readonly:  false,
+		Readonly:  args.ReadOnly,
 	}
 	ctr.Mounts = ctr.Mounts.With(core.ContainerMount{
 		Target:     target,
-		Readonly:   false,
+		Readonly:   args.ReadOnly,
 		FileSource: new(core.LazyAccessor[*core.File, *core.Container]),
 	})
 	return ctr, nil

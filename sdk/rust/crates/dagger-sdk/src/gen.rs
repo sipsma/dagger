@@ -3065,6 +3065,9 @@ pub struct ContainerWithMountedFileOpts<'a> {
     /// If the group is omitted, it defaults to the same as the user.
     #[builder(setter(into, strip_option), default)]
     pub owner: Option<&'a str>,
+    /// Mount the file read-only.
+    #[builder(setter(into, strip_option), default)]
+    pub read_only: Option<bool>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct ContainerWithMountedTempOpts {
@@ -4385,6 +4388,9 @@ impl Container {
         }
         if let Some(inherit_owner) = opts.inherit_owner {
             query = query.arg("inheritOwner", inherit_owner);
+        }
+        if let Some(read_only) = opts.read_only {
+            query = query.arg("readOnly", read_only);
         }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);

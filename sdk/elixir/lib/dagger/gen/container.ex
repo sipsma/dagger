@@ -1193,6 +1193,7 @@ defmodule Dagger.Container do
   @spec with_mounted_file(t(), String.t(), Dagger.File.t(), [
           {:owner, String.t() | nil},
           {:inherit_owner, boolean() | nil},
+          {:read_only, boolean() | nil},
           {:expand, boolean() | nil}
         ]) :: Dagger.Container.t()
   def with_mounted_file(%__MODULE__{} = container, path, source, optional_args \\ []) do
@@ -1203,6 +1204,7 @@ defmodule Dagger.Container do
       |> QB.put_arg("source", Dagger.ID.id!(source))
       |> QB.maybe_put_arg("owner", optional_args[:owner])
       |> QB.maybe_put_arg("inheritOwner", optional_args[:inherit_owner])
+      |> QB.maybe_put_arg("readOnly", optional_args[:read_only])
       |> QB.maybe_put_arg("expand", optional_args[:expand])
 
     %Dagger.Container{

@@ -480,6 +480,7 @@ class Container extends Client\AbstractObject implements Client\IdAble, Exportab
         File $source,
         ?string $owner = '',
         ?bool $inheritOwner = false,
+        ?bool $readOnly = false,
         ?bool $expand = false,
     ): Container {
         $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withMountedFile');
@@ -490,6 +491,9 @@ class Container extends Client\AbstractObject implements Client\IdAble, Exportab
         }
         if (null !== $inheritOwner) {
         $innerQueryBuilder->setArgument('inheritOwner', $inheritOwner);
+        }
+        if (null !== $readOnly) {
+        $innerQueryBuilder->setArgument('readOnly', $readOnly);
         }
         if (null !== $expand) {
         $innerQueryBuilder->setArgument('expand', $expand);
