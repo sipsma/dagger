@@ -171,8 +171,11 @@ func appendUniq(xs []string, x string) []string {
 }
 
 // script renders a block as a standalone shell script with stable paths:
-// the pack tool at packPath and dependency archives in libDir.
-func (b *block) script(blocks map[string]*block, packPath, libDir string) string {
+// the pack tool at packPath and dependency archives in libDir. With
+// roInputs, /src and /gomod are read-only mounts holding only this
+// package's files, so a working directory carried over from the previous
+// block is entered only if it exists there, never created.
+func (b *block) script(blocks map[string]*block, packPath, libDir string, roInputs bool) string {
 	// The script runs as few processes as possible: one mkdir for every
 	// directory it needs, heredocs written with the printf builtin instead of
 	// cat, and the package archive compiled straight to its final name.
@@ -218,6 +221,10 @@ func (b *block) script(blocks map[string]*block, packPath, libDir string) string
 			continue
 		}
 		if m := reMkdirLine.FindStringSubmatch(l); m != nil {
+			if roInputs && m[2] == "cd "+m[1] && (strings.HasPrefix(m[1], "/src/") || strings.HasPrefix(m[1], "/gomod/")) {
+				body.WriteString("if [ -d " + m[1] + " ]; then cd " + m[1] + "; fi\n")
+				continue
+			}
 			dirs = append(dirs, m[1])
 			if m[2] != "" {
 				body.WriteString(m[2] + "\n")
@@ -382,7 +389,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 					libDir = mergeInto + "/_gcexp_lib"
 				}
 			}
-			script := b.script(blocks, packPath, libDir)
+			script := b.script(blocks, packPath, libDir, k["ro"])
 			ctr := base
 			if !k["pack"] || strings.Contains(script, packPath) {
 				if k["ro"] {
@@ -556,7 +563,7 @@ func (m *Gcexp) PlanDebug(ctx context.Context, src *dagger.Directory, importPath
 	}
 	for _, b := range blocks {
 		if b.importPath == importPath {
-			return fmt.Sprintf("srcFiles=%v\nmodFiles=%v\ndeps=%d\n%s", b.srcFiles, b.modFiles, len(b.deps), b.script(blocks, "/usr/local/bin/gopack", "/work/lib")), nil
+			return fmt.Sprintf("srcFiles=%v\nmodFiles=%v\ndeps=%d\n%s", b.srcFiles, b.modFiles, len(b.deps), b.script(blocks, "/usr/local/bin/gopack", "/work/lib", false)), nil
 		}
 	}
 	return "not found", nil
