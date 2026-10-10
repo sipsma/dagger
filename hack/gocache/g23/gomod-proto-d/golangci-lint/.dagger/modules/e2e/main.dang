@@ -1,0 +1,300 @@
+"""
+End-to-end checks for the golangci-lint module.
+
+The fixtures a lint check needs are the fixtures a test check needs, so these
+run against the repository's shared `testdata/` and `fixtures/` trees, each
+with a configuration file to root a project there. golangci-lint keeps its own
+only where `go`'s batch test must not find them: a module that does not
+compile, and projects whose code fails under any configuration but its own.
+"""
+type E2e {
+  let failurePath: String! = "golangci-lint/testdata/go-module-lint-fail"
+  let projectsPath: String! = "golangci-lint/testdata/projects"
+  let embedPath: String! = "testdata/go-module-with-testdata"
+  let parentPath: String! = "fixtures/go-module-with-nested-module"
+
+  let assert(condition: Boolean!, message: String!): Void {
+    if (condition == false) { raise message }
+    null
+  }
+
+  """
+  Run a check, raising its failure. A check called through a dependency comes
+  back as a Check that has not run.
+  """
+  let run(check: Check!): Void {
+    # Check.error is not null for a passing check when read from Dang, so ask
+    # pass first and read the message only on failure.
+    if (check.pass == false) {
+      raise check.error.message ?? "check failed"
+    }
+    null
+  }
+
+  let selectsOut(ws: Workspace!, patterns: [String!]!, path: String!): Boolean! {
+    golangciLint(lint: patterns).project(ws, path, findUp: false).skipLint
+  }
+
+  """
+  Discovery roots a project at each configuration file that covers Go code,
+  snaps a lookup to its enclosing project, and keeps its paths
+  workspace-root-relative from any cwd.
+  """
+  discoveryCheck(ws: Workspace!): Void @check {
+    let tool = golangciLint
+    let paths = tool.projects(ws).keys
+    assert(paths.contains(parentPath), "configured module was not discovered")
+    assert(paths.contains(parentPath + "/nested") == false, "a module without configuration became a project")
+    assert(paths.contains(projectsPath), "a configuration above its modules was not discovered")
+    assert(paths.contains(projectsPath + "/owned"), "a nested configuration was not discovered")
+    assert(paths.contains(projectsPath + "/inner/quiet"), "a configuration inside a module was not discovered")
+    assert(paths.contains(projectsPath + "/notes") == false, "a configuration with no Go code became a project")
+    assert(paths.contains(".") == false, "invented a root project")
+
+    assert(tool.project(ws, embedPath + "/testdata").path == embedPath, "lookup did not find enclosing project")
+    assert(tool.project(ws, projectsPath + "/above").path == projectsPath, "lookup did not climb to the configuration")
+    assert(
+      tool.project(ws, projectsPath + "/inner/quiet").path == projectsPath + "/inner/quiet",
+      "lookup passed over the nearest configuration",
+    )
+    let missing = tool.project(ws, "gomod").path rescue {
+      err: Error => err.message
+    }
+    assert(missing.contains("no project found"), "missing project lookup succeeded")
+
+    let below = tool.projects(ws.withWorkdir(projectsPath)).keys
+    assert(below.length == 3, "subdirectory discovery escaped its subtree")
+    assert(below.contains(projectsPath), "subdirectory discovery changed workspace-relative paths")
+    let inside = ws.withWorkdir(projectsPath + "/above")
+    assert(tool.projects(inside).keys.contains(projectsPath), "ancestor discovery failed")
+    run(tool.projects(inside).batch.lint(inside))
+
+    let included = tool.projects(ws, include: [embedPath + "/**"]).keys
+    assert(included.length == 1, "project include filter failed")
+    let excluded = tool.projects(ws, exclude: [parentPath + "/**"]).keys
+    assert(excluded.contains(parentPath) == false, "project exclude filter failed")
+    null
+  }
+
+  """
+  A project lints every module below its configuration that no nested one
+  claims, and the part of an enclosing module below it.
+  """
+  projectCheck(ws: Workspace!): Void @check {
+    let tool = golangciLint
+    let both = tool.project(ws, parentPath).modules(ws)
+    assert(both.length == 2, "a project did not cover its nested module: " + both.join(", "))
+    let parent = tool.project(ws, projectsPath).modules(ws)
+    assert(parent.contains(projectsPath + "/above"), "a module below the configuration was left out")
+    assert(parent.contains(projectsPath + "/inner"), "a module with a nested configuration was left out")
+    assert(parent.contains(projectsPath + "/owned") == false, "a module claimed by its own configuration was linted twice")
+    let quiet = tool.project(ws, projectsPath + "/inner/quiet").modules(ws)
+    assert(
+      quiet.length == 1 and quiet.contains(projectsPath + "/inner"),
+      "a configuration inside a module did not cover it: " + quiet.join(", "),
+    )
+
+    # Each fixture below fails under any configuration but the one it is meant
+    # to get, so these pass only if every package is linted once, under the
+    # right one.
+    run(tool.project(ws, projectsPath).lint(ws))
+    run(tool.project(ws, projectsPath + "/owned").lint(ws))
+    run(tool.project(ws, projectsPath + "/inner/quiet").lint(ws))
+    null
+  }
+
+  """
+  The lint setting reaches selection, including the JSON-fragment spelling
+  older beta engines deliver, and a skipped project still shows up in
+  discovery.
+  """
+  selectionCheck(ws: Workspace!): Void @check {
+    assert(selectsOut(ws, ["**"], "a/b") == false, "default selection failed")
+    assert(selectsOut(ws, ["!**"], "a/b"), "skip-all selection failed")
+    assert(selectsOut(ws, ["!docs"], "docs/nested"), "subtree exclusion failed")
+    assert(selectsOut(ws, ["docs/**"], "core"), "include-only selection failed")
+    assert(selectsOut(ws, ["[\"!docs\"", "\"!tmp\"]"], "docs"), "beta settings normalization failed")
+    let tool = golangciLint(lint: ["!" + failurePath])
+    assert(
+      tool.projects(ws).keys.contains(failurePath),
+      "discovery hid skipped project",
+    )
+    assert(
+      tool.projects(ws, includeSkipLint: false).keys.contains(failurePath) == false,
+      "skip filter failed",
+    )
+    run(tool.project(ws, failurePath).lint(ws))
+    run(golangciLint(lint: ["!**"]).projects(ws).batch.lint(ws))
+    null
+  }
+
+  """
+  The lint source mounts embeds and local replaces but not test-only
+  includes, and keeps other modules out.
+  """
+  sourceCheck(ws: Workspace!): Void @check {
+    let mod = golangciLint.module(ws, embedPath)
+    let includes = mod.includeDiscovered(ws)
+    assert(includes.contains(embedPath + "/embedded-assets/message.txt"), "embed include was lost")
+    assert(includes.contains("LICENSE") == false, "test-only include leaked into lint source")
+    let files = mod.source(ws).glob("**/*")
+    assert(files.contains(embedPath + "/embedded-assets/hidden/_secret.txt"), "all: embed directory was not mounted")
+    assert(files.contains(failurePath + "/lint_fail.go") == false, "another module leaked into lint source")
+    let extra = golangciLint(includeExtraFiles: ["LICENSE"]).module(ws, embedPath).source(ws)
+    assert(extra.file("LICENSE").contents.contains("Apache License"), "extra include was not mounted")
+    run(golangciLint.project(ws, "fixtures/go-module-with-replace").lint(ws))
+    run(golangciLint.project(ws, parentPath).lint(ws))
+    null
+  }
+
+  """
+  The batch lint over the shared fixture projects passes, and a subset lints
+  only its own keys.
+  """
+  batchCheck(ws: Workspace!): Void @check {
+    run(
+      golangciLint(lint: [
+        embedPath,
+        parentPath,
+        projectsPath,
+        "fixtures/go-module-with-replace",
+        "testdata/go-module-cgo-cxx",
+      ]).projects(ws).batch.lint(ws),
+    )
+
+    # The failing fixture is in the collection but outside the subset.
+    let projects = golangciLint.projects(ws)
+    assert(projects.keys.contains(failurePath), "failing fixture was not discovered")
+    run(projects.subset(keys: [embedPath, parentPath]).batch.lint(ws))
+    null
+  }
+
+  """
+  A lint diagnostic fails the project's own check and the batch alike.
+  """
+  failureCheck(ws: Workspace!): Void @check {
+    let failure = {
+      run(golangciLint.project(ws, failurePath).lint(ws))
+      "unexpected success"
+    } rescue {
+      err: Error => err.message
+    }
+    assert(failure.contains("exit code: 1"), "lint did not report the fixture error: " + failure)
+    let allFailure = {
+      run(golangciLint.projects(ws).subset(keys: [failurePath]).batch.lint(ws))
+      "unexpected success"
+    } rescue {
+      err: Error => err.message
+    }
+    assert(allFailure.contains("exit code: 1"), "batch lint swallowed failure: " + allFailure)
+    null
+  }
+
+  """
+  golangci-lint finds each of its four configuration file spellings.
+  """
+  configCheck: Void @check {
+    let source = directory
+      .withNewFile("go.mod", "module example.com/config\n\ngo 1.25.0\n")
+      .withNewFile("main.go", "package config\n\nfunc Value() int { return 1 }\n")
+    let configs = [".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json"]
+    configs.map { name =>
+      let ws = source.withNewFile(name, "invalid configuration").asWorkspace
+      let mod = golangciLint.module(ws, ".")
+      assert(mod.source(ws).file(name).contents == "invalid configuration", "configuration file missing: " + name)
+      assert(golangciLint.projects(ws).keys.contains("."), "configuration did not root a project: " + name)
+      let failure = {
+        run(golangciLint.project(ws, ".").lint(ws))
+        "unexpected success"
+      } rescue {
+        err: Error => err.message
+      }
+      assert(failure.contains("exit code: 3"), "golangci-lint ignored " + name + ": " + failure)
+    }
+    null
+  }
+
+  """
+  A custom base supplies the toolchain; golangci-lint is installed into it only
+  when it does not already carry one.
+  """
+  baseCheck(ws: Workspace!): Void @check {
+    let plain = container
+      .from("golang:1.26-alpine")
+      .withExec(["apk", "add", "--no-cache", "build-base"])
+      .withEntrypoint(["false"])
+    let tool = golangciLint(base: plain)
+    assert(tool.goVersion == null, "custom base exposed an assumed Go version")
+    assert(tool.version == "2.11.4", "custom base hid the release it would install")
+    assert(tool.module(ws, embedPath).goVersion(ws) == null, "custom base resolved a Go version")
+    assert(golangciLint.version == "2.11.4", "default version changed")
+    assert(golangciLint(version: "2.11.4").version == "2.11.4", "version override was lost")
+
+    # A base without golangci-lint gets the configured release, and lints.
+    run(tool.project(ws, embedPath).lint(ws))
+
+    # A base that brings its own build keeps it: a future instrumented build
+    # is installed this way, and installing over it would throw it away.
+    let own = plain.withNewFile(
+      "/usr/local/bin/golangci-lint",
+      "#!/bin/sh\necho custom-linter-used >&2\nexit 42\n",
+      permissions: 493,
+    )
+    let failure = {
+      run(golangciLint(base: own).project(ws, embedPath).lint(ws))
+      "unexpected success"
+    } rescue {
+      err: Error => err.message
+    }
+    assert(failure.contains("exit code: 42"), "the base's own linter was overwritten: " + failure)
+
+    # version says what to install, so it composes with base.
+    run(
+      golangciLint(version: "2.11.4", base: plain).project(ws, embedPath).lint(ws),
+    )
+
+    # goVersion is ignored rather than refused: the base already carries a
+    # toolchain, and refusing the combination would only make the caller edit
+    # settings to say what the base already says.
+    let ignored = golangciLint(goVersion: "1.25", base: plain)
+    assert(ignored.goVersion == null, "goVersion was not ignored alongside base")
+    let said = ignored.warnings.join("; ")
+    assert(said.contains("goVersion"), "the warning did not name the dropped setting: " + said)
+    assert(said.contains("base was set"), "the warning did not say why it was dropped: " + said)
+    assert(golangciLint.warnings.length == 0, "a plain constructor warned about nothing")
+    assert(
+      ignored.module(ws, embedPath).base(ws).withExec(["go", "version"]).stdout.contains("go1.26"),
+      "the ignored goVersion reached the container anyway",
+    )
+    run(ignored.project(ws, embedPath).lint(ws))
+    null
+  }
+
+  """
+  Each module is linted with the Go toolchain its own go.mod asks for, while
+  the linter release stays whatever the settings say.
+  """
+  goVersionCheck(ws: Workspace!): Void @check {
+    # The shared fixtures say "go 1.25"; the helper module says "go 1.26.1".
+    let older = golangciLint.module(ws, parentPath)
+    let newer = golangciLint.module(ws, "gomod/helpers/go-includes")
+    assert(older.goVersion(ws) == "1.25", "go 1.25 was not taken from the module: " + (older.goVersion(ws) ?? "<null>"))
+    assert(newer.goVersion(ws) == "1.26", "go 1.26.1 did not resolve to its minor series: " + (newer.goVersion(ws) ?? "<null>"))
+    assert(golangciLint.goVersion == null, "the root claimed a version that varies per module")
+
+    # The toolchain on PATH is the module's; the linter is its own release,
+    # built against its own Go.
+    let shell = older.base(ws).withExec(["sh", "-c", "go version; golangci-lint --version"]).stdout
+    assert(shell.contains("go version go1.25"), "the module's toolchain was not on PATH: " + shell)
+    assert(shell.contains("has version 2.11.4"), "the pinned linter release was not copied in: " + shell)
+
+    let pinned = golangciLint(goVersion: "1.26").module(ws, parentPath)
+    assert(pinned.goVersion(ws) == "1.26", "goVersion did not override the module's own")
+    assert(
+      pinned.base(ws).withExec(["go", "version"]).stdout.contains("go1.26"),
+      "goVersion did not reach the container",
+    )
+    run(golangciLint(goVersion: "1.26").project(ws, parentPath).lint(ws))
+    null
+  }
+}

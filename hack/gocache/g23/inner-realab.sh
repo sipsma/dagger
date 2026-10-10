@@ -1,7 +1,8 @@
 # Today's real Go module (A, github.com/dagger/go main) against g23 prototypes of it (B, and
-# optionally C: the same module with fewer module calls per build, at hack/gocache/g23/gomod-proto
-# and gomod-proto-c of this harness's commit), on yq, on one fresh dev engine. Runs in the client
-# container; /work is the gcexp workspace with yq at ./yq. G23_ARGS: "<order> <B ref> [<C ref>]",
+# optionally C and D: the same module with fewer module calls per build, at
+# hack/gocache/g23/gomod-proto, gomod-proto-c and gomod-proto-d of this harness's commit), on yq, on
+# one fresh dev engine. Runs in the client container; /work is the gcexp workspace with yq at ./yq.
+# G23_ARGS: "<order> <B ref> [<C ref> [<D ref>]]",
 # where order lists the arms in the order their blocks run ("AB", "BA", "ACB", ...), and "check"
 # runs only the equivalence checks, every arm against A.
 # Each arm has its own workspace copy and, being a different module, its own go-mod and go-build
@@ -17,14 +18,15 @@ D=http://dagger-engine:6060/debug/wcprof/dump
 dump() { curl -sf "$D?flush=1" -o "/out/$1.dump" || echo "$1: dump failed" >> /out/summary.txt; }
 flush() { curl -sf "$D?flush=1" -o /dev/null || true; }
 REF_A=${GOMOD_REF_A:-github.com/dagger/go@334136faaa1cd36ac26dfdc648eda907ce99c063}
-# G23_ARGS is "<order> <module ref for B> [<module ref for C>]", e.g.
+# G23_ARGS is "<order> <module ref for B> [<module ref for C> [<module ref for D>]]", e.g.
 # "AB github.com/sipsma/dagger/hack/gocache/g23/gomod-proto@<sha>".
 set -- $G23_ARGS
 order=${1:-AB}
 REF_B=${2:?G23_ARGS needs the B module ref}
 REF_C=${3:-}
-all="A B${REF_C:+ C}"
-echo "order $order; A=$REF_A; B=$REF_B${REF_C:+; C=$REF_C}" >> /out/summary.txt
+REF_D=${4:-}
+all="A B${REF_C:+ C}${REF_D:+ D}"
+echo "order $order; A=$REF_A; B=$REF_B${REF_C:+; C=$REF_C}${REF_D:+; D=$REF_D}" >> /out/summary.txt
 for arm in $all; do
   mkdir -p /rm/$arm && cp -r /work/yq /rm/$arm/yq
   (cd /rm/$arm/yq && git init -q && git add -A && git -c user.email=g23@x -c user.name=g23 commit -qm yq)
