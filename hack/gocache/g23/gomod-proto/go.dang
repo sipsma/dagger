@@ -259,8 +259,8 @@ type GoPackages @collection {
 
   # Main packages selected by build, and each package's module root (as
   # "path\nmodule"), from discovery. Empty when not known.
-  let mainPaths: [String!]! = []
-  let moduleOfPaths: [String!]! = []
+  let mainPaths: [String!]!
+  let moduleOfPaths: [String!]!
 
   """
   The package in this directory.
@@ -268,7 +268,7 @@ type GoPackages @collection {
   package(path: String!): GoPackage! @get {
     let found = moduleOfPaths.filter { entry => entry.hasPrefix(path + "\n") }
     if (found.length == 0) {
-      GoPackage(path: path, mountPath: mountPath, tool: tool)
+      GoPackage(path: path, mountPath: mountPath, tool: tool, known: false, isMain: false, modulePath: "")
     } else {
       GoPackage(
         path: path,
@@ -368,9 +368,9 @@ type GoPackage {
 
   # Facts discovery already established, when this package came from it:
   # whether it is a main package selected by build, and its module root.
-  let known: Boolean! = false
-  let isMain: Boolean! = false
-  let modulePath: String! = ""
+  let known: Boolean!
+  let isMain: Boolean!
+  let modulePath: String!
 
   let module(ws: Workspace!): GoModule! {
     if (known) {
