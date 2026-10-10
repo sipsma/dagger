@@ -50,10 +50,10 @@ for d in "$out"/run/first*.dump "$out"/run/noop*.dump "$out"/run/edit*.dump "$ou
   {
     echo "### $(basename "$d")"
     echo "## critpath of the gcexp call"; $W -view critpath -class '^gcexp:Gcexp[.](replay|plain)$' -kind call -depth 0 -top 45 "$d"
-    echo "## exec phases"; $W -view classes -kind exec_phase -top 25 "$d"
+    echo "## exec phases"; $W -view classes -kind exec_phase -top 60 "$d"
     echo "## lazy ops by duration"; $W -view classes -kind lazy -sort dur -top 20 "$d"
     echo "## lazy ops by self"; $W -view classes -kind lazy -top 12 "$d"
-    echo "## io ops (snapshot and mount phases)"; $W -view classes -kind io -top 20 "$d"
+    echo "## io ops (snapshot and mount phases)"; $W -view classes -kind io -top 40 "$d"
     echo "## calls by self time"; $W -view classes -kind call -top 25 "$d"
     echo "## waits"; $W -view waits -top 20 "$d"
     echo "## withFiles tree"; $W -view tree -class '^Directory[.]withFiles$' -kind lazy -depth 3 "$d"

@@ -18,6 +18,7 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/snapshots/config"
+	"github.com/dagger/dagger/engine/wcprof"
 	overlay "github.com/dagger/dagger/engine/snapshots/fsdiff"
 	rootlessmountopts "github.com/dagger/dagger/engine/snapshots/rootlessmountopts"
 	"github.com/dagger/dagger/internal/buildkit/client"
@@ -711,8 +712,12 @@ func (sr *mutableRef) commit(ctx context.Context, usage *snapshots.Usage) (_ *im
 	if usage != nil {
 		commitOpts = append(commitOpts, withMergeUsage(*usage))
 	}
+	profCommitNS := wcprof.NowNS()
 	if err := sr.cm.Snapshotter.Commit(ctx, id, sr.SnapshotID(), commitOpts...); err != nil {
 		return nil, errors.Wrapf(err, "failed to commit %s to immutable %s", sr.SnapshotID(), id)
+	}
+	if wcprof.Enabled(ctx) {
+		wcprof.RecordOp(ctx, wcprof.OpKindIO, "snapshot.commit:snapshotter", wcprof.OpOpts{}, profCommitNS, wcprof.NowNS(), wcprof.OutcomeOK)
 	}
 
 	if descr := sr.GetDescription(); descr != "" {
@@ -802,16 +807,28 @@ func (sr *mutableRef) mutableMount(ctx context.Context, readonly bool) (_ Mounta
 }
 
 func (sr *mutableRef) Commit(ctx context.Context) (ImmutableRef, error) {
+	// EXPERIMENT (g18 rootfs attribution): time each step of a commit.
+	profNS := wcprof.NowNS()
+	profStep := func(name string) {
+		if wcprof.Enabled(ctx) {
+			now := wcprof.NowNS()
+			wcprof.RecordOp(ctx, wcprof.OpKindIO, "snapshot.commit:"+name, wcprof.OpOpts{}, profNS, now, wcprof.OutcomeOK)
+			profNS = now
+		}
+	}
 	ctx, err := EnsureLease(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "ensure lease for snapshot commit")
 	}
+	profStep("lease")
 
 	sr.cm.mu.Lock()
 	defer sr.cm.mu.Unlock()
 
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
+	profStep("lockwait")
+	defer profStep("locked")
 
 	return sr.commit(ctx, nil)
 }

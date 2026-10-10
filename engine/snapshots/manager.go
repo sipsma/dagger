@@ -13,6 +13,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/labels"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/dagger/dagger/engine/snapshots/fsdiff"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/internal/buildkit/client"
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
@@ -429,18 +430,31 @@ func (cm *snapshotManager) New(ctx context.Context, s ImmutableRef, opts ...RefO
 	}
 
 	snapshotID := id
+	// EXPERIMENT (g18 rootfs attribution): time each step of a mutable snapshot's creation.
+	profNS := wcprof.NowNS()
+	profStep := func(name string) {
+		if wcprof.Enabled(ctx) {
+			now := wcprof.NowNS()
+			wcprof.RecordOp(ctx, wcprof.OpKindIO, "snapshot.new:"+name, wcprof.OpOpts{}, profNS, now, wcprof.OutcomeOK)
+			profNS = now
+		}
+	}
 	ctx, err = EnsureLease(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "ensure lease for snapshot prepare")
 	}
+	profStep("lease")
 	err = cm.Snapshotter.Prepare(ctx, snapshotID, parentSnapshotID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to prepare %v as %s", parentSnapshotID, snapshotID)
 	}
+	profStep("prepare")
 
 	// All metadataStore and records map mutations must happen under cm.mu.
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+	profStep("lockwait")
+	defer profStep("metadata")
 
 	md := cm.ensureMetadata(id)
 

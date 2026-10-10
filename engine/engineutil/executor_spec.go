@@ -608,6 +608,15 @@ func (c *Client) setupRootfs(ctx context.Context, state *execState) error {
 		return os.RemoveAll(state.rootfsPath)
 	})
 	state.spec.Root.Path = state.rootfsPath
+	// EXPERIMENT (g18 rootfs attribution): time each step of the rootfs setup.
+	profNS := wcprof.NowNS()
+	profStep := func(name string) {
+		if wcprof.Enabled(ctx) {
+			now := wcprof.NowNS()
+			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.setupRootfs:"+name, wcprof.OpOpts{Ident: state.id}, profNS, now, wcprof.OutcomeOK)
+			profNS = now
+		}
+	}
 	if state.rootMount.Selector != "" {
 		state.spec.Root.Path, err = fs.RootPath(state.rootfsPath, state.rootMount.Selector)
 		if err != nil {
@@ -619,6 +628,7 @@ func (c *Client) setupRootfs(ctx context.Context, state *execState) error {
 	if err != nil {
 		return fmt.Errorf("get rootfs mountable: %w", err)
 	}
+	profStep("mountable")
 	rootMnts, releaseRootMount, err := rootMountable.Mount()
 	if err != nil {
 		return fmt.Errorf("get rootfs mount: %w", err)
@@ -626,9 +636,11 @@ func (c *Client) setupRootfs(ctx context.Context, state *execState) error {
 	if releaseRootMount != nil {
 		state.cleanups.Add("release rootfs mount", releaseRootMount)
 	}
+	profStep("mounts")
 	if err := mount.All(rootMnts, state.rootfsPath); err != nil {
 		return fmt.Errorf("mount rootfs: %w", err)
 	}
+	profStep("overlay")
 
 	overlayIncompatDirs := overlay.VolatileIncompatDirs(rootMnts)
 
@@ -705,6 +717,8 @@ func (c *Client) setupRootfs(ctx context.Context, state *execState) error {
 		}
 	}
 
+	profStep("meta")
+	defer profStep("binds")
 	state.cleanups.Add("cleanup rootfs stubs", cleanups.Infallible(executor.MountStubsCleaner(
 		ctx,
 		state.rootfsPath,
