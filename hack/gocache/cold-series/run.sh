@@ -20,7 +20,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${1:-$HOME/gocache-cold-series-$(date -u +%Y%m%dT%H%M%SZ)}
 concs=${CONCS:-8 16 32 32 16 8}
-expmod=${EXPMOD:-$HOME/gocache-bench/expmod}; yq=$HOME/gocache-bench/yq
+expmod=${EXPMOD:-$HOME/gocache-bench/expmod}; yq=${YQ:-$HOME/gocache-bench/yq}
 [ -d "$expmod/.git" ] && [ -d "$yq" ] || { echo "missing $expmod (with .git) or $yq" >&2; exit 2; }
 id=$(date +%s%N)
 mkdir -p "$out"
