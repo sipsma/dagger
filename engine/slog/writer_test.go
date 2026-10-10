@@ -3,6 +3,7 @@ package slog
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -214,4 +215,231 @@ func TestFlushHandler(t *testing.T) {
 	if rec.writes >= 1600 {
 		t.Fatalf("no batching: %d writes", rec.writes)
 	}
+}
+
+// Empty writes return at once, including synchronous ones.
+func TestWriterEmptyWrite(t *testing.T) {
+	rec := &recorder{}
+	w := NewWriter(rec, 1<<20)
+	done := make(chan struct{})
+	go func() {
+		w.WriteSync(nil)
+		SyncWriter{w}.Write([]byte{})
+		w.Write(nil)
+		w.Flush()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("empty write did not return")
+	}
+}
+
+// failing accepts at most n bytes per call, then fails every call once
+// failAfter bytes have been accepted.
+type failing struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	n         int
+	failAfter int
+}
+
+var errSink = errors.New("sink failed")
+
+func (f *failing) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.buf.Len() >= f.failAfter {
+		return 0, errSink
+	}
+	p = p[:min(len(p), f.n)]
+	return f.buf.Write(p)
+}
+
+// Short writes are continued; a destination error reaches the callers
+// waiting on those bytes, with the count of their bytes that were written.
+func TestWriterShortWritesAndErrors(t *testing.T) {
+	f := &failing{n: 3, failAfter: 1 << 30}
+	w := NewWriter(f, 1<<20)
+	if n, err := w.WriteSync([]byte("hello world\n")); err != nil || n != 12 {
+		t.Fatalf("WriteSync = %d, %v", n, err)
+	}
+	if got := f.buf.String(); got != "hello world\n" {
+		t.Fatalf("short writes not continued: %q", got)
+	}
+	// The destination accepts 3 more bytes, then fails.
+	f.failAfter = f.buf.Len() + 3
+	if n, err := (SyncWriter{w}).Write([]byte("abcdef\n")); !errors.Is(err, errSink) || n != 3 {
+		t.Fatalf("SyncWriter.Write = %d, %v; want 3, %v", n, err, errSink)
+	}
+	if n, err := w.WriteSync([]byte("lost\n")); !errors.Is(err, errSink) || n != 0 {
+		t.Fatalf("WriteSync = %d, %v; want 0, %v", n, err, errSink)
+	}
+}
+
+// FlushHandler reports its record's destination error even when the batch
+// failed before the handler started waiting.
+func TestFlushHandlerReportsErrors(t *testing.T) {
+	w := NewWriter(&failing{n: 1 << 20, failAfter: 0}, 1<<20)
+	h := FlushHandler{slog.NewTextHandler(w, nil), w}
+	var wg sync.WaitGroup
+	var missed atomic.Int64
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 500 {
+				if err := h.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "x", 0)); !errors.Is(err, errSink) {
+					missed.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	// And when the drain has certainly finished before the wait begins.
+	slow := slowHandler{slog.NewTextHandler(w, nil)}
+	if err := (FlushHandler{slow, w}).Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "x", 0)); !errors.Is(err, errSink) {
+		missed.Add(1)
+	}
+	if m := missed.Load(); m > 0 {
+		t.Fatalf("missed %d of 4001 errors", m)
+	}
+}
+
+// slowHandler returns from Handle only after the queue has drained.
+type slowHandler struct{ slog.Handler }
+
+func (h slowHandler) Handle(ctx context.Context, r slog.Record) error {
+	err := h.Handler.Handle(ctx, r)
+	time.Sleep(20 * time.Millisecond)
+	return err
+}
+
+// gated blocks every write until released.
+type gated struct {
+	recorder
+	gate chan struct{}
+}
+
+func (g *gated) Write(p []byte) (int, error) {
+	<-g.gate
+	return g.recorder.Write(p)
+}
+
+// The limit covers the batch being written too, and a line larger than the
+// limit goes through alone.
+func TestWriterLimitIncludesInflight(t *testing.T) {
+	g := &gated{gate: make(chan struct{})}
+	const limit = 16
+	w := NewWriter(g, limit)
+	big := bytes.Repeat([]byte("x"), 100)
+	w.Write(big) // oversized, queue empty: accepted, then held by the gate
+	time.Sleep(20 * time.Millisecond)
+	second := make(chan struct{})
+	go func() {
+		w.Write([]byte("small\n"))
+		close(second)
+	}()
+	select {
+	case <-second:
+		t.Fatal("write accepted while an oversized batch was in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(g.gate)
+	<-second
+	w.Flush()
+	if got := g.String(); got != string(big)+"small\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// Empty writes return at once even while the destination is blocked.
+func TestWriterEmptyWhileBlocked(t *testing.T) {
+	g := &gated{gate: make(chan struct{})}
+	w := NewWriter(g, 1<<20)
+	w.Write([]byte("held\n"))
+	done := make(chan struct{})
+	go func() {
+		w.WriteSync(nil)
+		SyncWriter{w}.Write([]byte{})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("empty write waited for unrelated output")
+	}
+	close(g.gate)
+}
+
+// fullCountErr takes every byte but reports an error.
+type fullCountErr struct{}
+
+func (fullCountErr) Write(p []byte) (int, error) { return len(p), errSink }
+
+// An error reported with a full count still reaches the waiter.
+func TestWriterFullCountError(t *testing.T) {
+	w := NewWriter(fullCountErr{}, 1<<20)
+	if n, err := w.WriteSync([]byte("ab")); n != 2 || !errors.Is(err, errSink) {
+		t.Fatalf("WriteSync = %d, %v; want 2, %v", n, err, errSink)
+	}
+}
+
+type panicHandler struct{ slog.Handler }
+
+func (panicHandler) Handle(context.Context, slog.Record) error { panic("boom") }
+
+// Waiters are released after results, errors and panics, so failures are
+// not retained for them, however many occur.
+func TestWriterWaitersReleased(t *testing.T) {
+	f := &failing{n: 1, failAfter: 0}
+	w := NewWriter(f, 16)
+	stall := make(chan struct{})
+	stalled := make(chan struct{})
+	go func() {
+		FlushHandler{blockingHandler{slog.NewTextHandler(w, nil), stalled, stall}, w}.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "x", 0))
+	}()
+	<-stalled
+	for range 2000 {
+		if _, err := w.WriteSync([]byte("ab")); !errors.Is(err, errSink) {
+			t.Fatalf("WriteSync error = %v", err)
+		}
+	}
+	w.mu.Lock()
+	if n := len(w.waiters); n != 1 {
+		t.Fatalf("%d waiters registered while one handler is stalled", n)
+	}
+	w.mu.Unlock()
+	close(stall)
+	func() {
+		defer func() { recover() }()
+		FlushHandler{panicHandler{}, w}.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "x", 0))
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		w.mu.Lock()
+		n := len(w.waiters)
+		w.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d waiters still registered", n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// blockingHandler signals, then blocks inside Handle until released.
+type blockingHandler struct {
+	slog.Handler
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h blockingHandler) Handle(ctx context.Context, r slog.Record) error {
+	close(h.entered)
+	<-h.release
+	return h.Handler.Handle(ctx, r)
 }

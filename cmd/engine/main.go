@@ -478,7 +478,7 @@ func main() { //nolint:gocyclo
 		engineLogWriter = slog.NewWriter(os.Stderr, 1<<20)
 		engineLogWriter.SyncWarn = true
 		defer engineLogWriter.Flush()
-		logrus.RegisterExitHandler(engineLogWriter.Flush)
+		logrus.RegisterExitHandler(func() { _ = engineLogWriter.Flush() })
 		logrus.SetOutput(engineLogWriter)
 		// The writer is safe for concurrent use, so logrus needn't format
 		// every entry under its global lock.
