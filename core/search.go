@@ -20,11 +20,15 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
+// SearchResult's scalar fields are read once per result of every search, so
+// they are not cached: a cached read would store one session-owned result per
+// field per match. Submatches stays cached because its items are objects,
+// which need a cache entry to have an ID.
 type SearchResult struct {
-	FilePath       string            `field:"true" doc:"The path to the file that matched."`
-	LineNumber     int               `field:"true" doc:"The first line that matched."`
-	AbsoluteOffset int               `field:"true" doc:"The byte offset of this line within the file."`
-	MatchedLines   string            `field:"true" doc:"The line content that matched."`
+	FilePath       string            `field:"true" doc:"The path to the file that matched." doNotCache:"simple field selection"`
+	LineNumber     int               `field:"true" doc:"The first line that matched." doNotCache:"simple field selection"`
+	AbsoluteOffset int               `field:"true" doc:"The byte offset of this line within the file." doNotCache:"simple field selection"`
+	MatchedLines   string            `field:"true" doc:"The line content that matched." doNotCache:"simple field selection"`
 	Submatches     []*SearchSubmatch `field:"true" doc:"Sub-match positions and content within the matched lines."`
 }
 
@@ -96,9 +100,9 @@ func (*SearchResult) DecodePersistedObject(_ context.Context, _ *dagql.PersistDe
 }
 
 type SearchSubmatch struct {
-	Text  string `field:"true" doc:"The matched text."`
-	Start int    `field:"true" doc:"The match's start offset within the matched lines."`
-	End   int    `field:"true" doc:"The match's end offset within the matched lines."`
+	Text  string `field:"true" doc:"The matched text." doNotCache:"simple field selection"`
+	Start int    `field:"true" doc:"The match's start offset within the matched lines." doNotCache:"simple field selection"`
+	End   int    `field:"true" doc:"The match's end offset within the matched lines." doNotCache:"simple field selection"`
 }
 
 var _ dagql.PersistedObject = (*SearchSubmatch)(nil)
