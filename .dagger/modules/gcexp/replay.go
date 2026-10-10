@@ -266,7 +266,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 			defer wg.Done()
 			r := results[id]
 			defer close(r.done)
-			ctr := goBase(salt).WithMountedFile("/usr/local/bin/gopack", packTool)
+			ctr := goBase(salt).WithMountedFile("/usr/local/bin/gopack", packTool, dagger.ContainerWithMountedFileOpts{ReadOnly: true})
 			var depFiles []*dagger.File
 			for _, d := range b.deps {
 				dr := results[d]

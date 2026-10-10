@@ -5628,6 +5628,8 @@ type ContainerWithMountedFileOpts struct {
 	Owner string
 	// Set the owner to the container's current user.
 	InheritOwner bool
+	// Mount the file read-only.
+	ReadOnly bool
 	// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo.txt").
 	Expand bool
 }
@@ -5644,6 +5646,10 @@ func (r *Container) WithMountedFile(path string, source *File, opts ...Container
 		// `inheritOwner` optional argument
 		if !querybuilder.IsZeroValue(opts[i].InheritOwner) {
 			q = q.Arg("inheritOwner", opts[i].InheritOwner)
+		}
+		// `readOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ReadOnly) {
+			q = q.Arg("readOnly", opts[i].ReadOnly)
 		}
 		// `expand` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Expand) {
