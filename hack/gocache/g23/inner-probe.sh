@@ -1,4 +1,5 @@
 # Probe the real module's CLI surface on this engine (functional only).
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set +e
 mkdir -p /rm && cp -r /work/yq /rm/yq && cd /rm/yq && git init -q && git add -A && git -c user.email=g23@x -c user.name=g23 commit -qm yq
 printf '[modules.go]\nsource = "%s"\n' "${GOMOD_REF:-github.com/dagger/go@334136faaa1cd36ac26dfdc648eda907ce99c063}" > /rm/yq/dagger.toml

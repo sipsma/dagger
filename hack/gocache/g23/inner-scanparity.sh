@@ -6,6 +6,7 @@
 # are new; after a warm-up call that builds the scanner helper, one shared exec gives
 # exec.processRun=1 per call, two separate execs give 2. Also the reverse order, and the test,
 # generate and test+generate modes. A wcprof dump per call; run.sh prints the counts.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 D=http://dagger-engine:6060/debug/wcprof/dump

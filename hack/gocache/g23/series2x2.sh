@@ -5,6 +5,7 @@
 #     G23_EXTRA="<B ref> <C ref>" hack/gocache/g23/series2x2.sh <outdir>
 # A slot "E1:CA" runs with G23_ARGS="CA $G23_EXTRA"; its outputs land in <outdir>/<n>-E1-CA/, and
 # its meta.txt names the engine commit. Then prints every slot's summary.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -euo pipefail
 mkdir -p "${1:?outdir}"
 out=$(cd "$1" && pwd)

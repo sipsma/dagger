@@ -9,6 +9,7 @@
 # CLASS is the critical-path root class regex for the reports. DRY=1 prints the dagger script.
 # DSRC (optional) is a source tree mounted at /d in the client container, e.g. a dagger/dagger
 # checkout for inner-scale.sh.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${1:-$HOME/gocache-g23-$(date -u +%Y%m%dT%H%M%SZ)}
@@ -24,7 +25,7 @@ script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
 cidr=\$(\$dev | network-cidr)
 svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-g23-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
-engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl ripgrep git) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-mounted-directory /d \$(host | directory ${DSRC:-$here/empty} --exclude .git --exclude docs --exclude "**/node_modules") | with-env-variable NONCE $id | with-env-variable G23_ARGS "${G23_ARGS:-}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
+engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl ripgrep git) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-mounted-directory /d \$(host | directory ${DSRC:-$here/empty} --exclude .git --exclude docs --exclude "**/node_modules") | with-env-variable DAGGER_LEAVE_OLD_ENGINE true | with-env-variable NONCE $id | with-env-variable G23_ARGS "${G23_ARGS:-}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
 container | from golang:1.26 | with-env-variable CGO_ENABLED 0 | with-directory /src \$(directory | with-file go.mod \$(host | file go.mod) | with-file go.sum \$(host | file go.sum) | with-directory engine/wcprof \$(host | directory engine/wcprof) | with-directory internal/enginelab/wcprofreport \$(host | directory .dagger/modules/engine-lab/wcprof-report)) | with-workdir /src | with-exec -- go build -o /out/wcprof-report ./internal/enginelab/wcprofreport | file /out/wcprof-report | export $out/wcprof-report
 DSH
 )

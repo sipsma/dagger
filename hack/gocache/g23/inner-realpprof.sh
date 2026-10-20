@@ -1,6 +1,7 @@
 # Engine CPU profile across no-change calls of today's real Go module (github.com/dagger/go main)
 # on yq, to attribute the time between engine ops inside its module calls. Runs in the client
 # container; /work is the gcexp workspace with yq at ./yq.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 GOMOD=${GOMOD_REF:-github.com/dagger/go@334136faaa1cd36ac26dfdc648eda907ce99c063}
 mkdir -p /rm && cp -r /work/yq /rm/yq
