@@ -58,6 +58,10 @@ type block struct {
 	srcFiles   []string // relative to /src
 	modFiles   []string // relative to /gomod
 	isMain     bool
+	// keepBuildID keeps the plan's -buildid on this block's link and fills
+	// in the content part afterwards, as the go command does, so the binary
+	// carries a valid Go build ID (and the GNU one derived from it).
+	keepBuildID bool
 }
 
 var (
@@ -221,7 +225,10 @@ func (b *block) script(blocks map[string]*block, tier map[string]bool) string {
 	var heredoc []string
 	heredocTarget := ""
 	for _, l := range b.lines {
-		l = reBuildID.ReplaceAllString(l, "")
+		link := b.keepBuildID && strings.Contains(l, "/link ")
+		if !link {
+			l = reBuildID.ReplaceAllString(l, "")
+		}
 		l = reConc.ReplaceAllString(l, " -c=4")
 		// The go command packs archives in-process; "go tool pack" would
 		// build the pack tool from source in every fresh container.
@@ -267,6 +274,9 @@ func (b *block) script(blocks map[string]*block, tier map[string]bool) string {
 			continue
 		}
 		body.WriteString(l + "\n")
+		if link {
+			body.WriteString("go tool buildid -w /work/" + b.name + "/exe/a.out\n")
+		}
 	}
 	return "set -e\nmkdir -p " + strings.Join(dirs, " ") + "\n" + body.String()
 }
@@ -332,7 +342,7 @@ func (m *Gcexp) PackTool(ctx context.Context) (string, error) {
 //	stdonly build only the plan's standard-library packages, per package,
 //	        and stop: a later build with the same salt then starts with a warm
 //	        standard library, as if another build with this toolchain had run.
-type modeOpts struct{ memo, coarse, lazy, hdr, prio, stdonly bool }
+type modeOpts struct{ memo, coarse, lazy, hdr, prio, stdonly, buildid bool }
 
 func parseMode(s string) (modeOpts, error) {
 	var o modeOpts
@@ -351,6 +361,8 @@ func parseMode(s string) (modeOpts, error) {
 			o.prio = true
 		case "stdonly":
 			o.stdonly = true
+		case "buildid":
+			o.buildid = true
 		default:
 			return o, fmt.Errorf("unknown mode %q", n)
 		}
@@ -923,6 +935,9 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		}
 		tierDur = time.Since(start)
 	}
+	if main, ok := blocks["b001"]; ok && opts.buildid {
+		main.keepBuildID = true
+	}
 	nodes := map[string]*node{}
 	for id, b := range blocks {
 		if !tier[id] {
@@ -1001,6 +1016,7 @@ cd /out
 echo "== sizes"; ls -l plain plain-noid replay | awk '{print $5, $9}'
 echo "== sha256"; sha256sum plain plain-noid replay
 echo "== go build IDs"; for f in plain plain-noid replay; do echo "$f: [$(go tool buildid $f 2>&1)]"; done
+if [ -n "$(go tool buildid replay 2>/dev/null)" ]; then cp replay /tmp/bw; s=$(date +%s%N); go tool buildid -w /tmp/bw; e=$(date +%s%N); echo "buildid -w on a copy: $(( (e-s)/1000000 )) ms (local, shape only); unchanged after: $(cmp -s /tmp/bw replay && echo yes || echo no)"; fi
 echo "== differing bytes"
 echo "plain vs replay: $(cmp -l plain replay 2>/dev/null | wc -l)"
 echo "plain-noid vs replay: $(cmp -l plain-noid replay 2>/dev/null | wc -l)"
