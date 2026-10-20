@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 t() { n=$1; shift; s=$(cut -d' ' -f1 /proc/uptime); timeout 1500 dagger -s "$@" > /out/$n.txt 2>&1 || echo "FAILED rc=$?" >> /out/$n.txt; e=$(cut -d' ' -f1 /proc/uptime); echo "$n wall=$(awk -v s=$s -v e=$e 'BEGIN{printf "%d", (e-s)*1000}')ms :: $(head -1 /out/$n.txt | cut -c1-160)" >> /out/summary.txt; }
 R="call gcexp replay --src ./yq --salt s-LABEL --concurrency 16"
 t replay-cold $R --nonce a

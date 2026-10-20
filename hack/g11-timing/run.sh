@@ -1,4 +1,5 @@
 #!/bin/bash
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Timing harness for the dagql shared egraph lock change (measurement only, not for merge).
 #
 # usage: hack/g11-timing/run.sh <A-sha> <B-sha> [order]
