@@ -7,6 +7,7 @@
 #   get       go | packages | get .                 + the collection lookup
 #   binary    go | packages | get . | binary | size + the build call (cached exec)
 # wcprof dumps for the third repetition of each.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 D=http://dagger-engine:6060/debug/wcprof/dump

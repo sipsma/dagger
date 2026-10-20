@@ -12,6 +12,7 @@
 # names of pkg/yqlib, and the batch binary entries; and otherws, a probe module that discovers
 # packages on one workspace and builds them against another (a main package added, a main package
 # made a library, a nested go.mod added), where today's module discovers again.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 D=http://dagger-engine:6060/debug/wcprof/dump

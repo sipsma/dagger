@@ -11,6 +11,7 @@
 #   plain-cold / plain-noop / plain-edit (gcexp plain with a fresh GOCACHE volume; noop forced);
 #   replay-first / replay-noop / replay-edit (gcexp replay, driver v1, stamps off), for reference.
 # ORDER=A runs the real-module block before the plain block, ORDER=B after it (ABBA across slots).
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 t() { n=$1; shift; s=$(ms); timeout 1500 dagger "$@" > /out/$n.txt 2>&1 || echo "FAILED rc=$?" >> /out/$n.txt; e=$(ms); echo "$n wall_ms=$((e-s)) :: $(tail -1 /out/$n.txt | tr '\n' ' ' | cut -c1-160)" >> /out/summary.txt; }

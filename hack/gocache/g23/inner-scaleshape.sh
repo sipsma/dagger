@@ -1,5 +1,6 @@
 # Local shape check (not for timing): gcexp memo,hdr on dagger's CLI, a first build then a no-change
 # build, with a wcprof dump of each. /d is the dagger source (run.sh's DSRC).
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 D=http://dagger-engine:6060/debug/wcprof/dump

@@ -4,6 +4,7 @@
 # Each slot runs run.sh with G23_ARGS set to its arm, followed by G23_EXTRA if set; outputs land
 # in <outdir>/<n>-<arm>/.
 # Then prints every slot's summary.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${1:?outdir}

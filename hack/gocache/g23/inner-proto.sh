@@ -8,6 +8,7 @@
 # for every mode's first and edit, and the warm-std first build.
 # G23_ARGS=fwd runs the modes in the listed order, rev in reverse (ABBA across slots).
 # MODES overrides the list; "base" stands for driver v1 unchanged.
+export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 t() { n=$1; shift; s=$(ms); timeout 1500 dagger "$@" > /out/$n.txt 2>&1 || echo "FAILED rc=$?" >> /out/$n.txt; e=$(ms); echo "$n wall_ms=$((e-s)) :: $(grep -m1 -E '^(replay|plain)' /out/$n.txt | cut -c1-110) :: $(grep -m1 TIMING /out/$n.txt | sed 's/.*mode=/mode=/' | cut -c1-80)" >> /out/summary.txt; }
