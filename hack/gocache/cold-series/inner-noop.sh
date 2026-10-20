@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Re-execution detector (runs in the client container; /work = gcexp workspace with yq at ./yq).
 # One cold replay builds the state, then NOOPS (default 6) no-change replays, same salt, a fresh nonce
 # each, with a wcprof dump after each: a dump's exec.processRun count above 1 means that replay
