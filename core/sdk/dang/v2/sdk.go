@@ -121,7 +121,9 @@ func (r *runtime) Call(
 	if err != nil {
 		return fmt.Errorf("get schema introspection: %w", err)
 	}
+	endEval := dangshared.ProfStep(ctx, "dang.eval:"+r.modSource.Self().ModuleName)
 	outputBytes, err := r.eval(ctx, query, schemaJSONFile, nestedClientMetadata, true /* inert attachables */, fnCall, moduleContext)
+	endEval()
 	if err != nil {
 		return err
 	}

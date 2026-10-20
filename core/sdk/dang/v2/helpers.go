@@ -75,7 +75,9 @@ func (r *runtime) eval(
 		self := moduleContext.Self()
 		module := dangModule{name: self.Name(), originalName: self.OriginalName}
 
+		endFn := dangshared.ProfStep(ctx, "dang.function")
 		result, err := callDangFunction(ctx, env, fnCall, module)
+		endFn()
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +116,10 @@ func evalDangSource(
 			return nil, fmt.Errorf("open schema file: %w", err)
 		}
 		defer f.Close()
-		if err := json.NewDecoder(f).Decode(&intro); err != nil {
+		endDecode := dangshared.ProfStep(ctx, "dang.schemaDecode")
+		err = json.NewDecoder(f).Decode(&intro)
+		endDecode()
+		if err != nil {
 			return nil, fmt.Errorf("decode schema: %w", err)
 		}
 
@@ -157,15 +162,21 @@ func evalDangSource(
 			// for its declared types. At runtime the served schema already
 			// includes the module's own types (Module.IncludeSelfInDeps), so
 			// this is a no-op then.
+			profMod := modSource.Self().ModuleName
+			endSelf := dangshared.ProfStep(ctx, "dang.selfTypes:"+profMod)
 			ensureModuleSelfTypes(intro.Schema, modSource.Self(), modSrcDir)
+			endSelf()
 
+			endRun := dangshared.ProfStep(ctx, "dang.runDir:"+profMod)
 			env, err = runSource(ctx, modSrcDir)
+			endRun()
 			if err != nil {
 				if isDangSourceError(err) {
 					return reportDangSourceError(stdio.Stderr, err)
 				}
 				return fmt.Errorf("run dir: %w", err)
 			}
+			defer dangshared.ProfStep(ctx, "dang.retainDirectives:"+profMod)()
 			return retainDangObjectDirectives(ctx, env, modSrcDir, forTypeDefs)
 		})
 		if err != nil {

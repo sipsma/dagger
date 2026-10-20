@@ -22,6 +22,7 @@ import (
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
+	"github.com/dagger/dagger/engine/wcprof"
 	telemetry "github.com/dagger/otel-go"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 	"go.opentelemetry.io/otel/propagation"
@@ -37,6 +38,13 @@ import (
 // for container execs: workspace operations run under a scope other than the
 // client their request metadata names, and the session only accepts a child
 // registered by its held parent scope.
+// ProfStep begins a wcprof op for one step of a Dang function call and
+// returns the function that ends it. DIAGNOSTIC ONLY (DO NOT MERGE).
+func ProfStep(ctx context.Context, class string) func() {
+	_, op := wcprof.BeginOp(ctx, wcprof.OpKindSessionPhase, class, wcprof.OpOpts{})
+	return func() { op.End(wcprof.OutcomeOK) }
+}
+
 func WithNestedClientServer(
 	ctx context.Context,
 	query *core.Query,
