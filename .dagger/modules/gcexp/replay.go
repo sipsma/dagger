@@ -71,6 +71,7 @@ var (
 	rePath    = regexp.MustCompile(`(?:^|[\s"'=])((?:/src|/gomod)(?:/[^\s"';=]*)?)`)
 	reRelFile = regexp.MustCompile(`(^|\s)\./([^\s"';]+)`)
 	reBuildID = regexp.MustCompile(`\s-buildid[ =]\S+`)
+	reLinkID  = regexp.MustCompile(`(\s-buildid[ =])[^/\s]+/`)
 	reConc    = regexp.MustCompile(`\s-c=\d+`)
 	reDepArchive = regexp.MustCompile(`\$WORK/(b\d+)/_pkg_\.a`)
 )
@@ -272,6 +273,16 @@ func (b *block) script(blocks map[string]*block, tier map[string]bool) string {
 				body.WriteString(m[2] + "\n")
 			}
 			continue
+		}
+		if link {
+			// The plan's link ID comes from the header pack, so it stays the
+			// same across body edits, and the GNU build ID the linker derives
+			// from it would too. Its first field, the binary's action ID, is
+			// therefore a hash of the link's actual inputs: the main archive
+			// and every archive in the link's import config.
+			dir := "/work/" + b.name
+			body.WriteString("LINKID=$({ sed -n 's/^packagefile [^=]*=//p' " + dir + "/importcfg.link | xargs cat; cat " + dir + "/_pkg_.a; } | sha256sum | cut -c1-20)\n")
+			l = reLinkID.ReplaceAllString(l, "${1}$${LINKID}/")
 		}
 		body.WriteString(l + "\n")
 		if link {
