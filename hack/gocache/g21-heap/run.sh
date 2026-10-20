@@ -1,4 +1,5 @@
 #!/bin/bash
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Heap repro for PR 14486 (trivial getters skip the recipe digest walk). Run from the root of a dagger/dagger
 # checkout: hack/gocache/g21-heap/run.sh [outdir]. Needs only the dagger CLI on PATH. One dev engine
 # (engine-dev, built from this checkout, GC at defaults) with a fresh state volume; see inner.sh.

@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Runs inside the client container (from-source CLI, bound to the dev engine as dagger-engine). Outputs in /out.
 # Equivalent of PR 14486's heap repro: a changeset whose recipe carries FILES x ~100 KB withNewFile literals,
 # then diffStats { path oldPath kind addedLines removedLines } (FILES entries x 5 getters), sampling the
