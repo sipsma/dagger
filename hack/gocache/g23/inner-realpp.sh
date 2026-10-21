@@ -1,7 +1,7 @@
 # g23 item 4: today's real Go module (A, github.com/dagger/go main) against the same module with
-# the per-package build (B: hack/gocache/g23/gomod-pp on sipsma/dagger gocache-g23-engine-b @
-# 185e6ff296, a copy of dagger/go branch g23-perpackage at ab0d42f; with perPackage = true and
-# perPackageFallback = false, so a fallback to one go build fails instead of being timed),
+# the per-package build (B: hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go
+# branch g23-perpackage at 858b485; with perPackage = true and perPackageFallback = false, so a
+# fallback to one go build fails instead of being timed),
 # on one project, on one fresh dev engine. Runs in the client container; /work/yq is yq and /d is
 # run.sh's DSRC (a dagger/dagger source tree, for the dagger project).
 # G23_ARGS: "<order> <B ref> <project> [<tiers>]": order "AB" or "BA" (ABBA across series), or
