@@ -45,13 +45,18 @@ func (index *localIndex) writeDiscovery(outPath string) error {
 		}
 		out.WriteString("module\t" + root + "\t" + modPath + "\t" + index.goVersion(root) + "\n")
 		kinds := map[string]string{}
-		for _, file := range index.packageFiles(root) {
-			k, err := fileKinds(filepath.Join(index.root, filepath.FromSlash(file)), strings.HasSuffix(file, "_test.go"))
-			if err != nil {
-				return err
+		files := index.packageFiles(root)
+		fileKindsOf := make([]string, len(files))
+		errs := make([]error, len(files))
+		forEach(len(files), func(i int) {
+			fileKindsOf[i], errs[i] = fileKinds(filepath.Join(index.root, filepath.FromSlash(files[i])), strings.HasSuffix(files[i], "_test.go"))
+		})
+		for i, file := range files {
+			if errs[i] != nil {
+				return errs[i]
 			}
 			dir := path.Dir(moduleRelative(root, file))
-			for _, c := range k {
+			for _, c := range fileKindsOf[i] {
 				if !strings.ContainsRune(kinds[dir], c) {
 					kinds[dir] += string(c)
 				}

@@ -35,20 +35,25 @@ func (index *localIndex) writeHeaderPack(path string) error {
 		}
 	}
 	sort.Strings(files)
+	datas := make([][]byte, len(files))
+	errs := make([]error, len(files))
+	forEach(len(files), func(i int) {
+		datas[i], errs[i] = os.ReadFile(filepath.Join(index.root, files[i]))
+		if errs[i] == nil && strings.HasSuffix(files[i], ".go") {
+			datas[i] = goHeader(files[i], datas[i])
+		}
+	})
 	out, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	w := bufio.NewWriter(out)
 	fmt.Fprintln(w, "gohdr 1")
-	for _, rel := range files {
-		data, err := os.ReadFile(filepath.Join(index.root, rel))
-		if err != nil {
-			return err
+	for i, rel := range files {
+		if errs[i] != nil {
+			return errs[i]
 		}
-		if strings.HasSuffix(rel, ".go") {
-			data = goHeader(rel, data)
-		}
+		data := datas[i]
 		fmt.Fprintf(w, "%s\n%o\n%d\n", rel, 0o644, len(data))
 		w.Write(data)
 		w.WriteByte('\n')
@@ -63,7 +68,7 @@ func (index *localIndex) writeHeaderPack(path string) error {
 // its go:embed lines. A file that does not parse is kept whole.
 func goHeader(name string, src []byte) []byte {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, name, src, parser.ImportsOnly|parser.ParseComments)
+	f, err := parser.ParseFile(fset, name, src, parser.ImportsOnly|parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil || f == nil {
 		return src
 	}
