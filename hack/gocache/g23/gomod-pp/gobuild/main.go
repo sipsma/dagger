@@ -119,7 +119,7 @@ func (m *Gobuild) Binary(
 	if err != nil {
 		return nil, err
 	}
-	parts, err := partition(tiers, blocks)
+	parts, names, err := partition(tiers, blocks)
 	if err != nil {
 		return nil, err
 	}
@@ -144,20 +144,54 @@ func (m *Gobuild) Binary(
 		go b.tools.Sync(ctx)
 	}
 	w := &walker{base: b.base, tools: b.tools, src: source, mods: b.mods, roots: b.roots, concurrency: concurrency, timeline: timeline}
-	outside := map[string]int{}
+	// Tiers run as a graph: each starts once the tiers it reads are done, and
+	// each workspace package once the tiers it imports are.
+	outside := map[string]string{}
 	for k, part := range parts {
-		var lower *dagger.Directory
-		if k > 0 {
-			lower = w.tiers[k-1]
-		}
-		dir, err := b.tier(ctx, blocks, part, lower, timeline)
-		if err != nil {
-			return nil, fmt.Errorf("tier %d: %w", k, err)
-		}
-		w.tiers = append(w.tiers, dir)
 		for id := range part {
-			outside[id] = k
+			outside[id] = names[k]
 		}
+	}
+	w.tiers = map[string]*tierResult{}
+	for _, name := range names {
+		w.tiers[name] = &tierResult{done: make(chan struct{})}
+	}
+	slots := make(chan struct{}, tierConcurrency)
+	for k, part := range parts {
+		go func() {
+			r := w.tiers[names[k]]
+			defer close(r.done)
+			other := map[string]string{}
+			for id, t := range outside {
+				if t != names[k] {
+					other[id] = t
+				}
+			}
+			reads := map[string]bool{}
+			for id := range part {
+				for _, d := range blocks[id].deps {
+					if t, ok := other[d]; ok {
+						reads[t] = true
+					}
+				}
+			}
+			lower := map[string]*dagger.Directory{}
+			for t := range reads {
+				lt := w.tiers[t]
+				<-lt.done
+				if lt.err != nil {
+					r.err = lt.err
+					return
+				}
+				lower[t] = lt.dir
+			}
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			r.dir, r.err = b.tier(ctx, blocks, part, other, lower, timeline)
+			if r.err != nil {
+				r.err = fmt.Errorf("tier %s: %w", names[k], r.err)
+			}
+		}()
 	}
 	nodes := map[string]*node{}
 	for id, bl := range blocks {
@@ -172,12 +206,17 @@ func (m *Gobuild) Binary(
 	return results[mainID].file.WithName(output), nil
 }
 
+// tierConcurrency is how many tier execs run at once. Each runs as many
+// package builds at once as the machine has CPUs.
+const tierConcurrency = 4
+
 // tier builds a tier's packages in one exec: gohdr runs their scripts in
 // dependency order, as many at once as the machine has CPUs, the way go build
 // runs its own actions, so the tier costs one container, not one per package.
-// It returns the tier's archives, each named <name>.a, along with those of
-// lower, the tier below, which it builds on.
-func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[string]bool, lower *dagger.Directory, timeline bool) (*dagger.Directory, error) {
+// Its packages read each other's archives from /work/lib, and those of other
+// tiers (other, by package) from lower, mounted at /work/t/<tier>. It returns
+// the tier's archives, each named <name>.a.
+func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[string]bool, other map[string]string, lower map[string]*dagger.Directory, timeline bool) (*dagger.Directory, error) {
 	type runNode struct {
 		Name, Pkg, Group, Output, Script string
 		Deps                             []string
@@ -188,8 +227,7 @@ func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[str
 	}{Lib: "/work/lib"}
 	mods, tools := false, false
 	for id := range part {
-		// Every dependency is in /work/lib, where the tier below is mounted.
-		n := toNode(blocks[id], blocks, nil)
+		n := toNode(blocks[id], blocks, other)
 		spec.Nodes = append(spec.Nodes, runNode{Name: n.Name, Pkg: n.ImportPath, Group: n.Group,
 			Output: n.Output, Script: n.Script, Deps: n.DepNames})
 		mods = mods || len(n.ModFiles) > 0
@@ -208,8 +246,13 @@ func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[str
 	if tools {
 		ctr = ctr.WithMountedDirectory(toolsDir, b.tools, dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
 	}
-	if lower != nil {
-		ctr = ctr.WithMountedDirectory("/work/lib", lower)
+	lowerNames := make([]string, 0, len(lower))
+	for t := range lower {
+		lowerNames = append(lowerNames, t)
+	}
+	sort.Strings(lowerNames)
+	for _, t := range lowerNames {
+		ctr = ctr.WithMountedDirectory("/work/t/"+t, lower[t], dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
 	}
 	if timeline {
 		ctr = ctr.WithEnvVariable("TL", "1")

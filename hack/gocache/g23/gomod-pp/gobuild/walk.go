@@ -26,11 +26,11 @@ type node struct {
 	Deps       []string `json:"deps"`
 	SrcFiles   []string `json:"srcFiles,omitempty"`
 	ModFiles   []string `json:"modFiles,omitempty"`
-	// Tiers are the tiers whose output the package mounts whole.
-	Tiers  []int  `json:"tiers,omitempty"`
-	Tools  bool   `json:"tools,omitempty"`
-	Output string `json:"output"`
-	Script string `json:"script"`
+	// Tiers names the tiers whose output the package mounts whole.
+	Tiers  []string `json:"tiers,omitempty"`
+	Tools  bool     `json:"tools,omitempty"`
+	Output string   `json:"output"`
+	Script string   `json:"script"`
 	// Group is std, dep or ws, and DepNames every dependency by name, for
 	// the timeline.
 	Group    string   `json:"group"`
@@ -39,14 +39,14 @@ type node struct {
 
 // toNode renders a block for a walk; outside holds the blocks tiers built,
 // by tier. A package reads its walked dependencies from /work/lib and those a
-// tier built from the tier's output, mounted whole at /work/t<k>: one mount,
+// tier built from the tier's output, mounted whole at /work/t/<tier>: one mount,
 // not a copy of each archive. A dependency bump changes the tier and so every
 // package's key, which is fine: bumps are rare next to edits.
-func toNode(b *block, blocks map[string]*block, outside map[string]int) *node {
+func toNode(b *block, blocks map[string]*block, outside map[string]string) *node {
 	n := &node{ID: b.id, Name: b.name, ImportPath: b.importPath, Deps: b.deps,
 		SrcFiles: b.srcFiles, ModFiles: b.modFiles, Output: b.output(), Group: b.group,
 		Script: b.script(blocks, outside)}
-	seen := map[int]bool{}
+	seen := map[string]bool{}
 	for _, d := range b.deps {
 		n.DepNames = append(n.DepNames, blocks[d].name)
 		if k, ok := outside[d]; ok && !seen[k] {
@@ -54,7 +54,7 @@ func toNode(b *block, blocks map[string]*block, outside map[string]int) *node {
 			n.Tiers = append(n.Tiers, k)
 		}
 	}
-	sort.Ints(n.Tiers)
+	sort.Strings(n.Tiers)
 	n.Tools = strings.Contains(n.Script, toolsDir+"/")
 	return n
 }
@@ -68,13 +68,20 @@ type walker struct {
 	// mods is the module cache, evaluated: see fileTree.
 	mods        *dagger.Directory
 	roots       roots
-	tiers       []*dagger.Directory
+	tiers       map[string]*tierResult
 	concurrency int
 	// timeline prints, per package, when it became ready, started and
 	// finished its exec, and how long its inputs took to assemble, synced
 	// on their own after it took an exec slot. That adds requests and
 	// changes when inputs are evaluated: for diagnosis, not timing.
 	timeline bool
+}
+
+// tierResult is a tier's archives, once its exec is done.
+type tierResult struct {
+	dir  *dagger.Directory
+	err  error // set before done closes
+	done chan struct{}
 }
 
 type result struct {
@@ -119,8 +126,13 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 				ctr = ctr.WithMountedDirectory("/work/lib", libDir)
 			}
 			for _, k := range n.Tiers {
-				ctr = ctr.WithMountedDirectory(fmt.Sprintf("/work/t%d", k), w.tiers[k],
-					dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
+				t := w.tiers[k]
+				<-t.done
+				if t.err != nil {
+					r.err = fmt.Errorf("tier %s: %w", k, t.err)
+					return
+				}
+				ctr = ctr.WithMountedDirectory("/work/t/"+k, t.dir, dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
 			}
 			if n.Tools {
 				ctr = ctr.WithMountedDirectory(toolsDir, w.tools, dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
@@ -380,39 +392,171 @@ func commonDir(files []string) string {
 	return strings.Join(common, "/")
 }
 
-// partition splits a plan's packages into tiers: sets built, in order, one
-// exec each, each reading the archives of those before it. Packages in no
-// tier are built one exec each. Which split is fastest is for measuring, so
-// it is chosen by name and kept in this one place:
+// partition splits a plan's packages into tiers, each built by one exec,
+// and names them; the names are stable across builds, as they appear in the
+// scripts that read a tier. A tier reads the tiers its packages depend on, and
+// starts once they are done; a workspace package starts once the tiers it
+// imports are, so nothing waits for unrelated work. Which split is fastest is
+// for measuring, so it is chosen by name and kept in this one place:
 //
 //	none     no tiers: one exec per package.
 //	outside  one tier: every package outside the source whose dependencies
 //	         are outside too, i.e. the standard library and dependency modules.
 //	split    two tiers: the standard library, then the dependency modules.
-func partition(strategy string, blocks map[string]*block) ([]map[string]bool, error) {
+//	modules  the standard library, then one tier per dependency module (or per
+//	         group of modules that import each other), so a workspace package
+//	         waits only for the modules it imports.
+func partition(strategy string, blocks map[string]*block) ([]map[string]bool, []string, error) {
 	switch strategy {
 	case "none":
-		return nil, nil
+		return nil, nil, nil
 	case "outside":
-		return nonEmpty(outsideSet(blocks)), nil
+		return nonEmpty([]string{"deps"}, outsideSet(blocks))
 	case "split":
 		std, outside := stdSet(blocks), outsideSet(blocks)
 		for id := range std {
 			delete(outside, id)
 		}
-		return nonEmpty(std, outside), nil
+		return nonEmpty([]string{"std", "deps"}, std, outside)
+	case "modules":
+		return moduleTiers(blocks)
 	}
-	return nil, fmt.Errorf("unknown tier strategy %q: want none, outside or split", strategy)
+	return nil, nil, fmt.Errorf("unknown tier strategy %q: want none, outside, split or modules", strategy)
 }
 
-func nonEmpty(sets ...map[string]bool) []map[string]bool {
-	var out []map[string]bool
-	for _, s := range sets {
-		if len(s) > 0 {
-			out = append(out, s)
+// moduleTiers is the modules split: the standard library, and the dependency
+// packages grouped by module, merging modules whose packages import each
+// other into one tier, so the tiers form a graph without cycles.
+func moduleTiers(blocks map[string]*block) ([]map[string]bool, []string, error) {
+	std, outside := stdSet(blocks), outsideSet(blocks)
+	groupOf := map[string]string{}
+	for id := range outside {
+		g := "std"
+		if !std[id] {
+			g = "other"
+			if b := blocks[id]; len(b.modFiles) > 0 {
+				g = moduleRoot(b.modFiles[0])
+			}
+		}
+		groupOf[id] = g
+	}
+	edges := map[string]map[string]bool{}
+	for id, g := range groupOf {
+		for _, d := range blocks[id].deps {
+			if h, ok := groupOf[d]; ok && h != g {
+				if edges[g] == nil {
+					edges[g] = map[string]bool{}
+				}
+				edges[g][h] = true
+			}
+		}
+	}
+	var groups []string
+	seen := map[string]bool{}
+	for _, g := range groupOf {
+		if !seen[g] {
+			seen[g] = true
+			groups = append(groups, g)
+		}
+	}
+	sort.Strings(groups)
+	merged := sccs(groups, edges)
+	var tiers []map[string]bool
+	var names []string
+	for _, scc := range merged {
+		members := map[string]bool{}
+		for _, g := range scc {
+			members[g] = true
+		}
+		part := map[string]bool{}
+		for id, g := range groupOf {
+			if members[g] {
+				part[id] = true
+			}
+		}
+		name := "std"
+		if len(scc) > 1 || scc[0] != "std" {
+			name = "m" + stableName(strings.Join(scc, " "))[1:]
+		}
+		tiers = append(tiers, part)
+		names = append(names, name)
+	}
+	return tiers, names, nil
+}
+
+// moduleRoot is the module directory a module cache path is in:
+// "example.com/m@v1.2.3" for "example.com/m@v1.2.3/sub/x.go".
+func moduleRoot(f string) string {
+	at := strings.Index(f, "@")
+	if at < 0 {
+		return f
+	}
+	if slash := strings.Index(f[at:], "/"); slash >= 0 {
+		return f[:at+slash]
+	}
+	return f
+}
+
+// sccs is the strongly connected components of a graph, by Tarjan's
+// algorithm, each sorted.
+func sccs(nodes []string, edges map[string]map[string]bool) [][]string {
+	index, low := map[string]int{}, map[string]int{}
+	onStack := map[string]bool{}
+	var stack []string
+	var out [][]string
+	next := 0
+	var visit func(v string)
+	visit = func(v string) {
+		index[v], low[v] = next, next
+		next++
+		stack = append(stack, v)
+		onStack[v] = true
+		var ws []string
+		for w := range edges[v] {
+			ws = append(ws, w)
+		}
+		sort.Strings(ws)
+		for _, w := range ws {
+			if _, ok := index[w]; !ok {
+				visit(w)
+				low[v] = min(low[v], low[w])
+			} else if onStack[w] {
+				low[v] = min(low[v], index[w])
+			}
+		}
+		if low[v] == index[v] {
+			var scc []string
+			for {
+				w := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				onStack[w] = false
+				scc = append(scc, w)
+				if w == v {
+					break
+				}
+			}
+			sort.Strings(scc)
+			out = append(out, scc)
+		}
+	}
+	for _, v := range nodes {
+		if _, ok := index[v]; !ok {
+			visit(v)
 		}
 	}
 	return out
+}
+
+func nonEmpty(names []string, sets ...map[string]bool) ([]map[string]bool, []string, error) {
+	var out []map[string]bool
+	var outNames []string
+	for i, set := range sets {
+		if len(set) > 0 {
+			out = append(out, set)
+			outNames = append(outNames, names[i])
+		}
+	}
+	return out, outNames, nil
 }
 
 // closedSet is every block that has property and whose dependencies all

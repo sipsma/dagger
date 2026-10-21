@@ -252,10 +252,10 @@ func appendUniq(xs []string, x string) []string {
 }
 
 // script renders a block as one shell script for its exec. A dependency's
-// archive is read from /work/lib, or from /work/t<k> when tier k built it
-// (outside). Nothing gets a Go build ID: the plan's are temporary,
+// archive is read from /work/lib, or from /work/t/<tier> when a tier built
+// it (outside, by package). Nothing gets a Go build ID: the plan's are temporary,
 // and leaving them out lets early cutoff compare archives by their bytes.
-func (b *block) script(blocks map[string]*block, outside map[string]int) string {
+func (b *block) script(blocks map[string]*block, outside map[string]string) string {
 	dirs := []string{"/work/" + b.name}
 	var body strings.Builder
 	var heredoc []string
@@ -277,7 +277,7 @@ func (b *block) script(blocks map[string]*block, outside map[string]int) string 
 				return "/work/" + name + "/" + name + ".a"
 			}
 			if k, ok := outside[id]; ok {
-				return fmt.Sprintf("/work/t%d/%s.a", k, name)
+				return "/work/t/" + k + "/" + name + ".a"
 			}
 			return "/work/lib/" + name + ".a"
 		})

@@ -103,8 +103,8 @@ type runSpec struct {
 
 // run builds every node of the spec in this container: each script once the
 // nodes it depends on are done, as many at once as there are CPUs, the one
-// with the longest chain of dependents first, as go build schedules its own
-// actions. Each output is linked into the lib directory, where dependents read
+// with the heaviest chain of dependents first, weighing each node by the Go
+// source it compiles, a stand-in for its compile time. Each output is linked into the lib directory, where dependents read
 // it. With TL set in the environment it prints one "TL" timeline line per node.
 func run(specPath string) error {
 	data, err := os.ReadFile(specPath)
@@ -132,20 +132,18 @@ func run(specPath string) error {
 			}
 		}
 	}
-	height := map[string]int{}
-	var heightOf func(string) int
-	heightOf = func(name string) int {
+	height := map[string]int64{}
+	var heightOf func(string) int64
+	heightOf = func(name string) int64 {
 		if v, ok := height[name]; ok {
 			return v
 		}
-		v := 1
+		var above int64
 		for _, up := range dependents[name] {
-			if u := 1 + heightOf(up); u > v {
-				v = u
-			}
+			above = max(above, heightOf(up))
 		}
-		height[name] = v
-		return v
+		height[name] = weight(nodes[name].Script) + above
+		return height[name]
 	}
 	type result struct {
 		name       string
@@ -205,6 +203,33 @@ func run(specPath string) error {
 		}
 	}
 	return nil
+}
+
+// weight is the bytes of Go source a script compiles, plus a fixed cost for
+// starting the compile: the files a compile line names, each relative to the
+// directory the script last changed to.
+func weight(script string) int64 {
+	total := int64(8 << 10)
+	dir := "/"
+	for _, line := range strings.Split(script, "\n") {
+		if d, ok := strings.CutPrefix(line, "cd "); ok {
+			dir = d
+			continue
+		}
+		for _, f := range strings.Fields(line) {
+			f = strings.Trim(f, "\"'")
+			if !strings.HasSuffix(f, ".go") {
+				continue
+			}
+			if !filepath.IsAbs(f) {
+				f = filepath.Join(dir, f)
+			}
+			if fi, err := os.Stat(f); err == nil {
+				total += fi.Size()
+			}
+		}
+	}
+	return total
 }
 
 // runOne runs one node's script and links its output into lib.
