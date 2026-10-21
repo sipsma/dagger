@@ -13,6 +13,18 @@ parallel=${SPIKE7_PARALLEL:-4}
 budget=${SPIKE7_BUDGET_MINUTES:-25}
 materialization=${SPIKE7_MATERIALIZATION:-copy}
 workers=${SPIKE7_WORKERS:-64}
+# Resolve before changing directories, including relative override/PATH entries.
+dagger_bin=${DAGGER_BIN:-}
+if [[ -z "$dagger_bin" ]]; then
+  if [[ -e "$HOME/.local/bin/dagger" ]]; then
+    dagger_bin="$HOME/.local/bin/dagger"
+  else
+    dagger_bin=dagger
+  fi
+fi
+dagger_bin=$(command -v "$dagger_bin") || { echo "Dagger CLI not found" >&2; exit 2; }
+[[ -f "$dagger_bin" && -x "$dagger_bin" ]] || { echo "Dagger CLI is not executable: $dagger_bin" >&2; exit 2; }
+dagger_bin=$(readlink -f "$dagger_bin")
 case "$project" in
   yq) source=${YQ:-$HOME/gocache-bench/yq} ;;
   dagger) source=${DSRC:-$repo} ;;
@@ -40,6 +52,7 @@ nonce=$(date -u +%Y%m%dT%H%M%S)-$$
 {
   echo "harness=$commit source=$source_commit image=$image nonce=$nonce"
   echo "project=$project mode=$mode rounds=$rounds"
+  echo "dagger_bin=$dagger_bin"
   uptime
   df -h "$HOME"
 } > "$out/host-meta.txt"
@@ -56,12 +69,18 @@ cd "$out"
 uptime
 load1=$(awk '{print $1}' /proc/loadavg)
 if awk -v n="$load1" 'BEGIN {exit !(n <= 16)}'; then
-  export DAGGER_LEAVE_OLD_ENGINE=true; "$HOME/.local/bin/dagger" -m core -c "$script" > "$out/dagger.log" 2>&1
+  echo "engine=cli-default" >> "$out/host-meta.txt"
+  export DAGGER_LEAVE_OLD_ENGINE=true; "$dagger_bin" version >> "$out/host-meta.txt" 2>&1
+  export DAGGER_LEAVE_OLD_ENGINE=true; "$dagger_bin" -m core -c "$script" > "$out/dagger.log" 2>&1
 else
   [[ "$mode" == functional && -n "${SPIKE7_CLOUD_WRAPPER:-}" ]] || { echo "load1=$load1 > 16; reschedule" >&2; exit 3; }
   # The explicit cloud flag remains even if the wrapper attempts its local
-  # fallback. PATH ensures its dagger command is the authorized installed CLI.
-  export PATH="$HOME/.local/bin:$PATH"
+  # fallback. The shim also honors overrides whose filename is not "dagger".
+  mkdir -p "$out/cli-bin"
+  ln -s "$dagger_bin" "$out/cli-bin/dagger"
+  export PATH="$out/cli-bin:$PATH"
+  echo "engine=cloud" >> "$out/host-meta.txt"
+  export DAGGER_LEAVE_OLD_ENGINE=true; "$SPIKE7_CLOUD_WRAPPER" g24-spike7-version --engine=cloud version >> "$out/host-meta.txt" 2>&1
   export DAGGER_LEAVE_OLD_ENGINE=true; "$SPIKE7_CLOUD_WRAPPER" g24-spike7 --engine=cloud -m core -c "$script" > "$out/dagger.log" 2>&1
 fi
 cat "$out/run/summary.txt"

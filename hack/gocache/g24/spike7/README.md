@@ -11,8 +11,12 @@ and other modules considering tool-owned schedulers.
 
 ## Run
 
-Base: dagger/dagger 49065f5de3. Requires Bash, git, timeout and
-`~/.local/bin/dagger` v1.0.0-beta.19. No helper installation, host Go, Python,
+Base: dagger/dagger 49065f5de3. Requires Bash, git, coreutils and Dagger
+(checked with v1.0.0-beta.19). The CLI is selected from `DAGGER_BIN` if set,
+otherwise `$HOME/.local/bin/dagger` if it exists, otherwise `dagger` on PATH.
+Its resolved path and `dagger version` output are recorded in `host-meta.txt`.
+The linux-vm series uses the CLI's default engine, not a fresh dev engine.
+No helper installation, host Go, Python,
 dev engine or cache volume is needed. Dagger pulls golang:1.26.6 pinned by its
 multi-platform manifest digest in run.sh; both arms use
 that identical toolchain with CGO disabled and GOTOOLCHAIN=local. This is a new
@@ -32,13 +36,20 @@ bash hack/gocache/g24/spike7/linux-vm.sh "$HOME/g24-spike7-$(date -u +%Y%m%dT%H%
 Use a clean checkout for source (tracked changes are rejected). The yq source
 must be v4.49.2, commit 7ccaf8e700ce99eb3f0f6cef7f5930a0b3c827cd.
 DSRC may point to the prior scale workload checkout instead; record its commit.
-The runner checks load1 <= 16 before each Dagger invocation. Reschedule a busy
-slot; do not disable GC or stop another engine.
+The runner checks load1 <= 16 before querying the CLI version and running the
+series. Reschedule a busy slot; do not disable GC or stop another engine.
 
 The slot is budgeted for 20–30 minutes, not calibrated by a local timing series.
 The script caps yq, including preparation, at 16 minutes; the combined cap is
 28 minutes. It runs dagger only if eight minutes remain. A deadline/failure is
 not a data point: retain partial artifacts and mark the slot incomplete.
+
+Copy only these small files into `.g24-results/<series>/` in the runner's
+worktree, preserving each project's relative paths: `host-meta.txt`,
+`run/summary.txt`, `run/results.jsonl`, `run/meta.json`, `run/exitcode`,
+`run/PASS`, and each build's `analysis.json`. Keep everything else in the
+original output directory on linux-vm. Report that directory's path and any
+timeout, failure or skipped dagger run in the handoff.
 
 The yq series has four rounds; each arm executes first build, edit, then no-change:
 
