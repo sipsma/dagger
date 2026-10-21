@@ -377,4 +377,4 @@ tool github.com/matryer/moq
 // the main-branch pseudo-version containing the freelist merge fix.
 replace go.etcd.io/bbolt => go.etcd.io/bbolt v1.4.0-beta.0.0.20260422092123-cd4bafc17e45
 
-replace github.com/vito/dang/v2 => github.com/sipsma/dang/v2 v2.0.0-20261021171937-e4c9a7db1a09
+replace github.com/vito/dang/v2 => github.com/sipsma/dang/v2 v2.0.0-20261021173736-6259e326cf82
