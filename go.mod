@@ -128,7 +128,6 @@ require (
 	github.com/morikuni/aec v1.1.0
 	github.com/muesli/termenv v0.16.0
 	github.com/openai/openai-go/v3 v3.61.0
-	github.com/opencontainers/cgroups v0.0.6
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/opencontainers/runtime-spec v1.3.0
@@ -156,7 +155,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vito/bubbline v0.0.0-20250312195236-5f4f49d6ebcb
 	github.com/vito/dang v1.0.1
-	github.com/vito/dang/v2 v2.1.4
+	github.com/vito/dang/v2 v2.1.5-0.20261021010141-a2b0fc2b19ec
 	github.com/vito/go-interact v1.0.2
 	github.com/vito/go-sse v1.1.3
 	github.com/vito/midterm v0.2.5
@@ -377,3 +376,5 @@ tool github.com/matryer/moq
 // containerd v2.2.x requires bbolt v1.4.3, which is semver-higher than
 // the main-branch pseudo-version containing the freelist merge fix.
 replace go.etcd.io/bbolt => go.etcd.io/bbolt v1.4.0-beta.0.0.20260422092123-cd4bafc17e45
+
+replace github.com/vito/dang/v2 => github.com/sipsma/dang/v2 v2.0.0-20261021171937-e4c9a7db1a09
