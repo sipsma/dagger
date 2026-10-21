@@ -311,6 +311,10 @@ type result struct {
 	done     chan struct{}
 
 	ready, started, execDone, finished time.Duration
+	// With attribution on: the time to evaluate this package's dependency
+	// archives, workspace sources and module sources, each synced on its
+	// own after the package took an exec slot and before its exec.
+	libDur, srcDur, modDur time.Duration
 }
 
 // packTool builds the pack tool that package execs with assembly use. The go
@@ -496,6 +500,10 @@ type walker struct {
 	prio        bool
 	stamps      bool
 	start       time.Time
+	// attrib syncs each package's inputs separately before its exec, to
+	// attribute time to input assembly. It adds requests and changes when
+	// inputs are evaluated, so it is for diagnosis, not timing.
+	attrib bool
 }
 
 // slots bounds concurrent execs. With priorities, a freed slot goes to the
@@ -618,8 +626,10 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 				}
 				depFiles = append(depFiles, dr.file)
 			}
+			var libDir, srcDir, modDir *dagger.Directory
 			if len(depFiles) > 0 {
-				ctr = ctr.WithMountedDirectory("/work/lib", assemble(ctx, depFiles))
+				libDir = assemble(ctx, depFiles)
+				ctr = ctr.WithMountedDirectory("/work/lib", libDir)
 			}
 			if n.tierDeps {
 				ctr = ctr.WithMountedDirectory("/work/tier", w.tierDir, dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
@@ -627,10 +637,12 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 			r.ready = time.Since(w.start)
 			defer func() { r.finished = time.Since(w.start) }()
 			if len(n.SrcFiles) > 0 {
-				ctr = ctr.WithMountedDirectory("/src", w.src.Filter(dagger.DirectoryFilterOpts{Include: n.SrcFiles}))
+				srcDir = w.src.Filter(dagger.DirectoryFilterOpts{Include: n.SrcFiles})
+				ctr = ctr.WithMountedDirectory("/src", srcDir)
 			}
 			if len(n.ModFiles) > 0 {
-				ctr = ctr.WithMountedDirectory("/gomod", w.mods.Filter(dagger.DirectoryFilterOpts{Include: n.ModFiles}))
+				modDir = w.mods.Filter(dagger.DirectoryFilterOpts{Include: n.ModFiles})
+				ctr = ctr.WithMountedDirectory("/gomod", modDir)
 			}
 			script := n.Script
 			if w.stamps && !w.lazy {
@@ -656,6 +668,26 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 			}
 			sem.acquire(prio[id])
 			defer sem.release()
+			if w.attrib {
+				timed := func(d *dagger.Directory) (time.Duration, error) {
+					if d == nil {
+						return 0, nil
+					}
+					t := time.Now()
+					_, err := d.Sync(ctx)
+					return time.Since(t), err
+				}
+				var err error
+				if r.libDur, err = timed(libDir); err == nil {
+					if r.srcDur, err = timed(srcDir); err == nil {
+						r.modDur, err = timed(modDir)
+					}
+				}
+				if err != nil {
+					r.err = fmt.Errorf("%s: inputs: %w", n.ImportPath, err)
+					return
+				}
+			}
 			r.started = time.Since(w.start)
 			out, err := ran.Directory("/work/" + n.Name).Sync(ctx)
 			if err != nil {
@@ -899,6 +931,16 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	// correctness check; it adds a build to the call.
 	// +default=false
 	compare bool,
+	// Run the built binary with versionArgs, as a check that it starts. Off,
+	// the call does only the build, so a timed call measures what plain
+	// go build measures.
+	// +default=true
+	check bool,
+	// Append one JSON line per walked package: its import path, group (std,
+	// dep or ws), dependencies, and when it became ready, started, finished
+	// its exec and finished, in ms since the call started.
+	// +default=false
+	timeline bool,
 ) (string, error) {
 	start := time.Now()
 	opts, err := parseMode(mode)
@@ -931,7 +973,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 		return "", err
 	}
 	w := &walker{base: base, packTool: packTool(), src: src, mods: mods, concurrency: concurrency,
-		lazy: opts.lazy, prio: opts.prio, stamps: stamps, start: start}
+		lazy: opts.lazy, prio: opts.prio, stamps: stamps, start: start, attrib: timeline}
 	var tier map[string]bool
 	var tierDur time.Duration
 	if opts.memo || opts.coarse {
@@ -1008,10 +1050,51 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 	if err != nil {
 		return "", err
 	}
-	version, err := goBase("").WithMountedFile("/bin/built", results["b001"].file).
-		WithExec(append([]string{"/bin/built"}, versionArgs...), noNest).Stdout(ctx)
-	if err != nil {
-		return "", err
+	version := "(not run)"
+	if check {
+		version, err = goBase("").WithMountedFile("/bin/built", results["b001"].file).
+			WithExec(append([]string{"/bin/built"}, versionArgs...), noNest).Stdout(ctx)
+		if err != nil {
+			return "", err
+		}
+	}
+	if timeline {
+		std, outside := stdSet(blocks), tierSet(blocks)
+		type tlLine struct {
+			Pkg      string   `json:"pkg"`
+			Group    string   `json:"group"`
+			Deps     []string `json:"deps"`
+			Ready    int64    `json:"ready"`
+			Started  int64    `json:"started"`
+			ExecDone int64    `json:"execDone"`
+			Finished int64    `json:"finished"`
+			LibMs    int64    `json:"libMs"`
+			SrcMs    int64    `json:"srcMs"`
+			ModMs    int64    `json:"modMs"`
+		}
+		var tl []string
+		for id, r := range results {
+			b := blocks[id]
+			g := "ws"
+			if std[id] {
+				g = "std"
+			} else if outside[id] {
+				g = "dep"
+			}
+			deps := make([]string, 0, len(b.deps))
+			for _, d := range b.deps {
+				deps = append(deps, blocks[d].importPath)
+			}
+			sort.Strings(deps)
+			j, err := json.Marshal(tlLine{b.importPath, g, deps, r.ready.Milliseconds(), r.started.Milliseconds(), r.execDone.Milliseconds(), r.finished.Milliseconds(),
+				r.libDur.Milliseconds(), r.srcDur.Milliseconds(), r.modDur.Milliseconds()})
+			if err != nil {
+				return "", err
+			}
+			tl = append(tl, "TL "+string(j))
+		}
+		sort.Strings(tl)
+		lines = append(lines, tl...)
 	}
 	compared := ""
 	if compare {
@@ -1061,6 +1144,29 @@ $B -n -o /tmp/n PKG 2>&1 | grep -E -- "-buildid|buildid -w" | tail -3 | cut -c1-
 	return fmt.Sprintf("replay: %d packages, plan %s, total %s, binary %d bytes, runs: %s\n%s%s\n%s",
 		len(blocks), planDur.Round(time.Millisecond), time.Since(start).Round(time.Millisecond), size, strings.TrimSpace(version), compared, header,
 		strings.Join(lines, "\n")), nil
+}
+
+// PlainGraph builds pkg with one go build in a fresh Go cache, as Plain does
+// without a volume, and returns the go command's action graph
+// (-debug-actiongraph): every action with its dependencies and when it
+// became ready, started and finished.
+func (m *Gcexp) PlainGraph(ctx context.Context, src *dagger.Directory, nonce string, salt string,
+	// The main package to build, relative to src.
+	// +default="."
+	pkg string,
+) (*dagger.File, error) {
+	mods, err := modCache(src).Sync(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return goBase(salt).
+		WithMountedDirectory("/gomod", mods).
+		WithMountedDirectory("/src", src).
+		WithWorkdir("/src").
+		WithEnvVariable("NONCE", nonce).
+		WithEnvVariable("GOCACHE", "/tmp/gocache").
+		WithExec([]string{"sh", "-c", "mkdir -p /out && go build -trimpath -buildvcs=false -debug-actiongraph=/out/graph.json -o /out/bin " + pkg}, noNest).
+		File("/out/graph.json"), nil
 }
 
 // Plain builds the same package with one go build exec. With a non-empty

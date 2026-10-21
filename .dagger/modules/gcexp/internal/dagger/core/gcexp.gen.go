@@ -282,6 +282,37 @@ func (r *Gcexp) Plain(ctx context.Context, src *Directory, nonce string, volume 
 	return response, q.Execute(ctx)
 }
 
+// GcexpPlainGraphOpts contains options for Gcexp.PlainGraph
+type GcexpPlainGraphOpts struct {
+	// The main package to build, relative to src.
+	//
+	// Default: "."
+	Pkg string
+}
+
+// PlainGraph builds pkg with one go build in a fresh Go cache, as Plain does
+// without a volume, and returns the go command's action graph
+// (-debug-actiongraph): every action with its dependencies and when it
+// became ready, started and finished.
+func (r *Gcexp) PlainGraph(src *Directory, nonce string, salt string, opts ...GcexpPlainGraphOpts) *File {
+	assertNotNil("src", src)
+	q := r.query.Select("plainGraph")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+	}
+	q = q.Arg("src", src)
+	q = q.Arg("nonce", nonce)
+	q = q.Arg("salt", salt)
+
+	return &File{
+		query:     q,
+		refetchID: r.refetchID,
+	}
+}
+
 // PlainStd builds the standard library into a GOCACHE volume, as a previous
 // build with the same toolchain would have, so a later Plain with that volume
 // starts with a warm standard library.
@@ -420,6 +451,16 @@ type GcexpReplayOpts struct {
 	// build ID, and report how those binaries compare with this one. A
 	// correctness check; it adds a build to the call.
 	Compare bool
+	// Run the built binary with versionArgs, as a check that it starts. Off,
+	// the call does only the build, so a timed call measures what plain
+	// go build measures.
+	//
+	// Default: true
+	Check bool
+	// Append one JSON line per walked package: its import path, group (std,
+	// dep or ws), dependencies, and when it became ready, started, finished
+	// its exec and finished, in ms since the call started.
+	Timeline bool
 }
 
 // Replay builds the main package at the root of src with one exec per package.
@@ -455,6 +496,14 @@ func (r *Gcexp) Replay(ctx context.Context, src *Directory, nonce string, salt s
 		// `compare` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Compare) {
 			q = q.Arg("compare", opts[i].Compare)
+		}
+		// `check` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Check) {
+			q = q.Arg("check", opts[i].Check)
+		}
+		// `timeline` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Timeline) {
+			q = q.Arg("timeline", opts[i].Timeline)
 		}
 	}
 	q = q.Arg("src", src)
