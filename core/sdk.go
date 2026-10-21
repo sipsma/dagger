@@ -251,6 +251,10 @@ func (r *ContainerRuntime) Call(
 	hideCtx := dagql.WithSkip(ctx)
 
 	ctr := r.Container
+	ctr, err := spike5BindRuntime(hideCtx, ctr, fnCall)
+	if err != nil {
+		return fmt.Errorf("spike5 bind runtime: %w", err)
+	}
 	clonedFS, err := CloneContainerDirectoryAccessor(hideCtx, ctr.Self().FS)
 	if err != nil {
 		return fmt.Errorf("clone exec rootfs: %w", err)
@@ -304,7 +308,7 @@ func (r *ContainerRuntime) Call(
 		return fmt.Errorf("call function %q: %w", fnCall.Name, err)
 	}
 
-	return nil
+	return spike5CaptureOutput(ctx, execCtr, fnCall)
 }
 
 /*

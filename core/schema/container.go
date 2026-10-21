@@ -39,6 +39,7 @@ type containerSchema struct{}
 var _ SchemaResolvers = &containerSchema{}
 
 func (s *containerSchema) Install(srv *dagql.Server) {
+	installSpike5(srv)
 	srv.InstallObject(dagql.NewClass[core.Command](srv).View(AfterVersion("v1.0.0-0")))
 	dagql.Fields[core.Command]{}.Install(srv)
 

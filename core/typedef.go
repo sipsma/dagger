@@ -2478,6 +2478,7 @@ type FunctionCall struct {
 	// that the call starts, as a module entrypoint does. That process serves
 	// the module, like the process of a container runtime.
 	moduleProcess bool
+	spike5File    *File // Filled after process exit; never persisted as call state.
 }
 
 // CacheTTLSeconds returns the explicit TTL of the call's function, and 0 when

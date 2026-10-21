@@ -1132,6 +1132,13 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 		return nil, dagErr
 	}
 
+	if fnCall.spike5File != nil {
+		if fn.metadata.ReturnType.Self().Kind != TypeDefKindObject || fn.metadata.ReturnType.Self().typeName() != "File" {
+			_ = fnCall.spike5File.OnRelease(context.WithoutCancel(ctx))
+			return nil, fmt.Errorf("spike5: sealed output requires File return type")
+		}
+		return spike5FileResult(ctx, fnCall.spike5File)
+	}
 	returnValue, err := fn.returnType.ConvertFromSDKResult(ctx, returned.Value)
 	if err != nil {
 		return nil, fmt.Errorf("convert return value: %w", err)
