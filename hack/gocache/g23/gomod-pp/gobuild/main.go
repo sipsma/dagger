@@ -203,7 +203,7 @@ func (m *Gobuild) Binary(
 	nodes := map[string]*node{}
 	for id, bl := range blocks {
 		if _, ok := outside[id]; !ok {
-			nodes[id] = toNode(bl, blocks, outside)
+			nodes[id] = toNode(bl, blocks, outside, soloCompileC)
 		}
 	}
 	results, err := w.walk(ctx, nodes)
@@ -236,7 +236,7 @@ func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[str
 	}{Lib: "/work/lib"}
 	mods, tools := false, false
 	for id := range part {
-		n := toNode(blocks[id], blocks, other)
+		n := toNode(blocks[id], blocks, other, tierCompileC)
 		spec.Nodes = append(spec.Nodes, runNode{Name: n.Name, Pkg: n.ImportPath, Group: n.Group,
 			Output: n.Output, Script: n.Script, Deps: n.DepNames, Height: heights[id]})
 		mods = mods || len(n.ModFiles) > 0

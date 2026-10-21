@@ -42,10 +42,10 @@ type node struct {
 // tier built from the tier's output, mounted whole at /work/t/<tier>: one mount,
 // not a copy of each archive. A dependency bump changes the tier and so every
 // package's key, which is fine: bumps are rare next to edits.
-func toNode(b *block, blocks map[string]*block, outside map[string]string) *node {
+func toNode(b *block, blocks map[string]*block, outside map[string]string, conc string) *node {
 	n := &node{ID: b.id, Name: b.name, ImportPath: b.importPath, Deps: b.deps,
 		SrcFiles: b.srcFiles, ModFiles: b.modFiles, Output: b.output(), Group: b.group,
-		Script: b.script(blocks, outside)}
+		Script: b.script(blocks, outside, conc)}
 	seen := map[string]bool{}
 	for _, d := range b.deps {
 		n.DepNames = append(n.DepNames, blocks[d].name)

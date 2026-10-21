@@ -251,14 +251,23 @@ func appendUniq(xs []string, x string) []string {
 	return append(xs, x)
 }
 
-// compileConcurrency is the -c every compile in a script gets.
-const compileConcurrency = "16"
+// The -c a compile gets: a fixed value rather than the plan's, which is the
+// planning machine's CPU count, so a package's exec is the same on every
+// engine; the compiler's output doesn't depend on it. A package built in its
+// own exec mostly compiles alone, as the big packages at the end of a build
+// do, so it gets what go build passes on a 16-CPU machine. A tier runs as
+// many compiles at once as there are CPUs, so each gets 4: in dagger's
+// build, 16 there slowed the tiers more than it sped their packages.
+const (
+	soloCompileC = "16"
+	tierCompileC = "4"
+)
 
 // script renders a block as one shell script for its exec. A dependency's
 // archive is read from /work/lib, or from /work/t/<tier> when a tier built
 // it (outside, by package). Nothing gets a Go build ID: the plan's are temporary,
 // and leaving them out lets early cutoff compare archives by their bytes.
-func (b *block) script(blocks map[string]*block, outside map[string]string) string {
+func (b *block) script(blocks map[string]*block, outside map[string]string, conc string) string {
 	dirs := []string{"/work/" + b.name}
 	var body strings.Builder
 	var heredoc []string
@@ -269,12 +278,7 @@ func (b *block) script(blocks map[string]*block, outside map[string]string) stri
 			continue
 		}
 		l = reBuildID.ReplaceAllString(l, "")
-		// The plan's compile concurrency is the planning machine's CPU count;
-		// a fixed one keeps each package's exec the same on every engine, and
-		// the compiler's output doesn't depend on it. 16 is what go build
-		// passes on a 16-CPU machine, and it matters most for the big packages
-		// at the end of a build, which compile alone.
-		l = reConc.ReplaceAllString(l, " -c="+compileConcurrency)
+		l = reConc.ReplaceAllString(l, " -c="+conc)
 		// The go command packs archives in-process; "go tool pack" would
 		// build the pack tool from source in every fresh container.
 		l = strings.Replace(l, "go tool pack ", toolsDir+"/pack ", 1)
