@@ -54,9 +54,11 @@ type Gomod {
     ws
       .findRoots(markers: ["go.mod"])
       .map { root => workspaceRootPath(ws, root) }
-      .filter { modPath => at(modPath).isGoModule(ws) }
       .filter { modPath => pathIncluded(ws, modPath, include, exclude) }
       .map { modPath => at(modPath) }
+      .filter { mod => mod.declaresModule(ws) }
+      .map { mod => mod.listed(ws) }
+      .filter { mod => mod.goFiles != null and mod.goFiles!.length > 0 }
   }
 
   """
@@ -80,7 +82,7 @@ type Gomod {
   to carry a Workspace it has no other use for.
   """
   at(path: String!): GoMod! {
-    GoMod(path: normalize(path), includeExtraFiles: includeExtraFiles)
+    GoMod(path: normalize(path), includeExtraFiles: includeExtraFiles, goFiles: null)
   }
 
   """
@@ -226,7 +228,11 @@ type Gomod {
   container: the engine builds and runs it once for the whole workspace.
   """
   let scanner(ws: Workspace!): Container! {
-    withGoCaches(container.from("golang:" + scannerVersion + "-alpine"))
+    # No cache volumes: the scan is an ordinary result, which another engine
+    # can pull from the remote cache.
+    container.from("golang:" + scannerVersion + "-alpine")
+      # The same download retry as withGoCaches.
+      .withEnvVariable("GOPROXY", "https://proxy.golang.org|https://proxy.golang.org|direct")
       .withoutEntrypoint
       .withWorkdir("/helpers/go-includes")
       .withDirectory("/helpers/go-includes", currentModule.source.directory("helpers/go-includes"))
@@ -315,13 +321,24 @@ type Gomod {
   A container with the shared Go module and build caches mounted, so every tool
   in the workspace warms one download cache and one build cache rather than
   one each.
+
+  Module downloads also retry. proxy.golang.org sometimes resets a module zip
+  download mid-stream, and with Go's default GOPROXY only a 404 or 410 falls
+  through to the next entry. "|" falls through on any error, so a failed zip
+  download retries the proxy once, then fetches from the origin. A container
+  that sets its own GOPROXY keeps it.
   """
   withGoCaches(ctr: Container!): Container! {
-    ctr
+    let cached = ctr
       .withMountedCache("/go/pkg/mod", cacheVolume("go-mod"))
       .withEnvVariable("GOMODCACHE", "/go/pkg/mod")
       .withMountedCache("/root/.cache/go-build", cacheVolume("go-build"))
       .withEnvVariable("GOCACHE", "/root/.cache/go-build")
+    if ((ctr.envVariable("GOPROXY") ?? "") == "") {
+      cached.withEnvVariable("GOPROXY", "https://proxy.golang.org|https://proxy.golang.org|direct")
+    } else {
+      cached
+    }
   }
 
   """
@@ -507,6 +524,19 @@ type GoMod {
   includeExtraFiles: [String!]!
 
   """
+  This module's Go files, as ownFiles(ws, "*.go") lists them but in no
+  particular order. Set on the modules Gomod.modules returns, which lists them
+  anyway, so a caller walking every module need not ask again; null on a module
+  from at or module.
+  """
+  goFiles: [String!]
+
+  # This module with its Go files listed.
+  let listed(ws: Workspace!): GoMod! {
+    GoMod(path: path, includeExtraFiles: includeExtraFiles, goFiles: unsortedOwnFiles(ws, "*.go"))
+  }
+
+  """
   A workspace-root path for a module-relative subpath.
   """
   subpath(relativePath: String!): String! {
@@ -550,8 +580,12 @@ type GoMod {
   line, and it holds Go files that Go would read.
   """
   isGoModule(ws: Workspace!): Boolean! {
+    declaresModule(ws) and unsortedOwnFiles(ws, "*.go").length > 0
+  }
+
+  # Whether this root's go.mod has a module line.
+  let declaresModule(ws: Workspace!): Boolean! {
     ws.file("/" + subpath("go.mod")).contents.match(`(?m)^[ \t]*module([ \t(]|$)`) != null
-      and ownFiles(ws, "*.go").length > 0
   }
 
   """
@@ -559,15 +593,37 @@ type GoMod {
   and names starting with "." or "_" are left out, as Go leaves them out.
   """
   ownFiles(ws: Workspace!, glob: String!): [String!]! {
-    let nested = nestedRoots(ws)
-    sorted(
-      ws
-        .glob(subpath("**/" + glob))
-        .filter { file => file.hasSuffix("/") == false }
-        .map { file => file.trimPrefix("/").trimPrefix("./") }
-        .filter { file => nested.any { root => file.hasPrefix(root + "/") } == false }
-        .filter { file => goIgnores(relative(file)) == false },
-    )
+    sorted(unsortedOwnFiles(ws, glob))
+  }
+
+  # ownFiles in no particular order, for callers that only need what it holds.
+  let unsortedOwnFiles(ws: Workspace!, glob: String!): [String!]! {
+    let nested = nestedRootSet(ws)
+    ws
+      .glob(subpath("**/" + glob))
+      .filter { file => file.hasSuffix("/") == false }
+      .map { file => file.trimPrefix("/").trimPrefix("./") }
+      .filter { file => under(file, nested) == false }
+      .filter { file => goIgnores(relative(file)) == false }
+  }
+
+  # nestedRoots as a set, so testing a file against them costs one lookup per
+  # directory above it rather than one comparison per nested module.
+  let nestedRootSet(ws: Workspace!): Map[Boolean!]! {
+    let none: Map[Boolean!]! = [:]
+    nestedRoots(ws).reduce(none) { roots, root => roots.with(root, true) }
+  }
+
+  # Whether a workspace path lies below one of the roots in a set.
+  let under(file: String!, roots: Map[Boolean!]!): Boolean! {
+    file
+      .split("/")
+      .dropLast(1)
+      .reduce({{dir: "", found: false}}) { state, segment =>
+        let dir = if (state.dir == "") { segment } else { state.dir + "/" + segment }
+        {{dir: dir, found: state.found or roots.has(dir)}}
+      }
+      .found
   }
 
   """
@@ -598,10 +654,8 @@ type GoMod {
     let generateFlags = if (generate) { ["--generate"] } else { [] }
     container
       .from("golang:" + gomod.scannerVersion + "-alpine")
-      .withMountedCache("/go/pkg/mod", cacheVolume("go-mod"))
-      .withEnvVariable("GOMODCACHE", "/go/pkg/mod")
-      .withMountedCache("/root/.cache/go-build", cacheVolume("go-build"))
-      .withEnvVariable("GOCACHE", "/root/.cache/go-build")
+      # The same download retry as withGoCaches.
+      .withEnvVariable("GOPROXY", "https://proxy.golang.org|https://proxy.golang.org|direct")
       .withoutEntrypoint
       .withWorkdir("/helpers/go-includes")
       .withDirectory("/helpers/go-includes", currentModule.source.directory("helpers/go-includes"))
@@ -779,17 +833,6 @@ type GoMod {
   ): [String!]! {
     let discovered = includeDiscovered(ws, test: test, generate: generate)
     includeExtraFiles + discovered + extra
-  }
-
-  """
-  The header pack of the workspace's Go source, from the scan: each non-test
-  Go file up to the end of its imports plus its go:embed lines, and each
-  go.mod, which is what a "go build -n" plan reads of Go source. Read from the
-  evaluated scan, it is keyed by its content, so an edit inside function
-  bodies leaves anything keyed on it cached.
-  """
-  headerPack(ws: Workspace!): File! {
-    scanned(ws, false, false).sync.file("_headers_.gohdr")
   }
 
   """

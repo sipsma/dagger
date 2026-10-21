@@ -1,5 +1,5 @@
 # g23 item 4: today's real Go module (A, github.com/dagger/go main) against the new module (B:
-# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage at 50be5b5,
+# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage at 36eca17,
 # which builds every binary per package with no fallback),
 # on one project, on one fresh dev engine. Runs in the client container; /work/yq is yq and /d is
 # run.sh's DSRC (a dagger/dagger source tree, for the dagger project).
@@ -19,7 +19,7 @@ ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 D=http://dagger-engine:6060/debug/wcprof/dump
 dump() { curl -sf "$D?flush=1" -o "/out/$1.dump" || echo "$1: dump failed" >> /out/summary.txt; }
 flush() { curl -sf "$D?flush=1" -o /dev/null || true; }
-REF_A=${GOMOD_REF_A:-github.com/dagger/go@8a1d6ad09c909a541e7e5fa319bddb5dba83d20b}
+REF_A=${GOMOD_REF_A:-github.com/dagger/go@bf456512ff997f2b03c6404d77f3f1b22b89391b}
 set -- $G23_ARGS
 order=${1:?G23_ARGS needs the order}
 REF_B=${2:?G23_ARGS needs the B module ref}

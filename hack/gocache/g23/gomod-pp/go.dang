@@ -201,6 +201,133 @@ type Go {
   """
   let lib: Gomod! { gomod(includeExtraFiles: includeExtraFiles) }
 
+  # The scan's package discovery, which gomod's scanner writes in its one pass
+  # over every Go file (go-includes, discovery.go): a "module" line per Go
+  # module, then a "package" line per package directory with something to do.
+  # Reading it replaces a search, glob or field read per result.
+  let discoveryLines(ws: Workspace!): [String!]! {
+    lib.scan(ws).file("_discovery_").contents.split("\n").filter { line => line != "" }
+  }
+
+  # Field n of a tab-separated discovery line; field 0 is its kind.
+  let lineField(line: String!, n: Int!): String! {
+    line.split("\t").takeFirst(n + 1).takeLast(1).join("")
+  }
+
+  # Whether a package line's kinds hold one kind: "t", "m" or "g".
+  let hasKind(kinds: String!, kind: String!): Boolean! {
+    kinds.split("").contains(kind)
+  }
+
+  # The workspace path of a module-relative directory.
+  let pathIn(root: String!, dir: String!): String! {
+    if (dir == ".") { root } else if (root == ".") { dir } else { root + "/" + dir }
+  }
+
+  # Workspace paths of the Go modules at or below the working directory, and of
+  # the module the working directory is inside.
+  let moduleRootsHere(ws: Workspace!): [String!]! {
+    let cwd = ws.cwd.trimPrefix("/").trimSuffix("/")
+    let roots = discoveryLines(ws).filter { line => line.hasPrefix("module\t") }.map { line => lineField(line, 1) }
+    if (cwd == "" or cwd == ".") {
+      roots
+    } else {
+      let below = roots.filter { root => root == cwd or root.hasPrefix(cwd + "/") }
+      let enclosing = roots
+        .filter { root => root == "." or cwd.hasPrefix(root + "/") }
+        .reduce("") { inner, root =>
+          if (inner == "" or root.split("/").length > inner.split("/").length) { root } else { inner }
+        }
+      if (enclosing == "") { below } else { [enclosing] + below }
+    }
+  }
+
+  # The root of the Go module holding a workspace path: the innermost one.
+  let moduleRootOf(ws: Workspace!, pkgPath: String!): String! {
+    let roots = discoveryLines(ws)
+      .filter { line => line.hasPrefix("module\t") }
+      .map { line => lineField(line, 1) }
+      .filter { root => root == "." or pkgPath == root or pkgPath.hasPrefix(root + "/") }
+    if (roots.length == 0) {
+      raise "no Go module found containing path: " + pkgPath
+    } else {
+      roots.reduce(".") { inner, root =>
+        if (root != "." and (inner == "." or root.split("/").length > inner.split("/").length)) { root } else { inner }
+      }
+    }
+  }
+
+  # Whether a workspace path is selected by patterns, as gomod's GoMod.selected
+  # decides it: a pattern selects its path and everything under it, "**" and
+  # "*" select everything, "!" excludes, and no selecting pattern selects all.
+  let selectedBy(at: String!, patterns: [String!]!): Boolean! {
+    let selecting = patterns.filter { p => p.hasPrefix("!") == false }
+    let excluding = patterns.filter { p => p.hasPrefix("!") }.map { p => p.trimPrefix("!") }
+    (selecting.length == 0 or selecting.any { p => pathMatches(at, p) })
+      and excluding.any { p => pathMatches(at, p) } == false
+  }
+
+  let pathMatches(at: String!, pattern: String!): Boolean! {
+    let trimmed = pattern.trimPrefix("/").trimSuffix("/")
+    if (trimmed == "**" or trimmed == "*") {
+      true
+    } else {
+      let prefix = trimmed.trimSuffix("/**")
+      at == prefix or at.hasPrefix(prefix + "/")
+    }
+  }
+
+  # Whether the build setting selects a main package, by its module-relative
+  # directory or its workspace path, as GoModule.buildSelected decides it.
+  let buildSelected(root: String!, dir: String!): Boolean! {
+    let paths = [dir, pathIn(root, dir)]
+    let selecting = build.filter { p => p.hasPrefix("!") == false }
+    let excluding = build.filter { p => p.hasPrefix("!") }
+    (selecting.length == 0 or selecting.any { p => paths.any { at => selectedBy(at, [p]) } })
+      and excluding.any { p => paths.any { at => selectedBy(at, [p]) == false } } == false
+  }
+
+  # Workspace directories holding Go files that patterns match, in Dagger's own
+  # glob syntax, as the generate setting is matched.
+  let matchingDirectories(ws: Workspace!, patterns: [String!]!): [String!]! {
+    let empty: [String!]! = []
+    patterns.reduce(empty) { dirs, pattern =>
+      dirs + ws
+        .glob(pattern.trimSuffix("/") + "/*.go")
+        .filter { file => file.hasSuffix("/") == false }
+        .map { file =>
+          let dir = file.split("/").dropLast(1).join("/")
+          if (dir == "") { "." } else { dir }
+        }
+    }
+  }
+
+  # Workspace paths of the packages with something to do: tests to run in a
+  # module the test setting selects, a main package the build setting selects,
+  # or go:generate commands the generate setting selects.
+  let packageKeys(ws: Workspace!): [String!]! {
+    let empty: [String!]! = []
+    let roots = moduleRootsHere(ws)
+    let generateAll = generate.length == 1 and generate.contains("**")
+    let included = generate.filter { p => p.hasPrefix("!") == false }
+    let excluded = generate.filter { p => p.hasPrefix("!") }.map { p => p.trimPrefix("!") }
+    let includeDirs = if (generateAll) { empty } else { matchingDirectories(ws, included) }
+    let excludeDirs = if (generateAll) { empty } else { matchingDirectories(ws, excluded) }
+    discoveryLines(ws)
+      .filter { line => line.hasPrefix("package\t") and roots.contains(lineField(line, 1)) }
+      .filter { line =>
+        let root = lineField(line, 1)
+        let dir = lineField(line, 2)
+        let kinds = lineField(line, 3)
+        let key = pathIn(root, dir)
+        (hasKind(kinds, "t") and selectedBy(root, test))
+          or (hasKind(kinds, "m") and buildSelected(root, dir))
+          or (hasKind(kinds, "g") and (generateAll or ((included.length == 0 or includeDirs.contains(key)) and excludeDirs.contains(key) == false)))
+      }
+      .map { line => pathIn(lineField(line, 1), lineField(line, 2)) }
+      .uniq
+  }
+
   """
   Go modules at or below the working directory.
   """
@@ -213,9 +340,13 @@ type Go {
   ): [GoModule!]! {
     # A list rather than a collection: modules decide how a package is mounted
     # and which toolchain it gets, but they are not something to select.
-    lib
-      .modules(ws, include: include, exclude: exclude).{{path}}
-      .map { found => goModule(ws, found.path) }
+    let roots = if (include.length == 0 and exclude.length == 0) {
+      moduleRootsHere(ws)
+    } else {
+      moduleRootsHere(ws).filter { root => lib.pathIncluded(ws, root, include, exclude) }
+    }
+    roots
+      .map { root => goModule(ws, root) }
       .filter { mod =>
         (includeSkipTest or mod.skipTest == false)
           and (includeSkipGenerate or mod.skipGenerate(ws) == false)
@@ -226,11 +357,8 @@ type Go {
   Go packages at or below the working directory, keyed by directory.
   """
   packages(ws: Workspace!): GoPackages! {
-    let empty: [String!]! = []
     GoPackages(
-      paths: sorted(
-        modules(ws).reduce(empty) { all, mod => all + mod.packagePaths(ws) },
-      ),
+      paths: sorted(packageKeys(ws)),
       mountPath: workspaceMountPath(ws),
       tool: self,
     )
@@ -239,7 +367,7 @@ type Go {
   # The module holding a package. A package holds no module of its own, so
   # that the collection needs no workspace.
   let packageModule(ws: Workspace!, pkgPath: String!, mount: String!): GoModule! {
-    goModuleAt(lib.module(ws, pkgPath).path, mount)
+    goModuleAt(moduleRootOf(ws, pkgPath), mount)
   }
 
   # Byte-order sort, as Go's sort.Strings, done natively by dang.
@@ -258,6 +386,8 @@ type Go {
     goModuleAt(modPath, workspaceMountPath(ws))
   }
 
+  # files is the module's Go files when the caller already has them, as
+  # Gomod.modules returns them, and null otherwise.
   let goModuleAt(modPath: String!, mount: String!): GoModule! {
     GoModule(
       path: modPath,
@@ -307,14 +437,14 @@ type GoPackages @collection {
   # The modules holding the selected packages, each once.
   let modules(ws: Workspace!): [GoModule!]! {
     paths
-      .map { p => tool.lib.module(ws, p).path }
+      .map { p => tool.moduleRootOf(ws, p) }
       .uniq
       .map { modPath => tool.goModuleAt(modPath, mountPath) }
   }
 
   # The selected packages in one module.
   let inModule(ws: Workspace!, mod: GoModule!): [String!]! {
-    paths.filter { p => tool.lib.module(ws, p).path == mod.path }
+    paths.filter { p => tool.moduleRootOf(ws, p) == mod.path }
   }
 
   """
@@ -597,7 +727,7 @@ type GoModule {
   Whether tests are skipped for this module.
   """
   skipTest: Boolean! {
-    lib.at(path).selected(testPatterns) == false
+    rootSelected(normalized(path), testPatterns) == false
   }
 
   """
@@ -722,7 +852,28 @@ type GoModule {
   }
 
   let toolchainVersion(ws: Workspace!): String! {
-    configuredVersion ?? lib.at(path).goVersion(ws) ?? gomod.defaultGoVersion
+    configuredVersion ?? discoveredVersion(ws) ?? gomod.defaultGoVersion
+  }
+
+  # The Go version this module's go.mod declares, as the scan reports it.
+  let discoveredVersion(ws: Workspace!): String {
+    let declared = moduleField(ws, 3)
+    if (declared == "") { null } else { declared }
+  }
+
+  # The scan's package discovery: see Go.discoveryLines.
+  let discoveryLines(ws: Workspace!): [String!]! {
+    lib.scan(ws).file("_discovery_").contents.split("\n").filter { line => line != "" }
+  }
+
+  # Field n of this module's discovery line: 2 for its module path, 3 for its
+  # Go version.
+  let moduleField(ws: Workspace!, n: Int!): String! {
+    discoveryLines(ws)
+      .filter { line => line.hasPrefix("module\t" + path + "\t") }
+      .map { line => line.split("\t").takeFirst(n + 1).takeLast(1).join("") }
+      .takeFirst(1)
+      .join("")
   }
 
   """
@@ -749,38 +900,6 @@ type GoModule {
   let prepareBase(cached: Container!): Container! {
     let ctr = gomod.withWarnings(cached, warnings).withWorkdir(mountPath)
     if (goflags == null) { ctr } else { ctr.withEnvVariable("GOFLAGS", goflags) }
-  }
-
-  # Workspace paths of this module's packages that have something to do: tests
-  # to run, a main package to build, or go:generate commands to run. Each is
-  # found by searching the source, so listing packages runs no container.
-  let packagePaths(ws: Workspace!): [String!]! {
-    # The module's files are listed once and shared: listing them is the
-    # costly part, and every kind of package is found among them.
-    let files = lib.at(path).ownFiles(ws, "*.go")
-    let empty: [String!]! = []
-    let testDirs = if (skipTest) {
-      empty
-    } else {
-      let withTests = testMatches(ws).map { match => match.filePath.trimPrefix("/").trimPrefix("./") }
-      files.filter { f => f.hasSuffix("_test.go") and withTests.contains(f) }.map { f => packageDirectory(f) }
-    }
-    let dirs = testDirs + binaryPackagesIn(ws, files) + generatePackagesIn(ws, files)
-    dirs.uniq.map { dir => packagePath(dir) }
-  }
-
-  # Module-relative directories holding a go:generate command and selected by
-  # the generate setting. A go:generate:include or :container annotation alone
-  # is not a command.
-  let generatePackagesIn(ws: Workspace!, files: [String!]!): [String!]! {
-    let empty: [String!]! = []
-    if (files.length == 0) {
-      empty
-    } else {
-      let found = markedFiles(ws, "generate")
-      let dirs = files.filter { f => found.contains(f) }.map { f => packagePath(packageDirectory(f)) }.uniq
-      selectGenerate(ws, dirs).map { dir => relativeDir(dir) }
-    }
   }
 
   # A workspace path inside this module, made module-relative.
@@ -840,8 +959,13 @@ type GoModule {
     ws.search(
       paths: [if (path == ".") { "/" } else { "/" + path }],
       globs: ["*_test.go"],
-      pattern: `^func (Test([^a-z(]\w*)?\(\s*\w+\s+\*testing\.T\s*\)|Fuzz([^a-z(]\w*)?\(\s*\w+\s+\*testing\.F\s*\)|Example([^a-z(]\w*)?\(\s*\))`,
+      pattern: testFunctionPattern,
     ).{{filePath, matchedLines}}
+  }
+
+  # A test, fuzz or example function declaration.
+  let testFunctionPattern: String! {
+    `^func (Test([^a-z(]\w*)?\(\s*\w+\s+\*testing\.T\s*\)|Fuzz([^a-z(]\w*)?\(\s*\w+\s+\*testing\.F\s*\)|Example([^a-z(]\w*)?\(\s*\))`
   }
 
   # Byte-order sort, as Go's sort.Strings, done natively by dang.
@@ -851,7 +975,38 @@ type GoModule {
 
   # The workspace path of a package directory in this module.
   let packagePath(dir: String!): String! {
-    if (dir == ".") { path } else { lib.at(path).subpath(dir) }
+    if (dir == ".") { path } else { subpathOf(normalized(path), dir) }
+  }
+
+  # GoMod.subpath, GoMod.selected and Gomod.normalize, in process. Through gomod
+  # each is a module call, with the fixed per-call cost of one, for a few string
+  # operations; discovery makes one for every package directory.
+  let subpathOf(root: String!, relativePath: String!): String! {
+    if (root == ".") { relativePath } else { root.trimSuffix("/") + "/" + relativePath }
+  }
+
+  let normalized(p: String!): String! {
+    let segments = p.split("/").filter { segment => segment != "" and segment != "." }
+    if (segments.length == 0) { "." } else { segments.join("/") }
+  }
+
+  let rootSelected(root: String!, patterns: [String!]!): Boolean! {
+    let selecting = patterns.filter { pattern => pattern.hasPrefix("!") == false }
+    let excluding = patterns
+      .filter { pattern => pattern.hasPrefix("!") }
+      .map { pattern => pattern.trimPrefix("!") }
+    (selecting.length == 0 or selecting.any { pattern => rootMatches(root, pattern) })
+      and excluding.any { pattern => rootMatches(root, pattern) } == false
+  }
+
+  let rootMatches(root: String!, pattern: String!): Boolean! {
+    let trimmed = pattern.trimPrefix("/").trimSuffix("/")
+    if (trimmed == "**" or trimmed == "*") {
+      true
+    } else {
+      let prefix = trimmed.trimSuffix("/**")
+      root == prefix or root.hasPrefix(prefix + "/")
+    }
   }
 
   """
@@ -999,24 +1154,12 @@ type GoModule {
   # how go:generate scripts are kept out of the build. Other build constraints
   # are not evaluated: the build reports what the search got wrong.
   let binaryPackages(ws: Workspace!): [String!]! {
-    binaryPackagesIn(ws, lib.at(path).ownFiles(ws, "*.go"))
-  }
-
-  # binaryPackages among this module's own files, listed by the caller.
-  let binaryPackagesIn(ws: Workspace!, ownFiles: [String!]!): [String!]! {
-    let empty: [String!]! = []
-    let files = ownFiles.filter { f => f.hasSuffix("_test.go") == false }
-    if (files.length == 0) {
-      empty
-    } else {
-      let mains = markedFiles(ws, "main")
-      let ignored = markedFiles(ws, "ignore")
-      files
-        .filter { f => mains.contains(f) and ignored.contains(f) == false }
-        .map { f => packageDirectory(f) }
-        .uniq
-        .filter { pkg => buildSelected(pkg) }
-    }
+    discoveryLines(ws)
+      .filter { line =>
+        line.hasPrefix("package\t" + path + "\t") and line.split("\t").takeLast(1).join("").split("").contains("m")
+      }
+      .map { line => line.split("\t").takeFirst(3).takeLast(1).join("") }
+      .filter { pkg => buildSelected(pkg) }
   }
 
   # Whether the build setting selects a module-relative main package. A pattern
@@ -1026,58 +1169,14 @@ type GoModule {
     let paths = [pkg, packagePath(pkg)]
     let selecting = buildPatterns.filter { p => p.hasPrefix("!") == false }
     let excluding = buildPatterns.filter { p => p.hasPrefix("!") }
-    (selecting.length == 0 or selecting.any { p => paths.any { at => lib.at(at).selected([p]) } })
-      and excluding.any { p => paths.any { at => lib.at(at).selected([p]) == false } } == false
+    (selecting.length == 0 or selecting.any { p => paths.any { at => rootSelected(normalized(at), [p]) } })
+      and excluding.any { p => paths.any { at => rootSelected(normalized(at), [p]) == false } } == false
   }
 
-  # Workspace-root paths of the Go files in this module's tree with a line of
-  # one kind: "main" for a package main clause, "ignore" for an ignore build
-  # tag, "generate" for a go:generate command. One search finds all three, so
-  # discovering a module's packages searches its tree once. The caller narrows
-  # the files to the module's own.
-  let markedFiles(ws: Workspace!, kind: String!): [String!]! {
-    ws
-      .search(
-        paths: [if (path == ".") { "/" } else { "/" + path }],
-        globs: ["*.go"],
-        pattern: `^(package main\s*(//.*)?|//(go:build| \+build) ignore\s*|//go:generate\s.*)$`,
-      ).{{filePath, matchedLines}}
-      .filter { match =>
-        if (kind == "main") {
-          match.matchedLines.hasPrefix("package main")
-        } else if (kind == "generate") {
-          match.matchedLines.hasPrefix("//go:generate")
-        } else {
-          match.matchedLines.hasPrefix("//go:build") or match.matchedLines.hasPrefix("// +build")
-        }
-      }
-      .map { match => match.filePath.trimPrefix("/").trimPrefix("./") }
-      .uniq
-  }
-
-  # The module-relative directory of a workspace-root file path.
-  let packageDirectory(file: String!): String! {
-    let dir = file.split("/").dropLast(1).join("/")
-    if (dir == "" or dir == path) {
-      "."
-    } else if (path == ".") {
-      dir
-    } else {
-      dir.trimPrefix(path + "/")
-    }
-  }
-
-  # The module path go.mod declares. The root package's binary is named from it.
+  # The module path go.mod declares, as the scan reports it. The root
+  # package's binary is named from it.
   let importPath(ws: Workspace!): String! {
-    ws
-      .file("/" + lib.at(path).subpath("go.mod"))
-      .contents
-      .split("\n")
-      .map { line => line.replaceMatches(`//.*$`, with: "").trimSpace }
-      .filter { line => line.hasPrefix("module ") or line.hasPrefix("module\t") }
-      .map { line => line.trimPrefix("module").trimSpace.trimPrefix("\"").trimSuffix("\"") }
-      .takeFirst(1)
-      .join("")
+    moduleField(ws, 2)
   }
 
   let packageArg(pkg: String!): String! {
@@ -1105,7 +1204,7 @@ type GoModule {
       # as it is.
       image: if (baseImage == null) { gomod.goImage(toolchainVersion(ws)) } else { "" },
       source: source(ws),
-      headers: lib.at(path).headerPack(ws),
+      headers: lib.scan(ws).sync.file("_headers_.gohdr"),
       mountPath: mountPath,
       workdir: path,
       pkg: packageArg(pkg),
