@@ -149,6 +149,11 @@ func wrap(argv []string) int {
 	return resp.Exit
 }
 
+type producedFile struct {
+	file *core.File
+	size int64 // local size right after export; Go may append to it later
+}
+
 type uploaded struct {
 	size  int64
 	mtime time.Time
@@ -162,7 +167,9 @@ type server struct {
 	work   *regexp.Regexp // the go command's work directory
 
 	producedMu sync.Mutex
-	produced   map[string]*core.File // real output path -> the exec's output
+	produced   map[string]producedFile // real output path -> the exec's output
+
+	keys *json.Encoder // optional: each action's cache-relevant inputs
 
 	mu    sync.Mutex
 	files map[string]uploaded
@@ -178,6 +185,7 @@ func daemon(argv []string) {
 	logPath := fs.String("log", "", "per-action JSON lines")
 	tmpdir := fs.String("gotmpdir", "", "GOTMPDIR of the go command, whose go-buildNNN work directory is replaced by /work")
 	salt := fs.String("salt", "", "added to every action's environment, so separate rounds start cold")
+	keysPath := fs.String("keys", "", "optional: log each action's arguments, environment and input digests")
 	fs.Parse(argv)
 
 	ctx := context.Background()
@@ -194,7 +202,7 @@ func daemon(argv []string) {
 		base:     q.Container().From(*image).WithEnvVariable("G24_SALT", *salt),
 		goroot:   goroot,
 		work:     regexp.MustCompile(regexp.QuoteMeta(filepath.Clean(*tmpdir)) + `/go-build[0-9]+`),
-		produced: map[string]*core.File{},
+		produced: map[string]producedFile{},
 		files:    map[string]uploaded{},
 	}
 	lf, err := os.Create(*logPath)
@@ -204,6 +212,15 @@ func daemon(argv []string) {
 	}
 	defer lf.Close()
 	s.log = json.NewEncoder(lf)
+	if *keysPath != "" {
+		kf, err := os.Create(*keysPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "daemon: keys:", err)
+			os.Exit(1)
+		}
+		defer kf.Close()
+		s.keys = json.NewEncoder(kf)
+	}
 	if _, err := s.base.Sync(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon: base image:", err)
 		os.Exit(1)
@@ -263,6 +280,8 @@ type actionLog struct {
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
+var backendConcurrency = regexp.MustCompile(`^-c=[0-9]+$`)
+
 func (s *server) handle(ctx context.Context, req request) (resp response) {
 	start := time.Now()
 	al := actionLog{Tool: filepath.Base(req.Tool)}
@@ -284,20 +303,28 @@ func (s *server) handle(ctx context.Context, req request) (resp response) {
 	al.Inputs = len(inputs)
 	norm := func(v string) string { return s.work.ReplaceAllString(v, "/work") }
 
-	// Inputs: archives this daemon produced pass on as the exec's own output;
-	// small files in the work directory are rewritten to the normalised path;
-	// everything else is uploaded by content.
+	// Inputs: an archive this daemon produced passes on as the exec's own
+	// output, unless Go has since appended to it (assembly objects), which
+	// shows as a size change; Go's in-place build-ID rewrite keeps the size,
+	// and the difference only affects build IDs. Small text files in the work
+	// directory are rewritten to the normalised path; everything else,
+	// including changed archives, is uploaded by content.
 	t := time.Now()
 	mounts := map[string]*core.File{}
 	var others []string
 	for _, p := range inputs {
 		s.producedMu.Lock()
-		f, ok := s.produced[p]
+		pf, ok := s.produced[p]
 		s.producedMu.Unlock()
+		if ok {
+			if st, err := os.Stat(p); err == nil && st.Size() == pf.size {
+				mounts[norm(p)] = pf.file
+				continue
+			}
+		}
+		binary := strings.HasSuffix(p, ".a") || strings.HasSuffix(p, ".o")
 		switch {
-		case ok:
-			mounts[norm(p)] = f
-		case s.work.MatchString(p):
+		case s.work.MatchString(p) && !binary:
 			b, err := os.ReadFile(p)
 			if err != nil {
 				return response{Err: "read input: " + err.Error()}
@@ -315,7 +342,7 @@ func (s *server) handle(ctx context.Context, req request) (resp response) {
 		return response{Err: "upload: " + err.Error()}
 	}
 	for p, f := range files {
-		mounts[p] = f
+		mounts[norm(p)] = f
 	}
 
 	ctr := s.base
@@ -339,12 +366,40 @@ func (s *server) handle(ctx context.Context, req request) (resp response) {
 	args := make([]string, 0, len(req.Args)+1)
 	args = append(args, req.Tool)
 	for _, a := range req.Args {
+		// The go command picks the compiler's backend concurrency (-c=N) per
+		// action from the CPU free at that moment, so it differs between
+		// builds. It doesn't change the output, so a fixed value keeps the
+		// exec's cache key stable.
+		if al.Tool == "compile" && backendConcurrency.MatchString(a) {
+			a = "-c=4"
+		}
 		args = append(args, norm(a))
 	}
 	ctr = ctr.WithWorkdir(dir).WithExec(args, core.ContainerWithExecOpts{
 		DisableDaggerInDagger: true,
 		Expect:                core.ReturnTypeAny,
 	})
+	if s.keys != nil {
+		type mount struct{ Path, Digest string }
+		k := struct {
+			ImportPath, Tool string
+			Args, Env        []string
+			Mounts           []mount
+		}{ImportPath: al.ImportPath, Tool: al.Tool, Args: args}
+		for _, kv := range req.Env {
+			k.Env = append(k.Env, norm(kv))
+		}
+		for _, p := range paths {
+			d, err := mounts[p].Digest(ctx)
+			if err != nil {
+				d = "error: " + err.Error()
+			}
+			k.Mounts = append(k.Mounts, mount{p, d})
+		}
+		s.logMu.Lock()
+		s.keys.Encode(k)
+		s.logMu.Unlock()
+	}
 
 	t = time.Now()
 	code, err := ctr.ExitCode(ctx)
@@ -367,8 +422,13 @@ func (s *server) handle(ctx context.Context, req request) (resp response) {
 			defer wg.Done()
 			f := ctr.File(norm(out))
 			if _, errs[i] = f.Export(ctx, out); errs[i] == nil {
+				st, err := os.Stat(out)
+				if err != nil {
+					errs[i] = err
+					return
+				}
 				s.producedMu.Lock()
-				s.produced[out] = f
+				s.produced[out] = producedFile{file: f, size: st.Size()}
 				s.producedMu.Unlock()
 			}
 		}()

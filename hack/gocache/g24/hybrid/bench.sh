@@ -6,7 +6,8 @@
 # no change. plain keeps Go's local GOCACHE across its three builds (the speed reference). hybrid
 # gives Go an empty GOCACHE on every build, so every action reaches the daemon and its hits come
 # only from Dagger's cache; each round has its own salt, so rounds start cold. One daemon per build,
-# started before the timer (its start is logged separately).
+# started before the timer (its start is logged separately). KEYS=1 also logs each action's
+# arguments, environment and input digests (extra queries; for functional checks, not timing).
 set -eu
 OUT=/out; mkdir -p $OUT /gotmp
 ROUNDS=${ROUNDS:-3}
@@ -17,7 +18,8 @@ echo "image $IMG; rounds $ROUNDS; nonce $NONCE; $(go version); nproc $(nproc)" >
 daemon_start() { # $1 = label, $2 = salt
   rm -f /run/h.sock
   s=$(ms)
-  hybrid daemon -sock /run/h.sock -image "$IMG" -gotmpdir /gotmp -salt "$2" -log $OUT/$1.actions.jsonl > $OUT/$1.daemon.log 2>&1 &
+  keys=""; [ -n "${KEYS:-}" ] && keys="-keys $OUT/$1.keys.jsonl"
+  hybrid daemon -sock /run/h.sock -image "$IMG" -gotmpdir /gotmp -salt "$2" -log $OUT/$1.actions.jsonl $keys > $OUT/$1.daemon.log 2>&1 &
   dpid=$!
   i=0
   until grep -q ready $OUT/$1.daemon.log 2>/dev/null; do
@@ -30,6 +32,7 @@ daemon_start() { # $1 = label, $2 = salt
 daemon_stop() { kill $dpid 2>/dev/null || true; wait $dpid 2>/dev/null || true; }
 build() { # $1 = label, $2 = arm
   rc=0
+  rm -f /gotmp/out
   if [ "$2" = hybrid ]; then
     daemon_start $1 "$NONCE-$salt" || return 0
     gc=$(mktemp -d /gotmp/gocache.XXXXXX)
