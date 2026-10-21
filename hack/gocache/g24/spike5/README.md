@@ -96,6 +96,10 @@ The functional check verifies equal bytes with 5, 30, 260 and 1,400 independent
 1-KiB archive snapshots, read-only bindings, changed input visibility, 1-MiB
 outputs, lifecycle and failure behavior, plus each measurement arm at fan-out.
 It reports no elapsed times and supports no local timing inference.
+It also captures one functional profile and runs the exact report-generation
+pipeline used by timing mode. Those reports validate parsing and class filters;
+their durations are not benchmark evidence. `results.jsonl` contains one JSON
+record per line in both modes.
 
 On linux-vm only:
 
@@ -132,12 +136,37 @@ serial per-call latency, fan-out wall/n, preparation, bytes and counts. Inspect
 copy, mount, exec lifecycle, filesync, content hash and result-publication time.
 No-op cached calls are not a target of this experiment.
 
+## Remote cache representation
+
+These options use Dagger results, not a separate engine-local store. The file
+view is a persistable `Container` result: its metadata records the ordered
+paths and read-only flags, and each archive is an ordinary snapshot part. It
+does not invent a single byte digest for the complete view. Its call identity
+includes the parent, ordered File IDs and paths; the cache's snapshot payloads
+are content-addressed and use the existing Container transfer codec.
+
+Direct binding accepts ordinary File/Directory results and uses the existing
+mount operations. Evaluation can materialize remotely acquired parts before
+the function starts. Sealed output is an ordinary File result with an eager
+content digest and its own committed snapshot reference. Default-cached module
+functions are persistable; the File codec describes `/result` and the snapshot
+part that the remote cache transfers. No caller-local pathname or function
+container has to survive after capture.
+
+The focused codec check exercises the actual view builder and the same
+snapshot-backed File shape as sealing: all archive bytes have a transfer part,
+and normalized foreign metadata contains no producer-local snapshot IDs.
+This is representation-level validation, not an observed network push/pull.
+Real remote upload, lookup, pull, restart and remote eviction are not tested by
+this series. Those are required validation for a shipping feature and the
+next engine-store spike; local transport savings must not be reported as remote
+cache savings. Keep experimental results in a separate cache namespace.
+
 ## Deliberate omissions
 
-- No new persistence format or engine restart/remote export validation. The
-  finished values reuse ordinary snapshot-backed objects and ownership, but
-  the prototype field is not marked persistable. Fresh state avoids mixing
-  experimental identities with production caches.
+- No new persistence format. Results use the existing persistable types and
+  transfer codecs, but real restart/remote export/import is unverified here.
+  The series runs on a fresh dev engine without a remote-cache timing arm.
 - GC ownership uses reopened snapshot refs; this is not a long-session pruning
   or concurrent eviction stress test. No GC settings are changed.
 - File-view identity uses ordered file IDs and visible paths. It does not

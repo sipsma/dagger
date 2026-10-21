@@ -26,6 +26,6 @@ func installSpike5(srv *dagql.Server) {
 				return zero, err
 			}
 			return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
-		}).Doc("Spike 5 only: a bulk read-only file view backed by ordinary bind mounts."),
+		}).IsPersistable().Doc("Spike 5 only: a bulk read-only file view backed by ordinary bind mounts."),
 	}.Install(srv)
 }

@@ -10,7 +10,10 @@ case "$mode" in functional|timing) ;; *) exit 2 ;; esac
 [[ ! -e "$out" ]] || { echo "output must be new" >&2; exit 2; }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-dagger_bin=${DAGGER_BIN:-$HOME/.local/bin/dagger}
+dagger_bin=${DAGGER_BIN:-}
+if [[ -z "$dagger_bin" ]]; then
+  if [[ -x "$HOME/.local/bin/dagger" ]]; then dagger_bin=$HOME/.local/bin/dagger; else dagger_bin=dagger; fi
+fi
 dagger_bin=$(readlink -f "$(command -v "$dagger_bin")")
 nonce=$(date -u +%Y%m%dT%H%M%S)-$$
 for value in "$here" "$out"; do
@@ -35,16 +38,15 @@ res=\$(engine-dev | install-client --client \$(container | from alpine:3.20 | wi
 \$res | export $out/run
 DSH
 )
-if [[ "$mode" == timing ]]; then
-  script+=$(cat <<DSH
+script+=$(cat <<DSH
 
 report=\$(container | from golang:1.26.6 | with-env-variable CGO_ENABLED 0 | with-directory /src \$(directory | with-file go.mod \$(host | file go.mod) | with-file go.sum \$(host | file go.sum) | with-directory engine/wcprof \$(host | directory engine/wcprof) | with-directory internal/enginelab/wcprofreport \$(host | directory .dagger/modules/engine-lab/wcprof-report)) | with-workdir /src | with-exec -- go build -o /wcprof-report ./internal/enginelab/wcprofreport | file /wcprof-report)
 container | from alpine:3.20 | with-file /report \$report | with-file /reports.sh \$(host | file $here/reports.sh) | with-mounted-directory /in \$res | with-exec -- sh /reports.sh | directory /reports | export $out/reports
 DSH
 )
-fi
 printf '%s\n' "$script" > "$out/invocation.dsh"
 export DAGGER_LEAVE_OLD_ENGINE=true; "$dagger_bin" -c "$script" > "$out/dagger.log" 2>&1
 cat "$out/run/summary.txt"
 [[ $(cat "$out/run/exitcode") == 0 && -f "$out/run/PASS" ]]
+compgen -G "$out/reports/*.reports.txt" > /dev/null
 echo "PASS: $out/run"

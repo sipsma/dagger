@@ -7,11 +7,18 @@ export DAGGER_LEAVE_OLD_ENGINE=true; dagger version > /out/dev-version.txt 2>&1
 if [ "$MODE" = functional ]; then
   export DAGGER_LEAVE_OLD_ENGINE=true; timeout 900 dagger call check --salt "$NONCE" > /out/check.txt 2> /out/check.log
   cat /out/check.txt >> /out/summary.txt
+  printf '\n' >> /out/summary.txt
+  curl -sf 'http://dagger-engine:6060/debug/wcprof/dump?flush=1' -o /dev/null
   # Exercise every measurement arm; no elapsed times in functional mode.
   for kind in view withfiles export-dir bind-dir export-file bind-file workdir sealed exec-one exec-two; do
     export DAGGER_LEAVE_OLD_ENGINE=true; timeout 120 dagger call run --kind "$kind" --n 2 --c 2 --count 5 --size 1024 --salt "$NONCE-$kind" --timing=false > "/out/$kind.json" 2> "/out/$kind.log"
     cat "/out/$kind.json" >> /out/summary.txt
+    printf '\n' >> /out/summary.txt
+    cat "/out/$kind.json" >> /out/results.jsonl
+    printf '\n' >> /out/results.jsonl
   done
+  # Exercise the same report pipeline as timing mode, without a timing series.
+  curl -sf 'http://dagger-engine:6060/debug/wcprof/dump?flush=1' -o /out/functional.dump
   touch /out/PASS
   exit 0
 fi
@@ -27,7 +34,9 @@ case_run() {
   # stdout holds the module's JSON; progress goes to a separate log.
   printf '%s :: ' "$name" >> /out/summary.txt
   cat "/out/$name.json" >> /out/summary.txt
+  printf '\n' >> /out/summary.txt
   cat "/out/$name.json" >> /out/results.jsonl
+  printf '\n' >> /out/results.jsonl
   if [ "$r" = 1 ]; then curl -sf 'http://dagger-engine:6060/debug/wcprof/dump?flush=1' -o "/out/$name.dump"; fi
 }
 for r in 1 2 3; do
