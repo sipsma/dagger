@@ -8,7 +8,9 @@
 # "yq" (builds ., edit A in pkg/yqlib) or "dagger" (builds ./cmd/dagger, edit D in
 # internal/cloud/auth, then edit T in internal/cmd/dagger), tiers B's perPackageTiers (default
 # outside), or "plain": B is then a plain module like A (another commit of dagger/go), run exactly
-# as A is, with no per-package settings and no untimed per-package tail.
+# as A is, with no per-package settings and no untimed per-package tail; or "cut": B is the hard-cut
+# module (per-package always, no settings), its downloads and helper tools warmed by building a
+# throwaway package first, and the untimed tail is only plain go build's action graph.
 # Per arm: preload (A: module load, discovery and go mod download into its go-mod volume; B: the
 # same discovery, plus its own module download and helper tools via perPackagePrepare); then first
 # build, no change, each edit, no change again. Each build is "binary | size": built, not run.
@@ -35,7 +37,7 @@ echo "order $order; project $project; tiers $tiers; A=$REF_A; B=$REF_B" >> /out/
 settings() { # $1 = arm, $2 = extra B settings
   d=/rm/$1/p; eval ref=\$REF_$1
   printf '[modules.go]\nsource = "%s"\n' "$ref" > $d/dagger.toml
-  [ $1 = B ] && [ "$tiers" != plain ] && printf '\n[modules.go.settings]\nperPackageTiers = "%s"\n%b' "$tiers" "${2:-}" >> $d/dagger.toml
+  [ $1 = B ] && [ "$tiers" != plain ] && [ "$tiers" != cut ] && printf '\n[modules.go.settings]\nperPackageTiers = "%s"\n%b' "$tiers" "${2:-}" >> $d/dagger.toml
   true
 }
 for arm in A B; do
@@ -45,8 +47,18 @@ for arm in A B; do
 done
 t() { arm=$1; n=$2; shift 2; s=$(ms); (cd /rm/$arm/p && timeout 2400 dagger "$@") > /out/$arm-$n.txt 2>&1 || echo "FAILED rc=$?" >> /out/$arm-$n.txt; e=$(ms); echo "$arm-$n wall_ms=$((e-s)) :: $(tail -1 /out/$arm-$n.txt | tr '\n' ' ' | cut -c1-100)" >> /out/summary.txt; }
 BUILD="go | packages | get $pkg | binary | size"
+# The cut module has no prepare setting. Its first build counts from a warm module download and
+# helper tools, as A's does from a warm download: a build of a throwaway main package with no
+# imports in the same tree runs the same download and tool execs, and shares no plan, tier or
+# package exec with the timed build. The package is removed before anything is timed.
+warm() {
+  mkdir -p /rm/B/p/g23warm && printf 'package main\n\nfunc main() {}\n' > /rm/B/p/g23warm/main.go
+  t B prepare -s -c "go | packages | get g23warm | binary | size"
+  rm -rf /rm/B/p/g23warm
+}
 preload() {
-  if [ $1 = B ] && [ "$tiers" != plain ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; fi
+  if [ $1 = B ] && [ "$tiers" = cut ]; then warm
+  elif [ $1 = B ] && [ "$tiers" != plain ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; fi
   t $1 preload -s -c 'go | packages | keys'
   if [ $1 = A ] || [ "$tiers" = plain ]; then t $1 preload-mod -s -c 'go | module . | base | with-directory . $(go | module . | source) | with-exec go,mod,download | sync'; fi
   true
@@ -55,7 +67,8 @@ build() { flush; t $1 $2 -s -c "$BUILD"; dump $1-$2; }
 # "check" only checks both arms work on this engine: B's prepare-only build, one B build, and
 # A's discovery. Its times are not a comparison.
 if [ "$order" = check ]; then
-  if [ "$tiers" != plain ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; fi
+  if [ "$tiers" = cut ]; then warm
+  elif [ "$tiers" != plain ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; fi
   t B check-build -s -c "$BUILD"; t A preload -s -c 'go | packages | keys'; exit 0
 fi
 edit() { # $1 = name, $2 = file, $3 = sed expression, $4 = the text it changes
@@ -80,10 +93,14 @@ esac
 # downloads and helper tools stay cached) with its per-package timeline ("TL" lines in
 # B-timeline.txt), then a plain go build of the same tree with the go command's action graph
 # (plaingraph.json), in the module's Go image. Neither is a timing comparison.
-settings B "perPackageTimeline = true\nperPackageSalt = \"tl-$NONCE\"\n"
-(cd /rm/B/p && timeout 2400 dagger --progress=plain -c "$BUILD") > /out/B-timeline.txt 2>&1 || echo "timeline: FAILED rc=$?" >> /out/summary.txt
+if [ "$tiers" = cut ]; then
+  echo "cut: the hard-cut module prints no per-package timeline" > /out/B-timeline.txt
+else
+  settings B "perPackageTimeline = true\nperPackageSalt = \"tl-$NONCE\"\n"
+  (cd /rm/B/p && timeout 2400 dagger --progress=plain -c "$BUILD") > /out/B-timeline.txt 2>&1 || echo "timeline: FAILED rc=$?" >> /out/summary.txt
+  settings B
+fi
 echo "timeline: $(grep -c 'TL {' /out/B-timeline.txt) TL lines" >> /out/summary.txt
-settings B
 v=$(cd /rm/A/p && dagger -s -c 'go | module . | version' 2>/dev/null | tail -1)
 (cd /rm/A/p && timeout 2400 dagger -s -c "container | from golang:$v-alpine | with-env-variable GOCACHE /tmp/gocache | with-directory /src \$(host | directory . --exclude .git --exclude dagger.toml) | with-workdir /src | with-exec -- sh -c 'go mod download && mkdir -p /out && go build -debug-actiongraph=/out/graph.json -o /out/bin ./$pkg' | file /out/graph.json | export /out/plaingraph.json") > /out/plaingraph.log 2>&1 || echo "plaingraph: FAILED rc=$?" >> /out/summary.txt
 echo "plaingraph: $(wc -c < /out/plaingraph.json 2>/dev/null || echo 0) bytes (go $v)" >> /out/summary.txt
