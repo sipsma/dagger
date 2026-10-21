@@ -406,7 +406,10 @@ func commonDir(files []string) string {
 //	modules  the standard library, then one tier per dependency module (or per
 //	         group of modules that import each other), so a workspace package
 //	         waits only for the modules it imports.
-func partition(strategy string, blocks map[string]*block) ([]map[string]bool, []string, error) {
+//	heavy    outside less its heavy tail, then the tail: see heavyTiers.
+//
+// weights are the plan's step weights, from gohdr weigh.
+func partition(strategy string, blocks map[string]*block, weights map[string]int64) ([]map[string]bool, []string, error) {
 	switch strategy {
 	case "none":
 		return nil, nil, nil
@@ -420,8 +423,138 @@ func partition(strategy string, blocks map[string]*block) ([]map[string]bool, []
 		return nonEmpty([]string{"std", "deps"}, std, outside)
 	case "modules":
 		return moduleTiers(blocks)
+	case "heavy":
+		return heavyTiers(blocks, weights)
 	}
-	return nil, nil, fmt.Errorf("unknown tier strategy %q: want none, outside, split or modules", strategy)
+	return nil, nil, fmt.Errorf("unknown tier strategy %q: want none, outside, split, modules or heavy", strategy)
+}
+
+// heavyTiers is the heavy split. A tier's archives come out together when
+// its last package is done, so one outside tier holds every workspace
+// package back until the end of its heaviest chain of dependencies, which
+// often ends in a few big packages, such as a C library translated to Go.
+// The heavy tier is that tail: the biggest package on the heaviest chain,
+// and every outside package whose chain is longer than what precedes it.
+// The light tier is the rest, which the heavy one builds on. A workspace
+// package that imports nothing heavy starts when the light tier is done,
+// and builds while the tail does.
+//
+// It splits only a tail: the heavy tier at most a quarter of the outside
+// packages' weight, and its first package at least a quarter of the chain.
+// Otherwise, as when the heaviest chain is mostly the standard library, it
+// is the outside tier. Only the outside packages' weights decide it, so a
+// workspace edit never moves a package between tiers.
+func heavyTiers(blocks map[string]*block, weights map[string]int64) ([]map[string]bool, []string, error) {
+	outside := outsideSet(blocks)
+	chain := map[string]int64{}
+	var chainOf func(id string) int64
+	chainOf = func(id string) int64 {
+		if v, ok := chain[id]; ok {
+			return v
+		}
+		var below int64
+		for _, d := range blocks[id].deps {
+			below = max(below, chainOf(d))
+		}
+		chain[id] = weights[id] + below
+		return chain[id]
+	}
+	// Ties go by import path, which, unlike a step id, an edit elsewhere in
+	// the plan doesn't renumber.
+	longer := func(a, b string) bool {
+		if b == "" || chain[a] != chain[b] {
+			return b == "" || chain[a] > chain[b]
+		}
+		return blocks[a].importPath < blocks[b].importPath
+	}
+	var total int64
+	head := ""
+	for id := range outside {
+		chainOf(id)
+		total += weights[id]
+		if longer(id, head) {
+			head = id
+		}
+	}
+	big := head
+	for id := head; id != ""; {
+		if weights[id] > weights[big] {
+			big = id
+		}
+		next := ""
+		for _, d := range blocks[id].deps {
+			if longer(d, next) {
+				next = d
+			}
+		}
+		id = next
+	}
+	start := chain[big] - weights[big]
+	light, heavy := map[string]bool{}, map[string]bool{}
+	var heavyWeight int64
+	for id := range outside {
+		if chain[id] <= start {
+			light[id] = true
+		} else {
+			heavy[id] = true
+			heavyWeight += weights[id]
+		}
+	}
+	if 4*heavyWeight > total || 4*weights[big] < chain[head] {
+		return nonEmpty([]string{"deps"}, outside)
+	}
+	return nonEmpty([]string{"light", "heavy"}, light, heavy)
+}
+
+// heightsOf is each outside package's priority in its tier exec: its weight
+// plus the heaviest chain of outside packages that import it, across tiers,
+// so a tier starts first what a later tier's long chain waits for. Only the
+// outside packages' weights go in, so a workspace edit leaves a tier's spec,
+// and its exec, as they were.
+func heightsOf(blocks map[string]*block, outside map[string]bool, weights map[string]int64) map[string]int64 {
+	dependents := map[string][]string{}
+	for id := range outside {
+		for _, d := range blocks[id].deps {
+			dependents[d] = append(dependents[d], id)
+		}
+	}
+	heights := map[string]int64{}
+	var heightOf func(id string) int64
+	heightOf = func(id string) int64 {
+		if v, ok := heights[id]; ok {
+			return v
+		}
+		var above int64
+		for _, up := range dependents[id] {
+			above = max(above, heightOf(up))
+		}
+		heights[id] = weights[id] + above
+		return heights[id]
+	}
+	for id := range outside {
+		heightOf(id)
+	}
+	return heights
+}
+
+// printTiers writes one "TIER" line per tier to stderr, for the timeline:
+// its name, package count and weight, and for a tier of 30 packages or
+// fewer, the packages.
+func printTiers(blocks map[string]*block, parts []map[string]bool, names []string, weights map[string]int64) {
+	for k, part := range parts {
+		var w int64
+		var pkgs []string
+		for id := range part {
+			w += weights[id]
+			pkgs = append(pkgs, blocks[id].importPath)
+		}
+		sort.Strings(pkgs)
+		line := fmt.Sprintf("TIER %s %d packages %d bytes", names[k], len(part), w)
+		if len(pkgs) <= 30 {
+			line += ": " + strings.Join(pkgs, " ")
+		}
+		fmt.Fprintln(os.Stderr, line)
+	}
 }
 
 // moduleTiers is the modules split: the standard library, and the dependency

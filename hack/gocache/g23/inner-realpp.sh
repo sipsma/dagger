@@ -1,5 +1,5 @@
 # g23 item 4: today's real Go module (A, github.com/dagger/go main) against the new module (B:
-# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage at d6ba6f5,
+# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage at 556d714,
 # which builds every binary per package with no fallback),
 # on one project, on one fresh dev engine. Runs in the client container; /work/yq is yq and /d is
 # run.sh's DSRC (a dagger/dagger source tree, for the dagger project).
@@ -7,7 +7,8 @@
 # "check" (only checks both arms work on this engine: B's prepare and one build, A's discovery), project
 # "yq" (builds ., edit A in pkg/yqlib) or "dagger" (builds ./cmd/dagger, edit D in
 # internal/cloud/auth, then edit T in internal/cmd/dagger), tiers B's perPackageTiers (default
-# outside).
+# outside), or "plain": B is then a plain module like A (another commit of dagger/go), run exactly
+# as A is, with no per-package settings and no untimed per-package tail.
 # Per arm: preload (A: module load, discovery and go mod download into its go-mod volume; B: the
 # same discovery, plus its own module download and helper tools via perPackagePrepare); then first
 # build, no change, each edit, no change again. Each build is "binary | size": built, not run.
@@ -34,7 +35,7 @@ echo "order $order; project $project; tiers $tiers; A=$REF_A; B=$REF_B" >> /out/
 settings() { # $1 = arm, $2 = extra B settings
   d=/rm/$1/p; eval ref=\$REF_$1
   printf '[modules.go]\nsource = "%s"\n' "$ref" > $d/dagger.toml
-  [ $1 = B ] && printf '\n[modules.go.settings]\nperPackageTiers = "%s"\n%b' "$tiers" "${2:-}" >> $d/dagger.toml
+  [ $1 = B ] && [ "$tiers" != plain ] && printf '\n[modules.go.settings]\nperPackageTiers = "%s"\n%b' "$tiers" "${2:-}" >> $d/dagger.toml
   true
 }
 for arm in A B; do
@@ -45,15 +46,18 @@ done
 t() { arm=$1; n=$2; shift 2; s=$(ms); (cd /rm/$arm/p && timeout 2400 dagger "$@") > /out/$arm-$n.txt 2>&1 || echo "FAILED rc=$?" >> /out/$arm-$n.txt; e=$(ms); echo "$arm-$n wall_ms=$((e-s)) :: $(tail -1 /out/$arm-$n.txt | tr '\n' ' ' | cut -c1-100)" >> /out/summary.txt; }
 BUILD="go | packages | get $pkg | binary | size"
 preload() {
-  if [ $1 = B ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; fi
+  if [ $1 = B ] && [ "$tiers" != plain ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; fi
   t $1 preload -s -c 'go | packages | keys'
-  [ $1 = A ] && t A preload-mod -s -c 'go | module . | base | with-directory . $(go | module . | source) | with-exec go,mod,download | sync'
+  if [ $1 = A ] || [ "$tiers" = plain ]; then t $1 preload-mod -s -c 'go | module . | base | with-directory . $(go | module . | source) | with-exec go,mod,download | sync'; fi
   true
 }
 build() { flush; t $1 $2 -s -c "$BUILD"; dump $1-$2; }
 # "check" only checks both arms work on this engine: B's prepare-only build, one B build, and
 # A's discovery. Its times are not a comparison.
-if [ "$order" = check ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; t B check-build -s -c "$BUILD"; t A preload -s -c 'go | packages | keys'; exit 0; fi
+if [ "$order" = check ]; then
+  if [ "$tiers" != plain ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; settings B; fi
+  t B check-build -s -c "$BUILD"; t A preload -s -c 'go | packages | keys'; exit 0
+fi
 edit() { # $1 = name, $2 = file, $3 = sed expression, $4 = the text it changes
   for arm in A B; do
     if [ "$(grep -c "$4" /rm/$arm/p/$2)" != 1 ]; then echo "$1: expected one match in $2" >> /out/summary.txt; exit 0; fi
@@ -70,6 +74,8 @@ case $project in
     edit editD internal/cloud/auth/auth.go 's/could not acquire lock on %s: timed out/could not acquire the lock on %s: timed out/' 'could not acquire lock on %s: timed out'
     edit editT internal/cmd/dagger/artifacts.go 's/addresses select different workspaces: %s and %s/addresses select two different workspaces: %s and %s/' 'addresses select different workspaces: %s and %s' ;;
 esac
+# A plain B has no per-package timeline, and its build is A's: nothing untimed to add.
+[ "$tiers" = plain ] && exit 0
 # Untimed, after everything timed (the folded first-build trace): B once more, cold (a fresh salt;
 # downloads and helper tools stay cached) with its per-package timeline ("TL" lines in
 # B-timeline.txt), then a plain go build of the same tree with the go command's action graph

@@ -42,8 +42,10 @@ type GobuildBinaryOpts struct {
 	// Flags for go build, before the package.
 	Flags []string
 	// Which packages separately cached calls build: none, outside (the
-	// standard library and dependency modules, as one tier) or split (the
-	// standard library, then dependency modules).
+	// standard library and dependency modules, as one tier), split (the
+	// standard library, then dependency modules), modules (a tier per
+	// dependency module) or heavy (outside, less its heavy tail, then the
+	// tail). See partition.
 	//
 	// Default: "outside"
 	Tiers string

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -67,8 +68,10 @@ func (m *Gobuild) Binary(
 	// +optional
 	flags []string,
 	// Which packages separately cached calls build: none, outside (the
-	// standard library and dependency modules, as one tier) or split (the
-	// standard library, then dependency modules).
+	// standard library and dependency modules, as one tier), split (the
+	// standard library, then dependency modules), modules (a tier per
+	// dependency module) or heavy (outside, less its heavy tail, then the
+	// tail). See partition.
 	// +default="outside"
 	tiers string,
 	// How many package execs run at once.
@@ -111,7 +114,7 @@ func (m *Gobuild) Binary(
 			return nil, err
 		}
 	}
-	plan, err := b.plan(ctx, headers, flags, pkg)
+	plan, weights, err := b.plan(ctx, headers, flags, pkg)
 	if err != nil {
 		return nil, err
 	}
@@ -119,11 +122,15 @@ func (m *Gobuild) Binary(
 	if err != nil {
 		return nil, err
 	}
-	parts, names, err := partition(tiers, blocks)
+	parts, names, err := partition(tiers, blocks, weights)
 	if err != nil {
 		return nil, err
 	}
 	std, outsideWS := stdSet(blocks), outsideSet(blocks)
+	heights := heightsOf(blocks, outsideWS, weights)
+	if timeline {
+		printTiers(blocks, parts, names, weights)
+	}
 	for id, bl := range blocks {
 		switch {
 		case std[id]:
@@ -187,7 +194,7 @@ func (m *Gobuild) Binary(
 			}
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			r.dir, r.err = b.tier(ctx, blocks, part, other, lower, timeline)
+			r.dir, r.err = b.tier(ctx, blocks, part, other, lower, heights, timeline)
 			if r.err != nil {
 				r.err = fmt.Errorf("tier %s: %w", names[k], r.err)
 			}
@@ -215,11 +222,13 @@ const tierConcurrency = 4
 // runs its own actions, so the tier costs one container, not one per package.
 // Its packages read each other's archives from /work/lib, and those of other
 // tiers (other, by package) from lower, mounted at /work/t/<tier>. It returns
-// the tier's archives, each named <name>.a.
-func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[string]bool, other map[string]string, lower map[string]*dagger.Directory, timeline bool) (*dagger.Directory, error) {
+// the tier's archives, each named <name>.a. heights orders its packages, as
+// heightsOf describes.
+func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[string]bool, other map[string]string, lower map[string]*dagger.Directory, heights map[string]int64, timeline bool) (*dagger.Directory, error) {
 	type runNode struct {
 		Name, Pkg, Group, Output, Script string
 		Deps                             []string
+		Height                           int64
 	}
 	spec := struct {
 		Lib   string
@@ -229,7 +238,7 @@ func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[str
 	for id := range part {
 		n := toNode(blocks[id], blocks, other)
 		spec.Nodes = append(spec.Nodes, runNode{Name: n.Name, Pkg: n.ImportPath, Group: n.Group,
-			Output: n.Output, Script: n.Script, Deps: n.DepNames})
+			Output: n.Output, Script: n.Script, Deps: n.DepNames, Height: heights[id]})
 		mods = mods || len(n.ModFiles) > 0
 		tools = tools || n.Tools
 	}
@@ -371,7 +380,9 @@ func canonical(ctx context.Context, ctr *dagger.Container, image string) (*dagge
 // plan is go build's plan for pkg, made from headers, the header pack of the
 // source's Go files, and the source's other files whole. Both are keyed by
 // content, so an edit inside function bodies leaves the plan exec a cache hit.
-func (b *build) plan(ctx context.Context, headers *dagger.File, flags []string, pkg string) (string, error) {
+// With it come the plan's step weights, by step id, from "gohdr weigh": for
+// the source's packages they weigh headers, so only the others' are used.
+func (b *build) plan(ctx context.Context, headers *dagger.File, flags []string, pkg string) (string, map[string]int64, error) {
 	cmd := []string{"go", "build", "-n"}
 	cmd = append(cmd, flags...)
 	cmd = append(cmd, "-o", planOut+"/out", pkg)
@@ -379,7 +390,7 @@ func (b *build) plan(ctx context.Context, headers *dagger.File, flags []string, 
 	for i, c := range cmd {
 		quoted[i] = shQuote(c)
 	}
-	return b.base.
+	ran := b.base.
 		WithMountedFile("/gobuild/gohdr", hdrTool()).
 		WithMountedDirectory(b.roots.Mod, b.mods).
 		WithMountedDirectory(b.roots.Src, b.src.Filter(dagger.DirectoryFilterOpts{Exclude: []string{"**/*.go"}})).
@@ -387,8 +398,29 @@ func (b *build) plan(ctx context.Context, headers *dagger.File, flags []string, 
 		// An empty build cache, so the plan holds every step.
 		WithEnvVariable("GOCACHE", "/gobuild/plancache").
 		WithExec([]string{"sh", "-c", "/gobuild/gohdr unpack /gobuild/src.hdr " + shQuote(b.roots.Src) +
-			" && cd " + shQuote(b.roots.Cwd) + " && " + strings.Join(quoted, " ") + " 2> /gobuild/plan.txt"}, noNest).
-		File("/gobuild/plan.txt").Contents(ctx)
+			" && cd " + shQuote(b.roots.Cwd) + " && " + strings.Join(quoted, " ") + " 2> /gobuild/plan.txt" +
+			" && /gobuild/gohdr weigh /gobuild/plan.txt > /gobuild/weights.txt"}, noNest)
+	plan, err := ran.File("/gobuild/plan.txt").Contents(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	out, err := ran.File("/gobuild/weights.txt").Contents(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	weights := map[string]int64{}
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		id, n, _ := strings.Cut(line, " ")
+		v, err := strconv.ParseInt(n, 10, 64)
+		if err != nil {
+			return "", nil, fmt.Errorf("plan weights: %q: %w", line, err)
+		}
+		weights[id] = v
+	}
+	return plan, weights, nil
 }
 
 func needsTools(blocks map[string]*block) bool {

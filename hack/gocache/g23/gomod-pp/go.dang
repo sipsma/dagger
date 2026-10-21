@@ -55,7 +55,9 @@ type Go {
     """
     For measuring: which packages of a binary's build separately cached calls
     build: "none", "outside" (the standard library and dependency modules, as
-    one tier) or "split" (the standard library, then dependency modules).
+    one tier), "split" (the standard library, then dependency modules),
+    "modules" (a tier per dependency module) or "heavy" (outside less its
+    heavy tail, then the tail).
     """
     perPackageTiers: String! = "outside",
     """

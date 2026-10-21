@@ -4,7 +4,8 @@ import "dagger/gobuild/internal/dagger"
 
 // hdrTool builds gohdr, the helper's in-container tool. "gohdr unpack" writes
 // out a header pack, the go module's scan of each Go file up to the end of its
-// imports, for the plan. "gohdr run" builds a tier: it runs the plan's
+// imports, for the plan. "gohdr weigh" weighs the plan's steps by the Go
+// source they compile. "gohdr run" builds a tier: it runs the plan's
 // per-package scripts in one container, in dependency order.
 func hdrTool() *dagger.File {
 	// A standalone tool, so it is built with a pinned toolchain, statically,
@@ -94,6 +95,7 @@ type runNode struct {
 	Deps   []string
 	Output string
 	Script string
+	Height int64
 }
 
 type runSpec struct {
@@ -102,10 +104,11 @@ type runSpec struct {
 }
 
 // run builds every node of the spec in this container: each script once the
-// nodes it depends on are done, as many at once as there are CPUs, the one
-// with the heaviest chain of dependents first, weighing each node by the Go
-// source it compiles, a stand-in for its compile time. Each output is linked into the lib directory, where dependents read
-// it. With TL set in the environment it prints one "TL" timeline line per node.
+// nodes it depends on are done, as many at once as there are CPUs, the
+// highest first: the spec's height is the heaviest chain of packages that
+// import the node, in this tier or a later one, weighed as weigh does. Each
+// output is linked into the lib directory, where dependents read it. With TL
+// set in the environment it prints one "TL" timeline line per node.
 func run(specPath string) error {
 	data, err := os.ReadFile(specPath)
 	if err != nil {
@@ -132,19 +135,6 @@ func run(specPath string) error {
 			}
 		}
 	}
-	height := map[string]int64{}
-	var heightOf func(string) int64
-	heightOf = func(name string) int64 {
-		if v, ok := height[name]; ok {
-			return v
-		}
-		var above int64
-		for _, up := range dependents[name] {
-			above = max(above, heightOf(up))
-		}
-		height[name] = weight(nodes[name].Script) + above
-		return height[name]
-	}
 	type result struct {
 		name       string
 		start, end time.Time
@@ -155,7 +145,6 @@ func run(specPath string) error {
 	readyAt := map[string]time.Time{}
 	var ready []string
 	for name := range nodes {
-		heightOf(name)
 		if pending[name] == 0 {
 			ready = append(ready, name)
 			readyAt[name] = time.Now()
@@ -166,8 +155,8 @@ func run(specPath string) error {
 	running, finished := 0, 0
 	for finished < len(nodes) {
 		sort.Slice(ready, func(i, j int) bool {
-			if height[ready[i]] != height[ready[j]] {
-				return height[ready[i]] > height[ready[j]]
+			if hi, hj := nodes[ready[i]].Height, nodes[ready[j]].Height; hi != hj {
+				return hi > hj
 			}
 			return ready[i] < ready[j]
 		})
@@ -205,15 +194,42 @@ func run(specPath string) error {
 	return nil
 }
 
-// weight is the bytes of Go source a script compiles, plus a fixed cost for
-// starting the compile: the files a compile line names, each relative to the
-// directory the script last changed to.
-func weight(script string) int64 {
-	total := int64(8 << 10)
-	dir := "/"
-	for _, line := range strings.Split(script, "\n") {
+// weigh prints a line "<step> <weight>" for each step (bNNN) of a go build
+// -n plan: the bytes of Go source the step's lines name, plus a fixed cost
+// for starting a compile, a stand-in for its compile time. A relative file is
+// in the directory the plan last changed to, from the current one, as the go
+// command prints "cd" only when the directory changes.
+func weigh(planPath string) error {
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return err
+	}
+	start, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	dir := start
+	weights := map[string]int64{}
+	var steps []string
+	step := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(line, "mkdir -p $WORK/b"); ok {
+			if n, _, ok := strings.Cut(rest, "/"); ok && n != "" && strings.Trim(n, "0123456789") == "" {
+				step = "b" + n
+				if _, ok := weights[step]; !ok {
+					weights[step] = 8 << 10
+					steps = append(steps, step)
+				}
+			}
+		}
 		if d, ok := strings.CutPrefix(line, "cd "); ok {
 			dir = d
+			if d == "." {
+				dir = start
+			}
+			continue
+		}
+		if step == "" {
 			continue
 		}
 		for _, f := range strings.Fields(line) {
@@ -225,11 +241,15 @@ func weight(script string) int64 {
 				f = filepath.Join(dir, f)
 			}
 			if fi, err := os.Stat(f); err == nil {
-				total += fi.Size()
+				weights[step] += fi.Size()
 			}
 		}
 	}
-	return total
+	w := bufio.NewWriter(os.Stdout)
+	for _, step := range steps {
+		fmt.Fprintf(w, "%s %d\n", step, weights[step])
+	}
+	return w.Flush()
 }
 
 // runOne runs one node's script and links its output into lib.
@@ -264,8 +284,10 @@ func main() {
 		err = unpack(args[1], args[2])
 	case len(args) == 2 && args[0] == "run":
 		err = run(args[1])
+	case len(args) == 2 && args[0] == "weigh":
+		err = weigh(args[1])
 	default:
-		err = fmt.Errorf("usage: gohdr unpack <pack> <dir>, or gohdr run <spec>")
+		err = fmt.Errorf("usage: gohdr unpack <pack> <dir>, gohdr run <spec>, or gohdr weigh <plan>")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gohdr:", err)
