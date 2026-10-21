@@ -150,7 +150,7 @@ func (m *Gobuild) Binary(
 		if k > 0 {
 			lower = w.tiers[k-1]
 		}
-		dir, err := b.tier(ctx, blocks, part, outside, lower, timeline)
+		dir, err := b.tier(ctx, blocks, part, lower, timeline)
 		if err != nil {
 			return nil, fmt.Errorf("tier %d: %w", k, err)
 		}
@@ -177,7 +177,7 @@ func (m *Gobuild) Binary(
 // runs its own actions, so the tier costs one container, not one per package.
 // It returns the tier's archives, each named <name>.a, along with those of
 // lower, the tier below, which it builds on.
-func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[string]bool, outside map[string]int, lower *dagger.Directory, timeline bool) (*dagger.Directory, error) {
+func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[string]bool, lower *dagger.Directory, timeline bool) (*dagger.Directory, error) {
 	type runNode struct {
 		Name, Pkg, Group, Output, Script string
 		Deps                             []string
@@ -188,7 +188,8 @@ func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[str
 	}{Lib: "/work/lib"}
 	mods, tools := false, false
 	for id := range part {
-		n := toNode(blocks[id], blocks, outside)
+		// Every dependency is in /work/lib, where the tier below is mounted.
+		n := toNode(blocks[id], blocks, nil)
 		spec.Nodes = append(spec.Nodes, runNode{Name: n.Name, Pkg: n.ImportPath, Group: n.Group,
 			Output: n.Output, Script: n.Script, Deps: n.DepNames})
 		mods = mods || len(n.ModFiles) > 0

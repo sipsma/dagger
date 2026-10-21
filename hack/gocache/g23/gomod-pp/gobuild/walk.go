@@ -26,10 +26,7 @@ type node struct {
 	Deps       []string `json:"deps"`
 	SrcFiles   []string `json:"srcFiles,omitempty"`
 	ModFiles   []string `json:"modFiles,omitempty"`
-	// TierDeps are the dependencies a lower tier built, read from it one
-	// archive at a time.
-	TierDeps []tierDep `json:"tierDeps,omitempty"`
-	// Tiers are the lower tiers the link mounts whole.
+	// Tiers are the tiers whose output the package mounts whole.
 	Tiers  []int  `json:"tiers,omitempty"`
 	Tools  bool   `json:"tools,omitempty"`
 	Output string `json:"output"`
@@ -40,41 +37,24 @@ type node struct {
 	DepNames []string `json:"depNames"`
 }
 
-type tierDep struct {
-	Tier int    `json:"tier"`
-	Name string `json:"name"`
-}
-
-// toNode renders a block for a walk; outside holds the blocks lower tiers
-// built. A package reads each dependency's archive from /work/lib, wherever
-// it was built, so its exec is the same under any tier split, and its key
-// changes only with the archives it reads, not with a whole tier. The link,
-// which reads every archive and re-runs on any change anyway, mounts the
-// tiers whole instead of copying each archive.
+// toNode renders a block for a walk; outside holds the blocks tiers built,
+// by tier. A package reads its walked dependencies from /work/lib and those a
+// tier built from the tier's output, mounted whole at /work/t<k>: one mount,
+// not a copy of each archive. A dependency bump changes the tier and so every
+// package's key, which is fine: bumps are rare next to edits.
 func toNode(b *block, blocks map[string]*block, outside map[string]int) *node {
 	n := &node{ID: b.id, Name: b.name, ImportPath: b.importPath, Deps: b.deps,
-		SrcFiles: b.srcFiles, ModFiles: b.modFiles, Output: b.output(), Group: b.group}
+		SrcFiles: b.srcFiles, ModFiles: b.modFiles, Output: b.output(), Group: b.group,
+		Script: b.script(blocks, outside)}
+	seen := map[int]bool{}
 	for _, d := range b.deps {
 		n.DepNames = append(n.DepNames, blocks[d].name)
-	}
-	if b.isLink {
-		n.Script = b.script(blocks, outside)
-		seen := map[int]bool{}
-		for _, d := range b.deps {
-			if k, ok := outside[d]; ok && !seen[k] {
-				seen[k] = true
-				n.Tiers = append(n.Tiers, k)
-			}
-		}
-		sort.Ints(n.Tiers)
-	} else {
-		n.Script = b.script(blocks, nil)
-		for _, d := range b.deps {
-			if k, ok := outside[d]; ok {
-				n.TierDeps = append(n.TierDeps, tierDep{k, blocks[d].name})
-			}
+		if k, ok := outside[d]; ok && !seen[k] {
+			seen[k] = true
+			n.Tiers = append(n.Tiers, k)
 		}
 	}
+	sort.Ints(n.Tiers)
 	n.Tools = strings.Contains(n.Script, toolsDir+"/")
 	return n
 }
@@ -132,10 +112,6 @@ func (w *walker) walk(ctx context.Context, nodes map[string]*node) (map[string]*
 					return
 				}
 				depFiles = append(depFiles, dr.file)
-			}
-			for _, td := range n.TierDeps {
-				// Read from an evaluated tier, so keyed by its content.
-				depFiles = append(depFiles, w.tiers[td.Tier].File(td.Name+".a"))
 			}
 			var libDir, srcDir, modDir *dagger.Directory
 			if len(depFiles) > 0 {
