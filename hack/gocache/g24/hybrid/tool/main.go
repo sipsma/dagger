@@ -171,6 +171,8 @@ type server struct {
 
 	keys *json.Encoder // optional: each action's cache-relevant inputs
 
+	reuse bool // pass on produced archives as the exec's output; otherwise upload every input by content
+
 	mu    sync.Mutex
 	files map[string]uploaded
 
@@ -186,6 +188,7 @@ func daemon(argv []string) {
 	tmpdir := fs.String("gotmpdir", "", "GOTMPDIR of the go command, whose go-buildNNN work directory is replaced by /work")
 	salt := fs.String("salt", "", "added to every action's environment, so separate rounds start cold")
 	keysPath := fs.String("keys", "", "optional: log each action's arguments, environment and input digests")
+	reuse := fs.Bool("reuse", true, "pass on archives this daemon produced as the exec's output file; false uploads every input by content instead (a diagnostic)")
 	fs.Parse(argv)
 
 	ctx := context.Background()
@@ -203,6 +206,7 @@ func daemon(argv []string) {
 		goroot:   goroot,
 		work:     regexp.MustCompile(regexp.QuoteMeta(filepath.Clean(*tmpdir)) + `/go-build[0-9]+`),
 		produced: map[string]producedFile{},
+		reuse:    *reuse,
 		files:    map[string]uploaded{},
 	}
 	lf, err := os.Create(*logPath)
@@ -316,7 +320,7 @@ func (s *server) handle(ctx context.Context, req request) (resp response) {
 		s.producedMu.Lock()
 		pf, ok := s.produced[p]
 		s.producedMu.Unlock()
-		if ok {
+		if ok && s.reuse {
 			if st, err := os.Stat(p); err == nil && st.Size() == pf.size {
 				mounts[norm(p)] = pf.file
 				continue
@@ -552,7 +556,11 @@ func (s *server) upload(ctx context.Context, inputs []string) (map[string]*core.
 			s.mu.Unlock()
 			return nil, 0, err
 		}
-		if u, ok := s.files[p]; ok && u.size == st.Size() && u.mtime.Equal(st.ModTime()) {
+		// The by-content diagnostic (-reuse=false) uploads every input on every
+		// action: a cached upload can go stale when the go command changes a
+		// file in place (assembly objects appended to an archive) between two
+		// actions that read it.
+		if u, ok := s.files[p]; s.reuse && ok && u.size == st.Size() && u.mtime.Equal(st.ModTime()) {
 			out[p] = u.file
 			continue
 		}
