@@ -1,5 +1,5 @@
 # g23 item 4: today's real Go module (A, github.com/dagger/go main) against the new module (B:
-# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage at 556d714,
+# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage at b49cf23,
 # which builds every binary per package with no fallback),
 # on one project, on one fresh dev engine. Runs in the client container; /work/yq is yq and /d is
 # run.sh's DSRC (a dagger/dagger source tree, for the dagger project).

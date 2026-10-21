@@ -251,6 +251,9 @@ func appendUniq(xs []string, x string) []string {
 	return append(xs, x)
 }
 
+// compileConcurrency is the -c every compile in a script gets.
+const compileConcurrency = "16"
+
 // script renders a block as one shell script for its exec. A dependency's
 // archive is read from /work/lib, or from /work/t/<tier> when a tier built
 // it (outside, by package). Nothing gets a Go build ID: the plan's are temporary,
@@ -266,7 +269,12 @@ func (b *block) script(blocks map[string]*block, outside map[string]string) stri
 			continue
 		}
 		l = reBuildID.ReplaceAllString(l, "")
-		l = reConc.ReplaceAllString(l, " -c=4")
+		// The plan's compile concurrency is the planning machine's CPU count;
+		// a fixed one keeps each package's exec the same on every engine, and
+		// the compiler's output doesn't depend on it. 16 is what go build
+		// passes on a 16-CPU machine, and it matters most for the big packages
+		// at the end of a build, which compile alone.
+		l = reConc.ReplaceAllString(l, " -c="+compileConcurrency)
 		// The go command packs archives in-process; "go tool pack" would
 		// build the pack tool from source in every fresh container.
 		l = strings.Replace(l, "go tool pack ", toolsDir+"/pack ", 1)
