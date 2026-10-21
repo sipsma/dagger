@@ -29,12 +29,16 @@ import (
 	"golang.org/x/net/trace"
 	"golang.org/x/sys/unix"
 
+	"github.com/dagger/dagger/engine/engineutil"
 	"github.com/dagger/dagger/engine/server"
 	"github.com/dagger/dagger/engine/wcprof"
 )
 
 func setupDebugHandlers(addr string, eng *server.Server) error {
 	m := http.NewServeMux()
+	if os.Getenv("_DAGGER_SPIKE6") == "1" {
+		m.HandleFunc("/debug/spike6", engineutil.Spike6Debug)
+	}
 	m.Handle("/debug/vars", expvar.Handler())
 	m.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
 	m.Handle("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))

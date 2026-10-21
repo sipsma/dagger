@@ -1678,6 +1678,11 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 	var initFDs initFDs
 	initFDs.add(distconsts.SessionHelperStatusFDEnv, state.sessionHelperStatus.writeEnd())
 	initFDs.add(distconsts.InitTimingFDEnv, initTiming.writeEnd())
+	gate, err := newSpike6Gate(ctx, state.spec, &initFDs)
+	if err != nil {
+		return err
+	}
+	defer gate.close()
 	if state.sessionHelperStatus != nil {
 		go state.sessionHelperStatus.watch(func(err error) {
 			// A query waiting for the helper's attachables gets this error, but

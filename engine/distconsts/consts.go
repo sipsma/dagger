@@ -23,6 +23,9 @@ const (
 	// nanoseconds ("<started> <spawned> <exited>\n"). The engine sets it only
 	// when profiling with wcprof; /.init removes it before starting the command.
 	InitTimingFDEnv = "_DAGGER_INIT_TIMING_FD"
+	// Spike6 fds are one-use preparation barriers, never inputs to the command.
+	Spike6ReadyFDEnv   = "_DAGGER_SPIKE6_READY_FD"
+	Spike6ReleaseFDEnv = "_DAGGER_SPIKE6_RELEASE_FD"
 	// SessionHelperStatusFDEnv names the fd on which the injected /.init
 	// reports that a nested exec's session helper failed to start or exited
 	// ("start-failed <error>\n" or "exited <status>\n").

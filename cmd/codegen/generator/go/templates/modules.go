@@ -376,6 +376,10 @@ func mainSrc(checkVersionCompatibility func(string) bool) string {
 
 	return `func main() {
 	ctx := context.Background()
+	if os.Getenv("_DAGGER_SPIKE6_ENVELOPE") == "1" {
+		if err := spike6Dispatch(ctx); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(2) }
+		return
+	}
 
 	// Direct slog to the new stderr. This is only for dev time debugging, and
 	// runtime errors/warnings.
@@ -385,6 +389,29 @@ func mainSrc(checkVersionCompatibility func(string) bool) string {
 
 	if err := dispatch(ctx); err != nil {
 		os.Exit(2)
+	}
+}
+
+// spike6Dispatch is a single-envelope transport experiment. Both fresh and
+// persistent arms use this same binary and invoke path. The normal dispatcher
+// and public function-call API remain unchanged.
+func spike6Dispatch(ctx context.Context) error {
+	if os.Getenv("_DAGGER_SPIKE6_TRIM") != "1" {
+		ctx = telemetry.InitEmbedded(ctx, resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceNameKey.String("dagger-go-sdk")))
+		defer telemetry.Close()
+	}
+	setMarshalContext(ctx)
+	fmt.Fprintln(os.Stdout, "ready")
+	dec, enc := json.NewDecoder(os.Stdin), json.NewEncoder(os.Stdout)
+	for {
+		var msg struct { Parent json.RawMessage; ParentName string; Name string; Args map[string]json.RawMessage }
+		if err := dec.Decode(&msg); err != nil { if err == io.EOF { return nil }; return err }
+		args := map[string][]byte{}
+		for k, v := range msg.Args { args[k] = v }
+		result, err := invoke(ctx, msg.Parent, msg.ParentName, msg.Name, args)
+		if err != nil { return err }
+		if err := enc.Encode(result); err != nil { return err }
+		if os.Getenv("_DAGGER_SPIKE6_PERSIST") != "1" { return nil }
 	}
 }
 
@@ -422,7 +449,7 @@ func findSingleGQLError(rerr error) *gqlerror.Error {
 		return nil
 	}
 }
-` + dispatch
+	` + dispatch
 }
 
 func dotLine(a *Statement, id string) *Statement {

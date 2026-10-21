@@ -12,7 +12,7 @@ import (
 
 // initFDEnvNames are the variables naming fds the engine passes the injected
 // /.init (see initFDs).
-var initFDEnvNames = []string{distconsts.InitTimingFDEnv, distconsts.SessionHelperStatusFDEnv}
+var initFDEnvNames = []string{distconsts.InitTimingFDEnv, distconsts.SessionHelperStatusFDEnv, distconsts.Spike6ReadyFDEnv, distconsts.Spike6ReleaseFDEnv}
 
 // initFDs collects the pipe ends the engine passes the injected /.init. runc
 // --preserve-fds passes them on from fd 3 in order, and an env var names each

@@ -122,6 +122,10 @@ func mainInit() error {
 	// container: once this process exits, the kernel refuses new threads in
 	// the container, which a helper still starting up can crash on.
 
+	if err := spike6Wait(); err != nil {
+		helper.stop()
+		return err
+	}
 	child, err := startCommand(haveTTY)
 	if err != nil {
 		helper.stop()
@@ -205,6 +209,34 @@ func mainInit() error {
 	}
 
 	helper.stop()
+	return nil
+}
+
+// Park a pristine, single-use OCI container immediately before user execution.
+// No command ever runs before the barrier, and this environment is discarded
+// after that command. The engine still performs its normal clean mount-namespace
+// setup. Closing the release pipe cancels a parked init.
+func spike6Wait() error {
+	ready := engineFile(distconsts.Spike6ReadyFDEnv, "spike6-ready")
+	release := engineFile(distconsts.Spike6ReleaseFDEnv, "spike6-release")
+	if ready == nil && release == nil {
+		return nil
+	}
+	if ready == nil || release == nil {
+		return fmt.Errorf("incomplete spike6 barrier")
+	}
+	defer ready.Close()
+	defer release.Close()
+	if _, err := ready.Write([]byte{1}); err != nil {
+		return err
+	}
+	var b [1]byte
+	if _, err := io.ReadFull(release, b[:]); err != nil {
+		return err
+	}
+	if b[0] != 1 {
+		return fmt.Errorf("invalid spike6 release")
+	}
 	return nil
 }
 
