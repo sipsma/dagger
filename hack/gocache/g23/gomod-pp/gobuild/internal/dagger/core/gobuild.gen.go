@@ -67,9 +67,10 @@ type GobuildBinaryOpts struct {
 // Binary builds the main package pkg as "go build" would and returns the
 // binary, named output, without a Go build ID. A build it can't replay per
 // package yet (cgo, PGO, flags such as -race or -toolexec) is an error.
-func (r *Gobuild) Binary(base *Container, source *Directory, mountPath string, pkg string, output string, opts ...GobuildBinaryOpts) *File {
+func (r *Gobuild) Binary(base *Container, source *Directory, headers *File, mountPath string, pkg string, output string, opts ...GobuildBinaryOpts) *File {
 	assertNotNil("base", base)
 	assertNotNil("source", source)
+	assertNotNil("headers", headers)
 	q := r.query.Select("binary")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `image` optional argument
@@ -107,6 +108,7 @@ func (r *Gobuild) Binary(base *Container, source *Directory, mountPath string, p
 	}
 	q = q.Arg("base", base)
 	q = q.Arg("source", source)
+	q = q.Arg("headers", headers)
 	q = q.Arg("mountPath", mountPath)
 	q = q.Arg("pkg", pkg)
 	q = q.Arg("output", output)
@@ -170,53 +172,6 @@ func (r *Gobuild) UnmarshalJSON(bs []byte) error {
 	}
 	*r = Gobuild{query: selectNode(dag.QueryBuilder(), id, "Gobuild")}
 	return nil
-}
-
-// GobuildTierOpts contains options for Gobuild.Tier
-type GobuildTierOpts struct {
-	// The pack tool, when a package in the tier runs it.
-	Tools *Directory
-	// The module cache, when a package in the tier reads from it.
-	Mods *Directory
-	// The archives of the tiers below this one, in order.
-	Lower []*Directory
-	// Print a per-package timeline to stderr, as Binary's does.
-	Timeline bool
-}
-
-// Tier builds one tier of a build's packages, as Binary's spec describes
-// it, and returns their archives, each named <name>.a. It is a function of
-// its own so the whole tier is one cached call: unchanged, a build pays one
-// cache hit for it instead of walking its packages.
-func (r *Gobuild) Tier(spec string, base *Container, concurrency int, opts ...GobuildTierOpts) *Directory {
-	assertNotNil("base", base)
-	q := r.query.Select("tier")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `tools` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Tools) {
-			q = q.Arg("tools", opts[i].Tools)
-		}
-		// `mods` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Mods) {
-			q = q.Arg("mods", opts[i].Mods)
-		}
-		// `lower` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Lower) {
-			q = q.Arg("lower", opts[i].Lower)
-		}
-		// `timeline` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Timeline) {
-			q = q.Arg("timeline", opts[i].Timeline)
-		}
-	}
-	q = q.Arg("spec", spec)
-	q = q.Arg("base", base)
-	q = q.Arg("concurrency", concurrency)
-
-	return &Directory{
-		query:     q,
-		refetchID: r.refetchID,
-	}
 }
 
 func (r *Query) Gobuild() *Gobuild { // gobuild (../../../../:0:0)

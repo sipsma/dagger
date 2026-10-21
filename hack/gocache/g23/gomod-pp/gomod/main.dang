@@ -782,6 +782,17 @@ type GoMod {
   }
 
   """
+  The header pack of the workspace's Go source, from the scan: each non-test
+  Go file up to the end of its imports plus its go:embed lines, and each
+  go.mod, which is what a "go build -n" plan reads of Go source. Read from the
+  evaluated scan, it is keyed by its content, so an edit inside function
+  bodies leaves anything keyed on it cached.
+  """
+  headerPack(ws: Workspace!): File! {
+    scanned(ws, false, false).sync.file("_headers_.gohdr")
+  }
+
+  """
   Workspace source mounted for this module's commands.
   """
   source(

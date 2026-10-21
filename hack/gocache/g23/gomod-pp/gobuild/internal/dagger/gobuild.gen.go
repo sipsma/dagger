@@ -10,6 +10,3 @@ type Gobuild = core.Gobuild
 
 // GobuildBinaryOpts contains options for Gobuild.Binary
 type GobuildBinaryOpts = core.GobuildBinaryOpts
-
-// GobuildTierOpts contains options for Gobuild.Tier
-type GobuildTierOpts = core.GobuildTierOpts

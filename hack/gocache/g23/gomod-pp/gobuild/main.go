@@ -4,8 +4,9 @@
 //
 // It replays the go command's own plan, "go build -n", made from a header
 // pack of the source, so an edit inside function bodies doesn't re-plan.
-// Packages outside the source are built by separately cached calls (tiers),
-// so an unchanged dependency graph is one cache hit. Workspace packages are
+// Packages outside the source (the standard library and dependencies) are
+// built as one tier, in one exec, so an unchanged dependency graph is one
+// cache hit and a cold one costs one container. Workspace packages are
 // built one exec each, and a package whose archive comes out unchanged
 // leaves its dependents cached.
 package main
@@ -14,7 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 
@@ -47,6 +50,9 @@ func (m *Gobuild) Binary(
 	image string,
 	// The source tree.
 	source *dagger.Directory,
+	// The header pack of source's Go files and go.mod files, from the go
+	// module's scan: what the plan is made from, with source's other files.
+	headers *dagger.File,
 	// Where source is mounted. Paths in the binary's debug information
 	// name it, unless flags hold -trimpath.
 	mountPath string,
@@ -105,7 +111,7 @@ func (m *Gobuild) Binary(
 			return nil, err
 		}
 	}
-	plan, err := b.plan(ctx, flags, pkg)
+	plan, err := b.plan(ctx, headers, flags, pkg)
 	if err != nil {
 		return nil, err
 	}
@@ -140,20 +146,11 @@ func (m *Gobuild) Binary(
 	w := &walker{base: b.base, tools: b.tools, src: source, mods: b.mods, roots: b.roots, concurrency: concurrency, timeline: timeline}
 	outside := map[string]int{}
 	for k, part := range parts {
-		spec, ts, err := newTierSpec(blocks, part, outside, b.roots)
-		if err != nil {
-			return nil, err
+		var lower *dagger.Directory
+		if k > 0 {
+			lower = w.tiers[k-1]
 		}
-		opts := dagger.GobuildTierOpts{Lower: w.tiers, Timeline: timeline}
-		for _, n := range ts.Nodes {
-			if n.Tools {
-				opts.Tools = b.tools
-			}
-			if len(n.ModFiles) > 0 {
-				opts.Mods = b.mods
-			}
-		}
-		dir, err := dag.Gobuild().Tier(spec, b.base, concurrency, opts).Sync(ctx)
+		dir, err := b.tier(ctx, blocks, part, outside, lower, timeline)
 		if err != nil {
 			return nil, fmt.Errorf("tier %d: %w", k, err)
 		}
@@ -172,56 +169,64 @@ func (m *Gobuild) Binary(
 	if err != nil {
 		return nil, err
 	}
-	return results[linkID].file.WithName(output), nil
+	return results[mainID].file.WithName(output), nil
 }
 
-// Tier builds one tier of a build's packages, as Binary's spec describes
-// it, and returns their archives, each named <name>.a. It is a function of
-// its own so the whole tier is one cached call: unchanged, a build pays one
-// cache hit for it instead of walking its packages.
-func (m *Gobuild) Tier(
-	ctx context.Context,
-	spec string,
-	base *dagger.Container,
-	concurrency int,
-	// The pack tool, when a package in the tier runs it.
-	// +optional
-	tools *dagger.Directory,
-	// The module cache, when a package in the tier reads from it.
-	// +optional
-	mods *dagger.Directory,
-	// The archives of the tiers below this one, in order.
-	// +optional
-	lower []*dagger.Directory,
-	// Print a per-package timeline to stderr, as Binary's does.
-	// +default=false
-	timeline bool,
-) (*dagger.Directory, error) {
-	var ts tierSpec
-	if err := json.Unmarshal([]byte(spec), &ts); err != nil {
-		return nil, err
+// tier builds a tier's packages in one exec: gohdr runs their scripts in
+// dependency order, as many at once as the machine has CPUs, the way go build
+// runs its own actions, so the tier costs one container, not one per package.
+// It returns the tier's archives, each named <name>.a, along with those of
+// lower, the tier below, which it builds on.
+func (b *build) tier(ctx context.Context, blocks map[string]*block, part map[string]bool, outside map[string]int, lower *dagger.Directory, timeline bool) (*dagger.Directory, error) {
+	type runNode struct {
+		Name, Pkg, Group, Output, Script string
+		Deps                             []string
 	}
-	nodes := map[string]*node{}
-	for _, n := range ts.Nodes {
-		nodes[n.ID] = n
+	spec := struct {
+		Lib   string
+		Nodes []runNode
+	}{Lib: "/work/lib"}
+	mods, tools := false, false
+	for id := range part {
+		n := toNode(blocks[id], blocks, outside)
+		spec.Nodes = append(spec.Nodes, runNode{Name: n.Name, Pkg: n.ImportPath, Group: n.Group,
+			Output: n.Output, Script: n.Script, Deps: n.DepNames})
+		mods = mods || len(n.ModFiles) > 0
+		tools = tools || n.Tools
 	}
-	if mods != nil {
-		// Evaluated, so the files read from it are keyed by content.
-		var err error
-		if mods, err = mods.Sync(ctx); err != nil {
-			return nil, err
-		}
-	}
-	w := &walker{base: base, tools: tools, mods: mods, roots: ts.Roots, tiers: lower, concurrency: concurrency, timeline: timeline}
-	results, err := w.walk(ctx, nodes)
+	// Sorted, so the same tier is the same exec.
+	sort.Slice(spec.Nodes, func(i, j int) bool { return spec.Nodes[i].Name < spec.Nodes[j].Name })
+	data, err := json.Marshal(spec)
 	if err != nil {
 		return nil, err
 	}
-	var files []*dagger.File
-	for _, n := range ts.Nodes {
-		files = append(files, results[n.ID].file)
+	ctr := b.base.WithMountedFile("/gobuild/gohdr", hdrTool())
+	if mods {
+		ctr = ctr.WithMountedDirectory(b.roots.Mod, b.mods)
 	}
-	return w.assemble(files).Sync(ctx)
+	if tools {
+		ctr = ctr.WithMountedDirectory(toolsDir, b.tools, dagger.ContainerWithMountedDirectoryOpts{ReadOnly: true})
+	}
+	if lower != nil {
+		ctr = ctr.WithMountedDirectory("/work/lib", lower)
+	}
+	if timeline {
+		ctr = ctr.WithEnvVariable("TL", "1")
+	}
+	ran := ctr.WithNewFile("/gobuild/tier.json", string(data)).
+		WithExec([]string{"/gobuild/gohdr", "run", "/gobuild/tier.json"}, noNest)
+	dir, err := ran.Directory("/work/lib").Sync(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if timeline {
+		out, err := ran.Stdout(ctx)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Fprint(os.Stderr, out)
+	}
+	return dir, nil
 }
 
 // build is what a build's execs share.
@@ -319,20 +324,10 @@ func canonical(ctx context.Context, ctr *dagger.Container, image string) (*dagge
 	return out, nil
 }
 
-// plan is go build's plan for pkg, made from a header pack of the source.
-// The pack exec re-runs on every edit, but its output is read as an
-// evaluated directory, keyed by content: a body-only edit leaves it
-// byte-identical, and the plan exec is a cache hit.
-func (b *build) plan(ctx context.Context, flags []string, pkg string) (string, error) {
-	hdr := hdrTool()
-	packed, err := b.base.
-		WithMountedFile("/gobuild/gohdr", hdr).
-		WithMountedDirectory("/gobuild/src", b.src).
-		WithExec([]string{"/gobuild/gohdr", "pack", "/gobuild/src", "/gobuild/hdr/src.hdr"}, noNest).
-		Directory("/gobuild/hdr").Sync(ctx)
-	if err != nil {
-		return "", err
-	}
+// plan is go build's plan for pkg, made from headers, the header pack of the
+// source's Go files, and the source's other files whole. Both are keyed by
+// content, so an edit inside function bodies leaves the plan exec a cache hit.
+func (b *build) plan(ctx context.Context, headers *dagger.File, flags []string, pkg string) (string, error) {
 	cmd := []string{"go", "build", "-n"}
 	cmd = append(cmd, flags...)
 	cmd = append(cmd, "-o", planOut+"/out", pkg)
@@ -341,9 +336,10 @@ func (b *build) plan(ctx context.Context, flags []string, pkg string) (string, e
 		quoted[i] = shQuote(c)
 	}
 	return b.base.
-		WithMountedFile("/gobuild/gohdr", hdr).
+		WithMountedFile("/gobuild/gohdr", hdrTool()).
 		WithMountedDirectory(b.roots.Mod, b.mods).
-		WithMountedFile("/gobuild/src.hdr", packed.File("src.hdr")).
+		WithMountedDirectory(b.roots.Src, b.src.Filter(dagger.DirectoryFilterOpts{Exclude: []string{"**/*.go"}})).
+		WithMountedFile("/gobuild/src.hdr", headers).
 		// An empty build cache, so the plan holds every step.
 		WithEnvVariable("GOCACHE", "/gobuild/plancache").
 		WithExec([]string{"sh", "-c", "/gobuild/gohdr unpack /gobuild/src.hdr " + shQuote(b.roots.Src) +

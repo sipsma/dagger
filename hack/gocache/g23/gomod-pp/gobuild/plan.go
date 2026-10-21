@@ -28,9 +28,7 @@ type block struct {
 	deps       []string // other block ids
 	srcFiles   []string // relative to roots.Src; may hold a "**/*.h" pattern
 	modFiles   []string // relative to roots.Mod; may hold "<mod>@<v>/**/*.h"
-	// isLink marks the main package's link, split from its compile (b001)
-	// so an edit that leaves the main package's archive unchanged relinks
-	// without recompiling it.
+	// isLink marks the main package's block (b001), which compiles and links.
 	isLink bool
 	group  string // std, dep or ws, for the timeline
 }
@@ -55,8 +53,8 @@ var (
 // mkdir and mv for it are dropped: the binary is read from the link's exec.
 const planOut = "/gobuild/out"
 
-// linkID is the block id of the main package's link.
-const linkID = "link"
+// mainID is the block id of the main package, compiled and linked in one exec.
+const mainID = "b001"
 
 // pathRegexp matches an absolute path under the source or module root that
 // starts a token, so a path such as /usr/local/go/src/... does not match.
@@ -167,7 +165,7 @@ func parsePlan(plan string, r roots) (map[string]*block, error) {
 		}
 		return nil, fmt.Errorf("plan step %s has no package header", id)
 	}
-	if err := splitLink(blocks); err != nil {
+	if err := markLink(blocks); err != nil {
 		return nil, err
 	}
 	for id, b := range blocks {
@@ -212,32 +210,17 @@ func parsePlan(plan string, r roots) (map[string]*block, error) {
 // errUnsupported marks what the per-package build doesn't do yet.
 var errUnsupported = errors.New("unsupported for a per-package build")
 
-// splitLink moves the main package's link out of its block (b001) into a
-// block of its own. The link's lines start at its import config.
-func splitLink(blocks map[string]*block) error {
-	main, ok := blocks["b001"]
+// markLink marks the main package's block, which ends with the link.
+func markLink(blocks map[string]*block) error {
+	main, ok := blocks[mainID]
 	if !ok {
 		return fmt.Errorf("%w: no main package in the plan", errUnsupported)
 	}
-	at := -1
-	for i, l := range main.lines {
-		if strings.HasPrefix(l, "cat >$WORK/b001/importcfg.link ") {
-			at = i
-			break
-		}
-	}
-	if at < 0 {
+	main.isLink = true
+	if main.linkLine() == "" {
 		return fmt.Errorf("%w: no link step for %s", errUnsupported, main.importPath)
 	}
-	blocks[linkID] = &block{
-		id:         linkID,
-		importPath: main.importPath,
-		// The link runs in its own directory: main.lines[0] carries it.
-		lines:  append([]string{main.lines[0]}, main.lines[at:]...),
-		isLink: true,
-	}
-	main.lines = main.lines[:at]
-	if strings.Contains(blocks[linkID].linkLine(), "-linkmode=external") {
+	if strings.Contains(main.linkLine(), "-linkmode=external") {
 		return fmt.Errorf("%w: external linking", errUnsupported)
 	}
 	return nil

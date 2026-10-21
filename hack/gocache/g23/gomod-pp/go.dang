@@ -1105,6 +1105,7 @@ type GoModule {
       # as it is.
       image: if (baseImage == null) { gomod.goImage(toolchainVersion(ws)) } else { "" },
       source: source(ws),
+      headers: lib.at(path).headerPack(ws),
       mountPath: mountPath,
       workdir: path,
       pkg: packageArg(pkg),

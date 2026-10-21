@@ -404,14 +404,12 @@ func commonDir(files []string) string {
 	return strings.Join(common, "/")
 }
 
-// partition splits a plan's packages into tiers: sets that separately cached
-// calls build, in order, each reading the archives of those before it.
-// Packages in no tier are walked by the build's own call. Which split is
-// fastest depends on how a project's packages change together and on how
-// long a tier makes its dependents wait, so it is chosen by name and kept in
-// this one place:
+// partition splits a plan's packages into tiers: sets built, in order, one
+// exec each, each reading the archives of those before it. Packages in no
+// tier are built one exec each. Which split is fastest is for measuring, so
+// it is chosen by name and kept in this one place:
 //
-//	none     no tiers: the build walks every package.
+//	none     no tiers: one exec per package.
 //	outside  one tier: every package outside the source whose dependencies
 //	         are outside too, i.e. the standard library and dependency modules.
 //	split    two tiers: the standard library, then the dependency modules.
@@ -479,31 +477,4 @@ func outsideSet(blocks map[string]*block) map[string]bool {
 // the module cache, down to their dependencies.
 func stdSet(blocks map[string]*block) map[string]bool {
 	return closedSet(blocks, func(b *block) bool { return len(b.srcFiles) == 0 && len(b.modFiles) == 0 && !b.isLink })
-}
-
-// tierSpec is what Tier needs to build one tier, as stable JSON: nodes
-// sorted and keyed by package name rather than plan position, so the same
-// tier in another build or plan is the same call.
-type tierSpec struct {
-	Roots roots   `json:"roots"`
-	Nodes []*node `json:"nodes"`
-}
-
-func newTierSpec(blocks map[string]*block, tier map[string]bool, outside map[string]int, r roots) (string, *tierSpec, error) {
-	spec := &tierSpec{Roots: roots{Mod: r.Mod}}
-	for id := range tier {
-		n := toNode(blocks[id], blocks, outside)
-		deps := []string{}
-		for _, d := range n.Deps {
-			if tier[d] {
-				deps = append(deps, blocks[d].name)
-			}
-		}
-		sort.Strings(deps)
-		n.ID, n.Deps = n.Name, deps
-		spec.Nodes = append(spec.Nodes, n)
-	}
-	sort.Slice(spec.Nodes, func(i, j int) bool { return spec.Nodes[i].Name < spec.Nodes[j].Name })
-	b, err := json.Marshal(spec)
-	return string(b), spec, err
 }

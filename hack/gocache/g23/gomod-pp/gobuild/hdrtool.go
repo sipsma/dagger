@@ -2,12 +2,10 @@ package main
 
 import "dagger/gobuild/internal/dagger"
 
-// hdrTool builds gohdr, which makes the header pack the plan is keyed on. "gohdr pack"
-// writes a source tree to one file, keeping what "go build -n" reads: every
-// file name, each .go file up to the end of its imports plus its go:embed
-// lines, and build inputs such as go.mod and assembly whole. An edit inside a
-// function body leaves that file byte-identical, so a plan made from it is a
-// cache hit. "gohdr unpack" writes the tree back out.
+// hdrTool builds gohdr, the helper's in-container tool. "gohdr unpack" writes
+// out a header pack, the go module's scan of each Go file up to the end of its
+// imports, for the plan. "gohdr run" builds a tier: it runs the plan's
+// per-package scripts in one container, in dependency order.
 func hdrTool() *dagger.File {
 	// A standalone tool, so it is built with a pinned toolchain, statically,
 	// and runs in whatever image the module builds with.
@@ -23,121 +21,19 @@ const hdrToolSrc = `package main
 
 import (
 	"bufio"
-	"bytes"
+	"encoding/json"
 	"fmt"
-	"go/parser"
-	"go/token"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
-
-// Non-Go build inputs the go command reads beyond their names.
-var keepExt = map[string]bool{".s": true, ".S": true, ".c": true, ".h": true, ".cc": true, ".cpp": true,
-	".cxx": true, ".hh": true, ".hpp": true, ".hxx": true, ".m": true, ".f": true, ".F": true, ".for": true,
-	".f90": true, ".swig": true, ".swigcxx": true, ".syso": true}
-var keepName = map[string]bool{"go.mod": true, "go.sum": true, "go.work": true, "go.work.sum": true, "modules.txt": true}
-
-// header returns a Go file up to the end of its import declarations, plus
-// its go:embed lines. A file that does not parse is kept whole.
-func header(name string, src []byte) []byte {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, name, src, parser.ImportsOnly|parser.ParseComments)
-	if err != nil || f == nil {
-		return src
-	}
-	end := f.Name.End()
-	for _, d := range f.Decls {
-		if d.End() > end {
-			end = d.End()
-		}
-	}
-	off := fset.Position(end).Offset
-	if off > len(src) {
-		off = len(src)
-	}
-	var out bytes.Buffer
-	out.Write(src[:off])
-	out.WriteByte('\n')
-	for _, line := range strings.Split(string(src[off:]), "\n") {
-		if t := strings.TrimSpace(line); strings.HasPrefix(t, "//go:embed") {
-			out.WriteString(t)
-			out.WriteByte('\n')
-		}
-	}
-	return out.Bytes()
-}
-
-type entry struct {
-	rel  string
-	mode fs.FileMode
-	data []byte
-}
-
-func pack(src, dst string) error {
-	var entries []entry
-	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		var data []byte
-		switch {
-		case strings.HasSuffix(rel, ".go"):
-			raw, err := os.ReadFile(p)
-			if err != nil {
-				return err
-			}
-			data = header(rel, raw)
-		case keepName[d.Name()] || keepExt[filepath.Ext(rel)]:
-			if data, err = os.ReadFile(p); err != nil {
-				return err
-			}
-		}
-		entries = append(entries, entry{rel, info.Mode().Perm(), data})
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	w := bufio.NewWriter(out)
-	fmt.Fprintln(w, "gohdr 1")
-	for _, e := range entries {
-		fmt.Fprintf(w, "%s\n%o\n%d\n", e.rel, e.mode, len(e.data))
-		w.Write(e.data)
-		w.WriteByte('\n')
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	return out.Close()
-}
 
 func unpack(src, dst string) error {
 	in, err := os.Open(src)
@@ -191,16 +87,160 @@ func unpack(src, dst string) error {
 	}
 }
 
+type runNode struct {
+	Name   string
+	Pkg    string
+	Group  string
+	Deps   []string
+	Output string
+	Script string
+}
+
+type runSpec struct {
+	Lib   string
+	Nodes []runNode
+}
+
+// run builds every node of the spec in this container: each script once the
+// nodes it depends on are done, as many at once as there are CPUs, the one
+// with the longest chain of dependents first, as go build schedules its own
+// actions. Each output is linked into the lib directory, where dependents read
+// it. With TL set in the environment it prints one "TL" timeline line per node.
+func run(specPath string) error {
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		return err
+	}
+	var spec runSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(spec.Lib, 0o755); err != nil {
+		return err
+	}
+	nodes := map[string]*runNode{}
+	for i := range spec.Nodes {
+		nodes[spec.Nodes[i].Name] = &spec.Nodes[i]
+	}
+	dependents := map[string][]string{}
+	pending := map[string]int{}
+	for _, n := range spec.Nodes {
+		for _, d := range n.Deps {
+			if _, ok := nodes[d]; ok {
+				dependents[d] = append(dependents[d], n.Name)
+				pending[n.Name]++
+			}
+		}
+	}
+	height := map[string]int{}
+	var heightOf func(string) int
+	heightOf = func(name string) int {
+		if v, ok := height[name]; ok {
+			return v
+		}
+		v := 1
+		for _, up := range dependents[name] {
+			if u := 1 + heightOf(up); u > v {
+				v = u
+			}
+		}
+		height[name] = v
+		return v
+	}
+	type result struct {
+		name       string
+		start, end time.Time
+		out        []byte
+		err        error
+	}
+	results := make(chan result)
+	readyAt := map[string]time.Time{}
+	var ready []string
+	for name := range nodes {
+		heightOf(name)
+		if pending[name] == 0 {
+			ready = append(ready, name)
+			readyAt[name] = time.Now()
+		}
+	}
+	timeline := os.Getenv("TL") != ""
+	jobs := runtime.NumCPU()
+	running, finished := 0, 0
+	for finished < len(nodes) {
+		sort.Slice(ready, func(i, j int) bool {
+			if height[ready[i]] != height[ready[j]] {
+				return height[ready[i]] > height[ready[j]]
+			}
+			return ready[i] < ready[j]
+		})
+		for running < jobs && len(ready) > 0 {
+			n := nodes[ready[0]]
+			ready = ready[1:]
+			running++
+			go func() {
+				start := time.Now()
+				out, err := runOne(n, spec.Lib)
+				results <- result{n.Name, start, time.Now(), out, err}
+			}()
+		}
+		r := <-results
+		running--
+		finished++
+		n := nodes[r.name]
+		if r.err != nil {
+			os.Stderr.Write(r.out)
+			return fmt.Errorf("%s: %v", n.Pkg, r.err)
+		}
+		if timeline {
+			line, _ := json.Marshal(map[string]any{"pkg": n.Pkg, "name": n.Name, "group": n.Group, "deps": n.Deps,
+				"ready": readyAt[n.Name].UnixMilli(), "started": r.start.UnixMilli(), "execDone": r.end.UnixMilli(),
+				"finished": r.end.UnixMilli(), "libMs": 0, "srcMs": 0, "modMs": 0})
+			fmt.Println("TL " + string(line))
+		}
+		for _, up := range dependents[r.name] {
+			if pending[up]--; pending[up] == 0 {
+				ready = append(ready, up)
+				readyAt[up] = time.Now()
+			}
+		}
+	}
+	return nil
+}
+
+// runOne runs one node's script and links its output into lib.
+func runOne(n *runNode, lib string) ([]byte, error) {
+	script := filepath.Join(os.TempDir(), n.Name+".sh")
+	if err := os.WriteFile(script, []byte(n.Script), 0o644); err != nil {
+		return nil, err
+	}
+	out, err := exec.Command("sh", script).CombinedOutput()
+	if err != nil {
+		return out, err
+	}
+	src := filepath.Join("/work", n.Name, n.Output)
+	dst := filepath.Join(lib, n.Name+".a")
+	if err := os.Link(src, dst); err != nil {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return out, err
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
 func main() {
 	args := os.Args[1:]
 	var err error
 	switch {
-	case len(args) == 3 && args[0] == "pack":
-		err = pack(args[1], args[2])
 	case len(args) == 3 && args[0] == "unpack":
 		err = unpack(args[1], args[2])
+	case len(args) == 2 && args[0] == "run":
+		err = run(args[1])
 	default:
-		err = fmt.Errorf("usage: gohdr pack|unpack <from> <to>")
+		err = fmt.Errorf("usage: gohdr unpack <pack> <dir>, or gohdr run <spec>")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gohdr:", err)
