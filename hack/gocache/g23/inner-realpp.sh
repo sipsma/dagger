@@ -1,10 +1,10 @@
 # g23 item 4: today's real Go module (A, github.com/dagger/go main) against the new module (B:
-# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage,
+# hack/gocache/g23/gomod-pp of this harness's commit, a copy of dagger/go branch g23-perpackage at 78c9747,
 # which builds every binary per package with no fallback),
 # on one project, on one fresh dev engine. Runs in the client container; /work/yq is yq and /d is
 # run.sh's DSRC (a dagger/dagger source tree, for the dagger project).
 # G23_ARGS: "<order> <B ref> <project> [<tiers>]": order "AB" or "BA" (ABBA across series), or
-# "check" (only B's prepare-only build: that B loads and runs on this engine), project
+# "check" (only loads both arms on this engine: B's prepare-only build, A's discovery), project
 # "yq" (builds ., edit A in pkg/yqlib) or "dagger" (builds ./cmd/dagger, edit D in
 # internal/cloud/auth, then edit T in internal/cmd/dagger), tiers B's perPackageTiers (default
 # outside).
@@ -51,8 +51,8 @@ preload() {
   true
 }
 build() { flush; t $1 $2 -s -c "$BUILD"; dump $1-$2; }
-# "check" only loads B and runs its prepare-only build: that B works on this engine.
-if [ "$order" = check ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; exit 0; fi
+# "check" only loads both arms on this engine: B's prepare-only build and A's discovery.
+if [ "$order" = check ]; then settings B 'perPackagePrepare = true\n'; t B prepare -s -c "$BUILD"; t A preload -s -c 'go | packages | keys'; exit 0; fi
 edit() { # $1 = name, $2 = file, $3 = sed expression, $4 = the text it changes
   for arm in A B; do
     if [ "$(grep -c "$4" /rm/$arm/p/$2)" != 1 ]; then echo "$1: expected one match in $2" >> /out/summary.txt; exit 0; fi
