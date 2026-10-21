@@ -243,6 +243,7 @@ func (m *CoreMod) Install(ctx context.Context, dag *dagql.Server, _ ...core.Inst
 		schema.Install(dag)
 	}
 
+	installSpike9(dag)
 	return installRemoteCacheFixture(dag)
 }
 
