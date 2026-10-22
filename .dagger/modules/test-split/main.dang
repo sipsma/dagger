@@ -36,6 +36,118 @@ type TestSplit {
   """
   let ws: Workspace!
 
+  # The core/integration suites each check runs, as go test -run or -skip
+  # patterns. testShardCoverage checks that together they run every suite
+  # exactly once.
+
+  # Exact exclusions preserve similarly named suites and leave new suites in
+  # the catch-all test-base until they are explicitly assigned elsewhere.
+  let baseSkip: [String!]! = [
+    "^TestCLI$",
+    "^TestCachePersistence$",
+    "^TestCall$",
+    "^TestContainer$",
+    "^TestDaggerCMD$",
+    "^TestDockerfile$",
+    "^TestElixir$",
+    "^TestEngine$",
+    "^TestGo$",
+    "^TestInterface$",
+    "^TestJava$",
+    "^TestLLM$",
+    "^TestLocalCache$",
+    "^TestModule$",
+    "^TestModuleConfig$",
+    "^TestModuleDefinitionSuite$",
+    "^TestModuleLoading$",
+    "^TestPHP$",
+    "^TestProvision$",
+    "^TestPython$",
+    "^TestShell$",
+    "^TestTelemetry$",
+    "^TestTypescript$",
+    "^TestWorkspace$",
+    "^TestWorkspaceAPI$",
+    "^TestWorkspaceCompat$",
+    "^TestWorkspaceLegacyDefaultPath$",
+    "^TestWorkspaceMigration$",
+    "^TestWorkspaceModules$",
+    "^TestWorkspaceSelection$",
+    "^TestAgentRestore$",
+    "^TestAgents$",
+    "^TestArtifacts$",
+    "^TestCache$",
+    "^TestCallIDRebuild$",
+    "^TestCommandHints$",
+    "^TestDaggerUpVerifyHarness$",
+    "^TestDang$",
+    "^TestDirectory$",
+    "^TestEnvFile$",
+    "^TestGPU$",
+    "^TestGenerators$",
+    "^TestGit$",
+    "^TestHTTP$",
+    "^TestHost$",
+    "^TestLegacy$",
+    "^TestListen$",
+    "^TestLocalDir$",
+    "^TestLockfile$",
+    "^TestRemoteCacheTransferSuite$",
+    "^TestRuntimeCodegen$",
+    "^TestSecretProvider$",
+    "^TestSequential$",
+    "^TestType$",
+  ]
+
+  let baseExtraRun: [String!]! = [
+    "^TestAgentRestore$",
+    "^TestAgents$",
+    "^TestArtifacts$",
+    "^TestCache$",
+    "^TestCallIDRebuild$",
+    "^TestCommandHints$",
+    "^TestDaggerUpVerifyHarness$",
+    "^TestDang$",
+    "^TestDirectory$",
+    "^TestEnvFile$",
+    "^TestGPU$",
+    "^TestGenerators$",
+    "^TestGit$",
+    "^TestHTTP$",
+    "^TestHost$",
+    "^TestLegacy$",
+    "^TestListen$",
+    "^TestLocalDir$",
+    "^TestLockfile$",
+    "^TestRemoteCacheTransferSuite$",
+    "^TestRuntimeCodegen$",
+    "^TestSecretProvider$",
+    "^TestSequential$",
+    "^TestType$",
+  ]
+
+  let provisionRun: [String!]! = ["TestProvision"]
+  let telemetryRun: [String!]! = ["^TestTelemetry$"]
+  let callAndShellRun: [String!]! = ["^TestCall$", "^TestShell$"]
+  let cliEngineRun: [String!]! = ["^TestCLI$", "^TestEngine$"]
+  let cachePersistenceRun: [String!]! = ["TestCachePersistence"]
+  let localCacheRun: [String!]! = ["TestLocalCache"]
+  let containerRun: [String!]! = ["TestContainer", "TestDockerfile"]
+  let interfaceRun: [String!]! = ["TestInterface"]
+  let llmRun: [String!]! = ["TestLLM"]
+  let moduleRuntimesRun: [String!]! = ["TestGo", "TestPython", "TestTypescript", "TestElixir", "TestPHP", "TestJava"]
+  let modulesRun: [String!]! = ["^TestModule$", "^TestModuleConfig$", "^TestModuleLoading$"]
+  let moduleDefinitionsRun: [String!]! = ["^TestModuleDefinitionSuite$"]
+  let workspacesRun: [String!]! = [
+    "^TestWorkspace$",
+    "^TestWorkspaceAPI$",
+    "^TestWorkspaceCompat$",
+    "^TestWorkspaceLegacyDefaultPath$",
+    "^TestWorkspaceMigration$",
+    "^TestWorkspaceModules$",
+    "^TestWorkspaceSelection$",
+  ]
+
   """
   Lower-level API for running specific tests
   """
@@ -91,104 +203,14 @@ type TestSplit {
   Base integration tests not assigned to another shard
   """
   pub testBase: Void @check {
-    testSkip(
-      # Exact exclusions preserve similarly named suites and leave new suites
-      # in this catch-all shard until they are explicitly assigned elsewhere.
-      skip: [
-        "^TestCLI$",
-        "^TestCachePersistence$",
-        "^TestCall$",
-        "^TestContainer$",
-        "^TestDaggerCMD$",
-        "^TestDockerfile$",
-        "^TestElixir$",
-        "^TestEngine$",
-        "^TestGo$",
-        "^TestInterface$",
-        "^TestJava$",
-        "^TestLLM$",
-        "^TestLocalCache$",
-        "^TestModule$",
-        "^TestModuleConfig$",
-        "^TestModuleDefinitionSuite$",
-        "^TestModuleLoading$",
-        "^TestPHP$",
-        "^TestProvision$",
-        "^TestPython$",
-        "^TestShell$",
-        "^TestTelemetry$",
-        "^TestTypescript$",
-        "^TestWorkspace$",
-        "^TestWorkspaceAPI$",
-        "^TestWorkspaceCompat$",
-        "^TestWorkspaceLegacyDefaultPath$",
-        "^TestWorkspaceMigration$",
-        "^TestWorkspaceModules$",
-        "^TestWorkspaceSelection$",
-        "^TestAgentRestore$",
-        "^TestAgents$",
-        "^TestArtifacts$",
-        "^TestCache$",
-        "^TestCallIDRebuild$",
-        "^TestCommandHints$",
-        "^TestDaggerUpVerifyHarness$",
-        "^TestDang$",
-        "^TestDirectory$",
-        "^TestEnvFile$",
-        "^TestGPU$",
-        "^TestGenerators$",
-        "^TestGit$",
-        "^TestHTTP$",
-        "^TestHost$",
-        "^TestLegacy$",
-        "^TestListen$",
-        "^TestLocalDir$",
-        "^TestLockfile$",
-        "^TestRemoteCacheTransferSuite$",
-        "^TestRuntimeCodegen$",
-        "^TestSecretProvider$",
-        "^TestSequential$",
-        "^TestType$",
-      ],
-      race: true,
-      parallel: 16,
-    )
+    testSkip(skip: self.baseSkip, race: true, parallel: 16)
   }
 
   """
   Base integration tests assigned to the additional shard
   """
   pub testBaseExtra: Void @check {
-    testSpecific(
-      run: [
-        "^TestAgentRestore$",
-        "^TestAgents$",
-        "^TestArtifacts$",
-        "^TestCache$",
-        "^TestCallIDRebuild$",
-        "^TestCommandHints$",
-        "^TestDaggerUpVerifyHarness$",
-        "^TestDang$",
-        "^TestDirectory$",
-        "^TestEnvFile$",
-        "^TestGPU$",
-        "^TestGenerators$",
-        "^TestGit$",
-        "^TestHTTP$",
-        "^TestHost$",
-        "^TestLegacy$",
-        "^TestListen$",
-        "^TestLocalDir$",
-        "^TestLockfile$",
-        "^TestRemoteCacheTransferSuite$",
-        "^TestRuntimeCodegen$",
-        "^TestSecretProvider$",
-        "^TestSequential$",
-        "^TestType$",
-      ],
-      race: true,
-      parallel: 16,
-    )
+    testSpecific(run: self.baseExtraRun, race: true, parallel: 16)
   }
 
   """
@@ -253,7 +275,7 @@ type TestSplit {
   Test Provision
   """
   pub testProvision: Void @check {
-    testSpecific(["TestProvision"])
+    testSpecific(self.provisionRun)
   }
 
   """
@@ -264,7 +286,7 @@ type TestSplit {
     engineDev(ws: self.ws)
       .withEngineConfig("worker.oci", "gc = false")
       .test(run: "^TestTelemetry$", pkg: "./dagql/idtui", testVerbose: self.diagnostics, dumpAfter: self.dumpAfter, remoteCacheUrl: self.remoteCacheUrl, cloudUrl: self.cloudUrl, cloudToken: self.cloudToken)
-    testSpecific(["^TestTelemetry$"])
+    testSpecific(self.telemetryRun)
 
     null
   }
@@ -273,7 +295,7 @@ type TestSplit {
   Test Call and Shell
   """
   pub testCallAndShell: Void @check {
-    testSpecific(["^TestCall$", "^TestShell$"])
+    testSpecific(self.callAndShellRun)
     testSpecific(["^TestDaggerCMD$"], pkg: "./internal/cmd/dagger")
 
     null
@@ -283,56 +305,56 @@ type TestSplit {
   Test CLI Engine
   """
   pub testCliEngine: Void @check {
-    testCliEngineSpecific(["^TestCLI$", "^TestEngine$"])
+    testCliEngineSpecific(self.cliEngineRun)
   }
 
   """
   Test cache persistence
   """
   pub testCachePersistence: Void @check {
-    testCliEngineSpecific(["TestCachePersistence"], noRemoteCache: true)
+    testCliEngineSpecific(self.cachePersistenceRun, noRemoteCache: true)
   }
 
   """
   Test local cache
   """
   pub testLocalCache: Void @check {
-    testCliEngineSpecific(["TestLocalCache"], noRemoteCache: true)
+    testCliEngineSpecific(self.localCacheRun, noRemoteCache: true)
   }
 
   """
   Test Container
   """
   pub testContainer: Void @check {
-    testSpecific(["TestContainer", "TestDockerfile"])
+    testSpecific(self.containerRun)
   }
 
   """
   Test Interface
   """
   pub testInterface: Void @check {
-    testSpecific(["TestInterface"])
+    testSpecific(self.interfaceRun)
   }
 
   """
   Test LLM
   """
   pub testLlm: Void @check {
-    testSpecific(["TestLLM"])
+    testSpecific(self.llmRun)
   }
 
   """
   Test Module Runtimes
   """
   pub testModuleRuntimes: Void @check {
-    testSpecific(["TestGo", "TestPython", "TestTypescript", "TestElixir", "TestPHP", "TestJava"])
+    testSpecific(self.moduleRuntimesRun)
   }
 
   """
   Test Modules
   """
   pub testModules: Void @check {
-    testSpecific(["^TestModule$", "^TestModuleConfig$", "^TestModuleLoading$"])
+    testSpecific(self.modulesRun)
   }
 
   """
@@ -340,22 +362,47 @@ type TestSplit {
   This suite starts multiple engines and runs separately from the base shard.
   """
   pub testModuleDefinitions: Void @check {
-    testSpecific(["^TestModuleDefinitionSuite$"], race: true)
+    testSpecific(self.moduleDefinitionsRun, race: true)
   }
 
   """
   Test Workspaces
   """
   pub testWorkspaces: Void @check {
-    testSpecific([
-      "^TestWorkspace$",
-      "^TestWorkspaceAPI$",
-      "^TestWorkspaceCompat$",
-      "^TestWorkspaceLegacyDefaultPath$",
-      "^TestWorkspaceMigration$",
-      "^TestWorkspaceModules$",
-      "^TestWorkspaceSelection$",
-    ])
+    testSpecific(self.workspacesRun)
+  }
+
+  """
+  Check that the checks run every core/integration suite exactly once
+  """
+  pub testShardCoverage: Void @check {
+    let env = go(ws: self.ws, source: engineDev(ws: self.ws).source).env
+    let suites = env.withExec(["go", "test", "-list", ".", "./core/integration"]).stdout
+    let args = ["go", "run", ".", "suites.txt"]
+    args += ["test-base", "", self.baseSkip.join("|")]
+    args += ["test-base-extra", self.baseExtraRun.join("|"), ""]
+    args += ["test-provision", self.provisionRun.join("|"), ""]
+    args += ["test-telemetry", self.telemetryRun.join("|"), ""]
+    args += ["test-call-and-shell", self.callAndShellRun.join("|"), ""]
+    args += ["test-cli-engine", self.cliEngineRun.join("|"), ""]
+    args += ["test-cache-persistence", self.cachePersistenceRun.join("|"), ""]
+    args += ["test-local-cache", self.localCacheRun.join("|"), ""]
+    args += ["test-container", self.containerRun.join("|"), ""]
+    args += ["test-interface", self.interfaceRun.join("|"), ""]
+    args += ["test-llm", self.llmRun.join("|"), ""]
+    args += ["test-module-runtimes", self.moduleRuntimesRun.join("|"), ""]
+    args += ["test-modules", self.modulesRun.join("|"), ""]
+    args += ["test-module-definitions", self.moduleDefinitionsRun.join("|"), ""]
+    args += ["test-workspaces", self.workspacesRun.join("|"), ""]
+    env
+      .withWorkdir("/shard-coverage")
+      .withNewFile("go.mod", "module shardcoverage\n\ngo 1.26\n")
+      .withFile("main.go", currentModule.source.file("shard-coverage/main.go"))
+      .withNewFile("suites.txt", suites)
+      .withExec(args)
+      .sync
+
+    null
   }
 
   """
