@@ -29,6 +29,25 @@ const (
 	CacheHitRouteStructural CacheHitRoute = telemetryattrs.CacheHitRouteStructural
 )
 
+// CacheNearSearch is how the search for a missed call's nearest term ended.
+// The values are the telemetryattrs.CacheMissNearSearch* wire tokens.
+type CacheNearSearch string
+
+const (
+	CacheNearSearchFound     CacheNearSearch = telemetryattrs.CacheMissNearSearchFound
+	CacheNearSearchNone      CacheNearSearch = telemetryattrs.CacheMissNearSearchNone
+	CacheNearSearchTruncated CacheNearSearch = telemetryattrs.CacheMissNearSearchTruncated
+)
+
+// CacheNearKind is how a missed call's nearest term differs from it. The
+// values are the telemetryattrs.CacheMissNearKind* wire tokens.
+type CacheNearKind string
+
+const (
+	CacheNearKindInputs CacheNearKind = telemetryattrs.CacheMissNearKindInputs
+	CacheNearKindSelf   CacheNearKind = telemetryattrs.CacheMissNearKindSelf
+)
+
 // CacheDecision is the per-invocation cache-evidence carrier: a plain record of
 // the decision facts for one GetOrInitCall invocation, filled by dagql along
 // the existing control flow and consumed by core.AroundFunc's completion
@@ -107,6 +126,26 @@ type CacheDecision struct {
 	// Meaningful only for misses (Outcome executed).
 	MissRemoteLookup string
 
+	// NearSearch is how the bounded search for the term nearest the missed
+	// call ended, empty when it didn't run (the structural lookup was
+	// impossible, or the call has no structural inputs), and NearScanned the
+	// terms it visited. A found neighbour is NearKind: CacheNearKindInputs,
+	// the same self digest with the inputs at NearInputsDiffer (indices into
+	// StructuralInputs) differing, or CacheNearKindSelf, the same field over
+	// the same inputs with a different self digest. NearResultID is the
+	// neighbour's result number (0: none): for kind inputs, chosen among the
+	// few results the search inspects; for kind self, the result whose frame
+	// named the call's field. NearRemote that its value came
+	// from a Cloud merge, and NearMergedAtUnixNano when that merge committed
+	// (0 when unknown). Meaningful only for misses (Outcome executed).
+	NearSearch           CacheNearSearch
+	NearScanned          int
+	NearKind             CacheNearKind
+	NearInputsDiffer     []int
+	NearResultID         uint64
+	NearRemote           bool
+	NearMergedAtUnixNano int64
+
 	// Adopted records that the publication this call executed or joined
 	// adopted its recipe's live current entry in place of the call's new
 	// value; AdoptedRemote that the entry's value came from a Cloud merge,
@@ -136,6 +175,20 @@ type CacheDecision struct {
 
 	// cache is the cache that decided, for ResultState.
 	cache *Cache
+}
+
+// recordNear records the nearest-term search's outcome. Requires egraphMu,
+// for the neighbour's origin.
+func (ev *CacheDecision) recordNear(near nearTerm) {
+	ev.NearSearch = near.search
+	ev.NearScanned = near.scanned
+	ev.NearKind = near.kind
+	ev.NearInputsDiffer = near.differ
+	if near.result != nil {
+		ev.NearResultID = uint64(near.result.id)
+		ev.NearRemote = near.result.imported
+		ev.NearMergedAtUnixNano = near.result.mergedAtUnixNano
+	}
 }
 
 // CacheResultState is the state of a cache entry in its cache, as a span

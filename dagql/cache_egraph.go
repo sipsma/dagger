@@ -862,6 +862,185 @@ func (c *Cache) freshInputsLocked(inputEqIDs []eqClassID) []int {
 	return fresh
 }
 
+// The nearest-term search's bounds, so its cost under egraphMu stays small
+// however many terms share an input and however many results a term has:
+// the terms it visits, the results it inspects to find a visited term's
+// field, the frames it loads for that, and the results it inspects to pick
+// the neighbour's result.
+const (
+	nearestTermScanLimit   = 16
+	nearestFieldCheckLimit = 4
+	nearestResultLimit     = 8
+)
+
+// nearTerm is the neighbour nearestTermLocked found for a missed call, for
+// cache evidence.
+type nearTerm struct {
+	// search is CacheNearSearchFound, CacheNearSearchNone or
+	// CacheNearSearchTruncated; scanned counts the terms visited.
+	search  CacheNearSearch
+	scanned int
+	kind    CacheNearKind
+	// term is the neighbour term, 0 when none was found.
+	term egraphTermID
+	// differ are the input slots where an inputs-kind neighbour differs.
+	differ []int
+	// result is the neighbour's result. For kind inputs, it is chosen among
+	// the first nearestResultLimit of the term's results: the lowest-numbered
+	// one a Cloud merge installed, else the lowest-numbered one, nil when none
+	// of those is live. For kind self, it is the result whose frame named the
+	// call's field.
+	result *sharedResult
+	// inspected counts the results the search inspected, and frames the
+	// frames it loaded.
+	inspected int
+	frames    int
+}
+
+// nearestTermLocked looks for the term nearest a structural miss over
+// inputEqIDs, the call's canonical input classes, all known: a term with the
+// same self digest whose inputs differ in the fewest slots (kind inputs), else
+// one over exactly the same inputs whose result's frame names the same field
+// with a different self digest (kind self: the arguments or implicit inputs
+// differ). It visits the terms that take one of the call's non-fresh input
+// classes as an input, slot by slot, within the bounds above, so a neighbour
+// can be missed when more terms share an input. It reads only; finding a
+// class compresses its path, as the lookup does. Requires egraphMu.
+func (c *Cache) nearestTermLocked(field string, selfDigest digest.Digest, inputEqIDs []eqClassID, fresh []int) nearTerm {
+	out := nearTerm{search: CacheNearSearchNone}
+	var (
+		best     *egraphTerm
+		bestDiff int
+		self     *egraphTerm
+		selfRes  *sharedResult
+		// truncated records that a bound stopped the search before it
+		// checked every term it could reach: the term bound, or the
+		// field-check bound skipping a same-input term.
+		truncated bool
+	)
+	var visitedBuf [nearestTermScanLimit]egraphTermID
+	visited := visitedBuf[:0]
+scan:
+	for i, classID := range inputEqIDs {
+		if slices.Contains(fresh, i) {
+			continue
+		}
+		for termID := range c.inputEqClassToTerms[classID] {
+			if slices.Contains(visited, termID) {
+				continue
+			}
+			if out.scanned == nearestTermScanLimit {
+				truncated = true
+				break scan
+			}
+			out.scanned++
+			visited = append(visited, termID)
+			term := c.egraphTerms[termID]
+			if term == nil || len(term.inputEqIDs) != len(inputEqIDs) {
+				continue
+			}
+			diff := 0
+			for j, in := range term.inputEqIDs {
+				if c.findEqClassLocked(in) != inputEqIDs[j] {
+					diff++
+				}
+			}
+			if term.selfDigest == selfDigest {
+				// diff 0 is the call's own term, whose results weren't
+				// servable: not a neighbour.
+				if diff > 0 && (best == nil || diff < bestDiff) {
+					best, bestDiff = term, diff
+					if diff == 1 {
+						break scan
+					}
+				}
+				continue
+			}
+			if diff == 0 && best == nil && self == nil {
+				if out.frames == nearestFieldCheckLimit {
+					truncated = true
+					continue
+				}
+				// A term's results can have different frames (a request's
+				// term also holds the results its calls returned), so the
+				// result whose frame matched is the one reported.
+				if res := c.firstTermResultLocked(term, &out.inspected); res != nil {
+					out.frames++
+					if frame := res.loadResultCall(); frame != nil && frame.Field == field {
+						self, selfRes = term, res
+					}
+				}
+			}
+		}
+	}
+	switch {
+	case best != nil:
+		out.search, out.kind, out.term = CacheNearSearchFound, CacheNearKindInputs, best.id
+		for j, in := range best.inputEqIDs {
+			if c.findEqClassLocked(in) != inputEqIDs[j] {
+				out.differ = append(out.differ, j)
+			}
+		}
+		out.result = c.nearTermResultLocked(best, &out.inspected)
+	case self != nil:
+		out.search, out.kind, out.term = CacheNearSearchFound, CacheNearKindSelf, self.id
+		out.result = selfRes
+	case truncated:
+		out.search = CacheNearSearchTruncated
+	}
+	return out
+}
+
+// firstTermResultLocked returns the first live result of term it finds,
+// inspecting at most nearestResultLimit, and adds the inspections to
+// inspected. Requires egraphMu.
+func (c *Cache) firstTermResultLocked(term *egraphTerm, inspected *int) *sharedResult {
+	n := 0
+	for resID := range c.termResults[term.id] {
+		if n == nearestResultLimit {
+			break
+		}
+		n++
+		if res := c.resultsByID[resID]; res != nil {
+			*inspected += n
+			return res
+		}
+	}
+	*inspected += n
+	return nil
+}
+
+// nearTermResultLocked returns, among the first nearestResultLimit results of
+// term, the lowest-numbered one a Cloud merge installed, else the
+// lowest-numbered one, or nil, and adds the inspections to inspected.
+// Requires egraphMu.
+func (c *Cache) nearTermResultLocked(term *egraphTerm, inspected *int) *sharedResult {
+	var local, remote *sharedResult
+	n := 0
+	for resID := range c.termResults[term.id] {
+		if n == nearestResultLimit {
+			break
+		}
+		n++
+		res := c.resultsByID[resID]
+		if res == nil {
+			continue
+		}
+		if res.imported {
+			if remote == nil || res.id < remote.id {
+				remote = res
+			}
+		} else if local == nil || res.id < local.id {
+			local = res
+		}
+	}
+	*inspected += n
+	if remote != nil {
+		return remote
+	}
+	return local
+}
+
 func (c *Cache) indexResultDigestsLocked(res *sharedResult, requestFrame, responseFrame *ResultCall) error {
 	if res == nil {
 		return nil
@@ -1013,6 +1192,13 @@ func (c *Cache) lookupCacheForRequestLocked(
 				ev.MissUnknownInputIndex = match.missingInputIndex
 			} else {
 				ev.MissFreshInputs = c.freshInputsLocked(match.inputEqIDs)
+				if len(match.inputEqIDs) > 0 {
+					near := c.nearestTermLocked(req.ResultCall.Field, match.selfDigest, match.inputEqIDs, ev.MissFreshInputs)
+					ev.recordNear(near)
+					if c.testAfterNearSearch != nil {
+						c.testAfterNearSearch(near)
+					}
+				}
 			}
 		}
 	}

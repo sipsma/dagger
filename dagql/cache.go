@@ -2466,6 +2466,8 @@ type Cache struct {
 	// structural ref's target can be collected out from under the
 	// publication.
 	testBeforePublicationIndex func(*ongoingCall)
+	// testAfterNearSearch sees each nearest-term search's outcome.
+	testAfterNearSearch func(nearTerm)
 	// publication hook: a publication found its recipe's current entry still
 	// attaching and is about to wait for that attachment
 	// (initCompletedResult).

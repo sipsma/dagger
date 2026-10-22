@@ -341,6 +341,7 @@ func recordCacheEvidence(ctx context.Context, span trace.Span, ev *dagql.CacheDe
 		if ev.MissRemoteLookup != "" {
 			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissRemoteLookupAttr, ev.MissRemoteLookup))
 		}
+		attrs = appendNearAttrs(attrs, ev)
 	}
 	if (ev.Outcome == dagql.CacheOutcomeExecuted || ev.Outcome == dagql.CacheOutcomeJoined) && ev.Adopted {
 		// A publication fact, shared by the call that executed and the calls
@@ -395,6 +396,38 @@ func recordCacheEvidence(ctx context.Context, span trace.Span, ev *dagql.CacheDe
 		attrs = append(attrs, cacheStateAttrs(state)...)
 	}
 	span.SetAttributes(attrs...)
+}
+
+// appendNearAttrs maps an executed miss's nearest-term facts onto the
+// dagger.io/cache.miss.near.* contract.
+func appendNearAttrs(attrs []attribute.KeyValue, ev *dagql.CacheDecision) []attribute.KeyValue {
+	if ev.NearSearch == "" {
+		return attrs
+	}
+	attrs = append(attrs,
+		attribute.String(telemetryattrs.CacheMissNearSearchAttr, string(ev.NearSearch)),
+		attribute.String(telemetryattrs.CacheMissNearScannedAttr, strconv.Itoa(ev.NearScanned)),
+	)
+	if ev.NearKind != "" {
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissNearKindAttr, string(ev.NearKind)))
+	}
+	if len(ev.NearInputsDiffer) > 0 {
+		differ := make([]string, len(ev.NearInputsDiffer))
+		for i, idx := range ev.NearInputsDiffer {
+			differ[i] = strconv.Itoa(idx)
+		}
+		attrs = append(attrs, attribute.StringSlice(telemetryattrs.CacheMissNearInputsDifferAttr, differ))
+	}
+	if ev.NearResultID != 0 {
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissNearResultIDAttr, strconv.FormatUint(ev.NearResultID, 10)))
+		if ev.NearRemote {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissNearRemoteAttr, "true"))
+			if ev.NearMergedAtUnixNano != 0 {
+				attrs = append(attrs, attribute.String(telemetryattrs.CacheMissNearMergedAtAttr, strconv.FormatInt(ev.NearMergedAtUnixNano, 10)))
+			}
+		}
+	}
+	return attrs
 }
 
 // cacheStateAttrs maps an entry's cache state onto the dagger.io/cache.*

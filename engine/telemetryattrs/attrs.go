@@ -678,6 +678,47 @@ const (
 	// was full. Absent when no connection serves lookups.
 	CacheMissRemoteLookupAttr = "dagger.io/cache.miss.remote_lookup"
 
+	// The term nearest an executed miss, from a bounded search over the
+	// terms that share one of the call's input classes, when every input was
+	// known (no CacheMissUnknownInputAttr) and the call has one. Executed
+	// misses only.
+	//
+	// CacheMissNearSearchAttr is how the search ended: CacheMissNearSearchFound,
+	// CacheMissNearSearchNone (every term sharing a non-fresh input was
+	// visited and checked, and none is near), or CacheMissNearSearchTruncated
+	// (a bound, on the terms visited or on the fields checked, stopped it
+	// first; a neighbour may exist). CacheMissNearScannedAttr is the
+	// decimal-string count of terms visited.
+	CacheMissNearSearchAttr      = "dagger.io/cache.miss.near.search"
+	CacheMissNearSearchFound     = "found"
+	CacheMissNearSearchNone      = "none"
+	CacheMissNearSearchTruncated = "truncated"
+	CacheMissNearScannedAttr     = "dagger.io/cache.miss.near.scanned"
+	// CacheMissNearKindAttr (when found) is how the neighbour differs:
+	// CacheMissNearKindInputs, the same self digest (operation and
+	// arguments) over inputs that differ at CacheMissNearInputsDifferAttr;
+	// or CacheMissNearKindSelf, the same field over the same inputs, with a
+	// different self digest, so its arguments or implicit inputs differ.
+	CacheMissNearKindAttr   = "dagger.io/cache.miss.near.kind"
+	CacheMissNearKindInputs = "inputs"
+	CacheMissNearKindSelf   = "self"
+	// CacheMissNearInputsDifferAttr lists, as decimal-string indices into
+	// CacheStructuralInputsAttr (native string array), the inputs where an
+	// inputs-kind neighbour differs.
+	CacheMissNearInputsDifferAttr = "dagger.io/cache.miss.near.inputs_differ"
+	// CacheMissNearResultIDAttr is the decimal-string result number of the
+	// neighbour's result, as CacheResultIDAttr. For kind inputs it is chosen
+	// among the first few of the term's results the bounded search inspects,
+	// a remote one when one of those is, and it is absent when none of those
+	// is live, so a found neighbour can come without it. For kind self it is
+	// the result whose frame named the call's field. CacheMissNearRemoteAttr
+	// ("true") records that its value came from a Cloud merge, and
+	// CacheMissNearMergedAtAttr when that merge committed, in decimal-string
+	// absolute Unix nanoseconds (in memory only).
+	CacheMissNearResultIDAttr = "dagger.io/cache.miss.near.result.id"
+	CacheMissNearRemoteAttr   = "dagger.io/cache.miss.near.remote"
+	CacheMissNearMergedAtAttr = "dagger.io/cache.miss.near.merged_at_unix_ns"
+
 	// CacheAdoptedAttr ("true", executed and joined calls, absent otherwise)
 	// records that the publication of the call's value adopted its recipe's
 	// live current entry instead: the call ran, its new value was released,
