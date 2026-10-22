@@ -59,6 +59,7 @@ type DumpEvent struct {
 	ClientID uint32 `json:"cl,omitempty"`
 	MetaID   uint32 `json:"m,omitempty"`
 
+	Bytes int64 `json:"b,omitempty"`
 	// TraceID and SpanID are a span event's OTel span, in lower-case hex.
 	TraceID string `json:"tr,omitempty"`
 	SpanID  string `json:"sp,omitempty"`
@@ -93,6 +94,7 @@ func toDumpEvent(ev Event) DumpEvent {
 		IdentID:  ev.IdentID,
 		ClientID: ev.ClientID,
 		MetaID:   ev.MetaID,
+		Bytes:    ev.Bytes,
 		StartNS:  ev.StartNS,
 		EndNS:    ev.EndNS,
 	}
