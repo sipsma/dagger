@@ -97,6 +97,7 @@ type TestSplit {
     "^TestSecretProvider$",
     "^TestSequential$",
     "^TestType$",
+    "^TestUp$",
   ]
 
   let baseExtraRun: [String!]! = [
@@ -124,6 +125,7 @@ type TestSplit {
     "^TestSecretProvider$",
     "^TestSequential$",
     "^TestType$",
+    "^TestUp$",
   ]
 
   let provisionRun: [String!]! = ["TestProvision"]
