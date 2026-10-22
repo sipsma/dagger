@@ -281,10 +281,9 @@ func monitorAttachableHealth(ctx context.Context, cc *grpc.ClientConn, cancelCon
 			healthcheckStart := time.Now()
 			timeout := time.Duration(math.Max(float64(defaultHealthcheckDuration), float64(lastHealthcheckDuration)*1.5))
 
-			checkCtx, cancel := context.WithCancelCause(ctx)
-			checkCtx, _ = context.WithTimeoutCause(checkCtx, timeout, context.DeadlineExceeded)
+			checkCtx, cancel := context.WithTimeoutCause(ctx, timeout, context.DeadlineExceeded)
 			_, err := healthClient.Check(checkCtx, &grpc_health_v1.HealthCheckRequest{})
-			cancel(context.Canceled)
+			cancel()
 
 			lastHealthcheckDuration = time.Since(healthcheckStart)
 
