@@ -138,7 +138,8 @@ type TestSplit {
   let interfaceRun: [String!]! = ["TestInterface"]
   let llmRun: [String!]! = ["TestLLM"]
   let moduleRuntimesRun: [String!]! = ["TestGo", "TestPython", "TestTypescript", "TestElixir", "TestPHP", "TestJava"]
-  let modulesRun: [String!]! = ["^TestModule$", "^TestModuleConfig$", "^TestModuleLoading$"]
+  let modulesRun: [String!]! = ["^TestModule$"]
+  let moduleConfigAndLoadingRun: [String!]! = ["^TestModuleConfig$", "^TestModuleLoading$"]
   let moduleDefinitionsRun: [String!]! = ["^TestModuleDefinitionSuite$"]
   let workspacesRun: [String!]! = [
     "^TestWorkspace$",
@@ -360,6 +361,13 @@ type TestSplit {
   }
 
   """
+  Test module config and loading
+  """
+  pub testModuleConfigAndLoading: Void @check {
+    testSpecific(self.moduleConfigAndLoadingRun)
+  }
+
+  """
   Test module definition caching with the race detector.
   This suite starts multiple engines and runs separately from the base shard.
   """
@@ -394,6 +402,7 @@ type TestSplit {
     args += ["test-llm", self.llmRun.join("|"), ""]
     args += ["test-module-runtimes", self.moduleRuntimesRun.join("|"), ""]
     args += ["test-modules", self.modulesRun.join("|"), ""]
+    args += ["test-module-config-and-loading", self.moduleConfigAndLoadingRun.join("|"), ""]
     args += ["test-module-definitions", self.moduleDefinitionsRun.join("|"), ""]
     args += ["test-workspaces", self.workspacesRun.join("|"), ""]
     env
