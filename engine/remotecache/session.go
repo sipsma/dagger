@@ -445,16 +445,24 @@ func (s *session) logUpload(ctx context.Context, exportID string, dgst digest.Di
 }
 
 // handleMerge merges a bundle and answers. The merge ends, for the lookups
-// waiting on it, before the reply is written: its offers are in the cache.
+// waiting on it, before the reply is written: its offers are in the cache,
+// unless it committed nothing.
 func (s *session) handleMerge(env protocol.Envelope) {
 	var req protocol.Merge
 	if err := env.Decode(&req); err != nil {
-		s.merges.end(env.ID)
+		s.merges.end(env.ID, dagql.RemoteMergeFailed)
 		s.replyError(env, err)
 		return
 	}
 	merged, err := s.adapter.Merge(s.ctx, env.ID, req)
-	s.merges.end(env.ID)
+	switch {
+	case err != nil:
+		s.merges.end(env.ID, dagql.RemoteMergeFailed)
+	case len(merged.Stale) > 0:
+		s.merges.end(env.ID, dagql.RemoteMergeStale)
+	default:
+		s.merges.end(env.ID, dagql.RemoteMergeMerged)
+	}
 	if err != nil {
 		s.replyError(env, err)
 		return
