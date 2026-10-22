@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -64,8 +65,6 @@ type publishCheckEnv struct {
 
 // Exercise the release publish path against local mock endpoints.
 // +check
-//
-//nolint:gocyclo
 func (r *Release) PublishWithMockEndpoints(
 	ctx context.Context,
 
@@ -157,10 +156,10 @@ git ls-remote --tags "$REPO_URL" "$RELEASE_TAG"
 	if err := requireContains(initialOut, "- [x] 🚗 CLI", "initial main publish should publish the CLI"); err != nil {
 		return err
 	}
-	if err := env.assertPublishOrder(ctx, "main", initialStart); err != nil {
-		return err
-	}
-	if err := env.assertInitialCLIReleaseOutputs(ctx); err != nil {
+	if err := checkConcurrently(ctx,
+		func(ctx context.Context) error { return env.assertPublishOrder(ctx, "main", initialStart) },
+		env.assertInitialCLIReleaseOutputs,
+	); err != nil {
 		return err
 	}
 
@@ -202,53 +201,31 @@ git ls-remote --tags "$REPO_URL" "$RELEASE_TAG"
 	if err := requireNotContains(taggedOut, "Error while publishing", "release publish should complete against mock endpoints"); err != nil {
 		return err
 	}
-	if err := env.assertPublishOrder(ctx, env.releaseTag, taggedStart); err != nil {
-		return err
+	tagChecks := []func(context.Context) error{
+		func(ctx context.Context) error { return env.assertPublishOrder(ctx, env.releaseTag, taggedStart) },
+		env.assertStableCLIReleaseArtifacts,
+		env.assertCLIPublishMetadata,
+		env.assertRegistryTags,
+		env.assertEngineVersion,
+		env.assertCLIVersion,
 	}
-
-	if err := env.assertStableCLIReleaseArtifacts(ctx); err != nil {
-		return err
-	}
-	if err := env.assertCLIPublishMetadata(ctx); err != nil {
-		return err
-	}
-
-	if err := env.assertRegistryTags(ctx); err != nil {
-		return err
-	}
-	if err := env.assertEngineVersion(ctx); err != nil {
-		return err
-	}
-	if err := env.assertCLIVersion(ctx); err != nil {
-		return err
-	}
-
 	if !isPrerelease {
-		if err := env.assertCLIGitHubRelease(ctx); err != nil {
-			return err
-		}
-		if err := env.assertCLIPackageManagers(ctx); err != nil {
-			return err
-		}
-		if err := env.assertComponentGitHubReleases(ctx); err != nil {
-			return err
-		}
-		if err := env.assertMockEvents(ctx); err != nil {
-			return err
-		}
-	} else if err := env.assertPrereleaseStableOutputsAbsent(ctx); err != nil {
-		return err
+		tagChecks = append(tagChecks,
+			env.assertCLIGitHubRelease,
+			env.assertCLIPackageManagers,
+			env.assertComponentGitHubReleases,
+			env.assertMockEvents,
+		)
+	} else {
+		tagChecks = append(tagChecks, env.assertPrereleaseStableOutputsAbsent)
 	}
-	if err := env.assertPackageRegistryRequests(ctx, isPrerelease); err != nil {
-		return err
-	}
-	if err := env.assertNpmVersion(ctx, isPrerelease); err != nil {
-		return err
-	}
-	if err := env.assertHelmTags(ctx); err != nil {
-		return err
-	}
-	if err := env.assertSDKTags(ctx); err != nil {
+	tagChecks = append(tagChecks,
+		func(ctx context.Context) error { return env.assertPackageRegistryRequests(ctx, isPrerelease) },
+		func(ctx context.Context) error { return env.assertNpmVersion(ctx, isPrerelease) },
+		env.assertHelmTags,
+		env.assertSDKTags,
+	)
+	if err := checkConcurrently(ctx, tagChecks...); err != nil {
 		return err
 	}
 
@@ -843,30 +820,39 @@ PY
 }
 
 func (env *publishCheckEnv) assertInitialCLIReleaseOutputs(ctx context.Context) error {
-	if err := env.assertS3ArchiveSet(ctx, "dagger/main/"+env.commit, publishCheckArchiveNames(env.commit), false); err != nil {
-		return fmt.Errorf("check main SHA CLI artifacts: %w", err)
-	}
-	if err := env.assertS3ArchiveSet(ctx, "dagger/main/head", publishCheckArchiveNames("head"), false); err != nil {
-		return fmt.Errorf("check main head CLI artifacts: %w", err)
-	}
-
-	events, err := env.mockEvents(ctx)
-	if err != nil {
-		return err
-	}
-	for _, needle := range []string{
-		`"kind": "github_release_create"`,
-		`"kind": "github_release_asset_upload"`,
-		`/api/v3/repos/dagger/nix/contents/pkgs/dagger/default.nix`,
-		`/api/v3/repos/dagger/homebrew-tap/contents/dagger.rb`,
-		`/api/v3/repos/dagger/winget-pkgs/contents/`,
-		`/api/v3/repos/microsoft/winget-pkgs/pulls`,
-	} {
-		if err := requireNotContains(events, needle, "initial main publish should not perform stable CLI publishing"); err != nil {
-			return err
-		}
-	}
-	return nil
+	return checkConcurrently(ctx,
+		func(ctx context.Context) error {
+			if err := env.assertS3ArchiveSet(ctx, "dagger/main/"+env.commit, publishCheckArchiveNames(env.commit), false); err != nil {
+				return fmt.Errorf("check main SHA CLI artifacts: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			if err := env.assertS3ArchiveSet(ctx, "dagger/main/head", publishCheckArchiveNames("head"), false); err != nil {
+				return fmt.Errorf("check main head CLI artifacts: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			events, err := env.mockEvents(ctx)
+			if err != nil {
+				return err
+			}
+			for _, needle := range []string{
+				`"kind": "github_release_create"`,
+				`"kind": "github_release_asset_upload"`,
+				`/api/v3/repos/dagger/nix/contents/pkgs/dagger/default.nix`,
+				`/api/v3/repos/dagger/homebrew-tap/contents/dagger.rb`,
+				`/api/v3/repos/dagger/winget-pkgs/contents/`,
+				`/api/v3/repos/microsoft/winget-pkgs/pulls`,
+			} {
+				if err := requireNotContains(events, needle, "initial main publish should not perform stable CLI publishing"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	)
 }
 
 func (env *publishCheckEnv) assertPrereleaseStableOutputsAbsent(ctx context.Context) error {
@@ -2298,6 +2284,27 @@ func requireContains(haystack, needle, msg string) error {
 func requireNotContains(haystack, needle, msg string) error {
 	if strings.Contains(haystack, needle) {
 		return fmt.Errorf("%s: found %q in:\n%s", msg, needle, haystack)
+	}
+	return nil
+}
+
+// checkConcurrently runs checks that only read the same published state, all
+// at once. It waits for every check, so none is still reading when the next
+// publish starts writing, and returns the error running them in order would
+// have: the first failing check's, in argument order.
+func checkConcurrently(ctx context.Context, checks ...func(context.Context) error) error {
+	errs := make([]error, len(checks))
+	var wg sync.WaitGroup
+	for i, check := range checks {
+		wg.Go(func() {
+			errs[i] = check(ctx)
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

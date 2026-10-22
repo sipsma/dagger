@@ -839,15 +839,15 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("PublishCheckRepoIsDeterministic",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Verify that the publish check's release git repo gets the same commit\nevery time it is created from the same source. The nested builds stamp\nthat commit, so a commit that changed with the clock would change their\ncache keys on every run.").
-							WithSourceMap(dag.SourceMap("publish_check.go", 2309, 1)).
-							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Source tree to commit.", SourceMap: dag.SourceMap("publish_check.go", 2313, 2), DefaultPath: "/"})).
+							WithSourceMap(dag.SourceMap("publish_check.go", 2316, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Source tree to commit.", SourceMap: dag.SourceMap("publish_check.go", 2320, 2), DefaultPath: "/"})).
 					WithFunction(
 						dag.Function("PublishWithMockEndpoints",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Exercise the release publish path against local mock endpoints.").
-							WithSourceMap(dag.SourceMap("publish_check.go", 69, 1)).
+							WithSourceMap(dag.SourceMap("publish_check.go", 68, 1)).
 							WithCheck().
-							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Source tree to publish. The check commits this exact tree to a local git\nservice and invokes release through a nested engine using that git ref.", SourceMap: dag.SourceMap("publish_check.go", 75, 2), DefaultPath: "/"})).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Source tree to publish. The check commits this exact tree to a local git\nservice and invokes release through a nested engine using that git ref.", SourceMap: dag.SourceMap("publish_check.go", 74, 2), DefaultPath: "/"})).
 					WithFunction(
 						dag.Function("PythonSdkTargetVersion",
 							dag.TypeDef().WithObject("Changeset")).
