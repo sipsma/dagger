@@ -68,14 +68,33 @@ type Store struct {
 
 func NewStore(t testing.TB) *Store {
 	t.Helper()
+	return NewStoreWith(t, StoreOptions{})
+}
+
+// StoreOptions shape the store's metadata database.
+type StoreOptions struct {
+	// Bolt opens the metadata database with these options, such as the
+	// engine's (EngineBoltOptions), instead of bbolt's defaults.
+	Bolt *bolt.Options
+	// TxTimes, when set, records each write transaction on the metadata
+	// database: its caller, its wait for the single writer lock and its hold.
+	TxTimes *TxTimes
+}
+
+func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
+	t.Helper()
 	s := &Store{root: t.TempDir()}
 	rawContent, err := local.NewStore(filepath.Join(s.root, "content"))
 	require.NoError(t, err)
 	rawSnapshots, err := native.NewSnapshotter(filepath.Join(s.root, "snapshots"))
 	require.NoError(t, err)
-	db, err := bolt.Open(filepath.Join(s.root, "metadata.db"), 0600, nil)
+	db, err := bolt.Open(filepath.Join(s.root, "metadata.db"), 0600, opts.Bolt)
 	require.NoError(t, err)
-	s.DB = metadata.NewDB(db, rawContent, map[string]ctdsnapshots.Snapshotter{"native": rawSnapshots})
+	var tx metadata.Transactor = db
+	if opts.TxTimes != nil {
+		tx = timedTransactor{DB: db, times: opts.TxTimes}
+	}
+	s.DB = metadata.NewDB(tx, rawContent, map[string]ctdsnapshots.Snapshotter{"native": rawSnapshots})
 	require.NoError(t, s.DB.Init(context.Background()))
 	s.Leases = bkcache.NewLeaseManager(metadata.NewLeaseManager(s.DB), Namespace)
 	s.Content = containerdsnapshot.NewContentStore(s.DB.ContentStore(), Namespace)
