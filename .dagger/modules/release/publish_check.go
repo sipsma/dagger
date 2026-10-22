@@ -139,6 +139,18 @@ func (r *Release) PublishWithMockEndpoints(
 	if err != nil {
 		return err
 	}
+	// Push the release tag while the main publish is checked: the push only
+	// writes to the git service, and no main publish check reads it. The
+	// tagged publish below waits for it.
+	tagPushed := make(chan error, 1)
+	go func() {
+		_, err := env.gitWorktreeStdout(ctx, `
+git tag "$RELEASE_TAG" "$RELEASE_COMMIT"
+git push "$REPO_URL" "$RELEASE_TAG"
+git ls-remote --tags "$REPO_URL" "$RELEASE_TAG"
+`)
+		tagPushed <- err
+	}()
 	if err := requireContains(initialOut, "- [x] 🚙 Engine", "initial main publish should publish the engine"); err != nil {
 		return err
 	}
@@ -152,11 +164,7 @@ func (r *Release) PublishWithMockEndpoints(
 		return err
 	}
 
-	if _, err := env.gitWorktreeStdout(ctx, `
-git tag "$RELEASE_TAG" "$RELEASE_COMMIT"
-git push "$REPO_URL" "$RELEASE_TAG"
-git ls-remote --tags "$REPO_URL" "$RELEASE_TAG"
-`); err != nil {
+	if err := <-tagPushed; err != nil {
 		return err
 	}
 
