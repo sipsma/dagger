@@ -81,7 +81,15 @@ func TestOfferInstallFromCorruptPack(t *testing.T) {
 	f.transport.mu.Lock()
 	ranges := slices.Clone(f.transport.ranges)
 	f.transport.mu.Unlock()
-	require.Equal(t, []string{"bytes=0-"}, ranges, "one request for the whole pack")
+	// Each request reads the whole pack. The upper layer, downloading ahead,
+	// can read it and fail before the lower layer looks for a read; the
+	// lower layer, finding none and its blob absent, reads it again. A
+	// failing pack costs at most one read per layer.
+	require.NotEmpty(t, ranges)
+	require.LessOrEqual(t, len(ranges), len(chain.blobs))
+	for _, r := range ranges {
+		require.Equal(t, "bytes=0-", r, "a request for the whole pack")
+	}
 	require.EqualValues(t, 1, f.demand.revision, "the pack's failure exhausted the source")
 	failed := f.logs.lines(t, "remote cache part install failed")
 	require.Len(t, failed, 1)

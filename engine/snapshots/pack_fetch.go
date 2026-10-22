@@ -72,9 +72,11 @@ type packFetch struct {
 	cancel   context.CancelCauseFunc
 
 	// Set before done is closed: the read's error, and the members its
-	// header listed.
-	err    error
-	listed map[digest.Digest]bool
+	// header listed; or skipped, when the import that claimed the read found
+	// its member stored already and read nothing.
+	err     error
+	listed  map[digest.Digest]bool
+	skipped bool
 
 	// Under packFetches.mu: the imports waiting on the read, and whether it
 	// ended.
@@ -101,8 +103,8 @@ func (e *packContentError) Unwrap() error { return e.err }
 func (cm *snapshotManager) downloadPackedContent(ctx context.Context, desc ocispecs.Descriptor, provider PackProvider, id digest.Digest) error {
 	own, misses := false, 0
 	for {
-		f, started, err := cm.joinPackFetch(ctx, id, provider, desc.Digest, own)
-		if err != nil {
+		f, started, err := cm.joinPackFetch(ctx, id, provider, desc, own)
+		if err != nil || f == nil {
 			return err
 		}
 		select {
@@ -119,6 +121,10 @@ func (cm *snapshotManager) downloadPackedContent(ctx context.Context, desc ocisp
 		}
 		mine := started || sameProvider(f.provider, provider)
 		switch {
+		case f.skipped:
+			// Nothing was read: this import looks for a read again, or claims
+			// one for its own member.
+			continue
 		case f.err != nil && !mine:
 			own = true
 			continue
@@ -150,10 +156,11 @@ func sameProvider(a, b PackProvider) bool {
 }
 
 // joinPackFetch holds the read of the pack id in progress, or starts one with
-// provider, at blob's address, and reports whether it started it. An own
+// provider, at desc's address, and reports whether it started it. An own
 // read never joins another: it starts one with provider, which other imports
-// join when none of theirs runs.
-func (cm *snapshotManager) joinPackFetch(ctx context.Context, id digest.Digest, provider PackProvider, blob digest.Digest, own bool) (*packFetch, bool, error) {
+// join when none of theirs runs. With desc's blob in the content store once
+// the read is claimed, it links the blob and returns no read.
+func (cm *snapshotManager) joinPackFetch(ctx context.Context, id digest.Digest, provider PackProvider, desc ocispecs.Descriptor, own bool) (*packFetch, bool, error) {
 	ps := &cm.packs
 	ps.mu.Lock()
 	if f := ps.inflight[id]; f != nil && !own {
@@ -170,7 +177,7 @@ func (cm *snapshotManager) joinPackFetch(ctx context.Context, id digest.Digest, 
 	// The read runs detached from the import that started it, while another
 	// may wait for it.
 	fctx, cancel := context.WithCancelCause(leases.WithLease(context.WithoutCancel(ctx), l.ID))
-	started := &packFetch{id: id, blob: blob, provider: provider, lease: l, deadline: deadline, done: make(chan struct{}), cancel: cancel, listed: map[digest.Digest]bool{}, refs: 1}
+	started := &packFetch{id: id, blob: desc.Digest, provider: provider, lease: l, deadline: deadline, done: make(chan struct{}), cancel: cancel, listed: map[digest.Digest]bool{}, refs: 1}
 	ps.mu.Lock()
 	if f := ps.inflight[id]; f != nil && !own {
 		f.refs++
@@ -188,6 +195,25 @@ func (cm *snapshotManager) joinPackFetch(ctx context.Context, id digest.Digest, 
 	}
 	slots := ps.slots
 	ps.mu.Unlock()
+	// A read of the pack that ended stored its members before it left
+	// inflight, and one that starts now joins this one, so a member present
+	// now needs no read: as when an import's later layer read the pack while
+	// this layer was on its way. The read then ends having read nothing, and
+	// any import that joined it meanwhile looks for its own member in turn.
+	if present, err := cm.pinContent(ctx, desc); err != nil || present {
+		started.skipped = true
+		ps.mu.Lock()
+		started.refs--
+		started.finished = true
+		if ps.inflight[id] == started {
+			delete(ps.inflight, id)
+		}
+		ps.mu.Unlock()
+		cancel(nil)
+		_ = cm.LeaseManager.Delete(context.WithoutCancel(ctx), l)
+		close(started.done)
+		return nil, false, err
+	}
 	go cm.runPackFetch(fctx, started, slots)
 	return started, true, nil
 }
