@@ -476,6 +476,21 @@ func engineTelemetryConfig(ctx context.Context) (telemetry.Config, cloudTelemetr
 
 type configuredCloudExportersFunc func(context.Context) (sdktrace.SpanExporter, sdklog.Exporter, sdkmetric.Exporter, bool)
 
+// configuredOTLPExporters returns the exporters the OTEL_* environment
+// configures, each nil when it configures none. Tests replace it.
+var configuredOTLPExporters = func(ctx context.Context) (spans sdktrace.SpanExporter, logs sdklog.Exporter, metrics sdkmetric.Exporter) {
+	if exp, ok := telemetry.ConfiguredSpanExporter(ctx); ok {
+		spans = exp
+	}
+	if exp, ok := telemetry.ConfiguredLogExporter(ctx); ok {
+		logs = exp
+	}
+	if exp, ok := telemetry.ConfiguredMetricExporter(ctx); ok {
+		metrics = exp
+	}
+	return spans, logs, metrics
+}
+
 // cloudTelemetryIndexes locates the CLI's Dagger Cloud exporters in the
 // pipeline telemetry.Init builds: the span processor's index in the
 // telemetry.SpanProcessors Init sets, and the log and metric exporters'
@@ -509,8 +524,9 @@ func withoutIndex[T any](all []T, i int) []T {
 }
 
 func engineTelemetryConfigWithCloud(ctx context.Context, configuredCloudExporters configuredCloudExportersFunc) (telemetry.Config, cloudTelemetryIndexes) {
+	// The OTEL_* exporters are added below rather than detected by
+	// telemetry.Init, so that their spans get a large queue.
 	cfg := telemetry.Config{
-		Detect:   !skipSharedTelemetryExporters,
 		Resource: Resource(ctx),
 	}
 	cloud := noCloudTelemetry
@@ -535,6 +551,27 @@ func engineTelemetryConfigWithCloud(ctx context.Context, configuredCloudExporter
 			}
 			cfg.SpanProcessors = append(cfg.SpanProcessors, enginetel.NewLargeQueueLiveSpanProcessor(spans))
 			cfg.LiveLogExporters = append(cfg.LiveLogExporters, logs)
+			cfg.LiveMetricExporters = append(cfg.LiveMetricExporters, metrics)
+		}
+		// The OTEL_* exporters follow the Cloud ones, where telemetry.Init's
+		// detection would put them. An OTLP endpoint can carry the engine's
+		// trace onward as Cloud does, such as the outer engine's for a CLI in
+		// a container, so live spans take the same large queue rather than
+		// the SDK default 2048 slots, which drop spans on a big burst.
+		spans, logs, metrics := configuredOTLPExporters(ctx)
+		if spans != nil {
+			if telemetry.LiveTracesEnabled {
+				cfg.SpanProcessors = append(cfg.SpanProcessors, enginetel.NewLargeQueueLiveSpanProcessor(spans))
+			} else {
+				// Filter out unfinished spans, as telemetry.Init's detection
+				// does for an exporter that is not sent live spans.
+				cfg.BatchedTraceExporters = append(cfg.BatchedTraceExporters, telemetry.FilterLiveSpansExporter{SpanExporter: spans})
+			}
+		}
+		if logs != nil {
+			cfg.LiveLogExporters = append(cfg.LiveLogExporters, logs)
+		}
+		if metrics != nil {
 			cfg.LiveMetricExporters = append(cfg.LiveMetricExporters, metrics)
 		}
 	}

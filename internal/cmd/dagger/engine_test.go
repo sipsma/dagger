@@ -52,7 +52,19 @@ func (e *countingMetricExporter) Aggregation(sdkmetric.InstrumentKind) sdkmetric
 func (e *countingMetricExporter) Shutdown(context.Context) error   { return nil }
 func (e *countingMetricExporter) ForceFlush(context.Context) error { return nil }
 
+// withoutOTLPExporters has the test see no OTEL_* exporters, whatever the
+// environment the test runs in configures.
+func withoutOTLPExporters(t *testing.T) {
+	t.Helper()
+	old := configuredOTLPExporters
+	t.Cleanup(func() { configuredOTLPExporters = old })
+	configuredOTLPExporters = func(context.Context) (sdktrace.SpanExporter, sdklog.Exporter, sdkmetric.Exporter) {
+		return nil, nil, nil
+	}
+}
+
 func TestEngineTelemetryConfigDefaultsToFrontendAndCloud(t *testing.T) {
+	withoutOTLPExporters(t)
 	oldFrontend := Frontend
 	oldSkip := skipSharedTelemetryExporters
 	t.Cleanup(func() {
@@ -78,7 +90,7 @@ func TestEngineTelemetryConfigDefaultsToFrontendAndCloud(t *testing.T) {
 		return cloudSpans, cloudLogs, cloudMetrics, true
 	})
 
-	require.True(t, cfg.Detect)
+	require.False(t, cfg.Detect, "the config adds the OTEL_* exporters itself")
 	require.Equal(t, cloudTelemetryIndexes{spans: 0, logs: 1, metrics: 1}, cloud,
 		"the indexes locate the Cloud exporters, so engine telemetry can be forwarded without them")
 	require.Equal(t, []sdklog.Exporter{localLogs}, withoutIndex(cfg.LiveLogExporters, cloud.logs))
@@ -97,6 +109,7 @@ func TestEngineTelemetryConfigDefaultsToFrontendAndCloud(t *testing.T) {
 }
 
 func TestEngineTelemetryConfigWithoutFrontendStillExportsToCloud(t *testing.T) {
+	withoutOTLPExporters(t)
 	oldFrontend := Frontend
 	oldSkip := skipSharedTelemetryExporters
 	t.Cleanup(func() {
@@ -122,7 +135,7 @@ func TestEngineTelemetryConfigWithoutFrontendStillExportsToCloud(t *testing.T) {
 		return cloudSpans, cloudLogs, cloudMetrics, true
 	})
 
-	require.True(t, cfg.Detect)
+	require.False(t, cfg.Detect, "the config adds the OTEL_* exporters itself")
 	require.Empty(t, frontend.SpanExporterCalls())
 	require.Empty(t, frontend.LogExporterCalls())
 	require.Empty(t, frontend.MetricExporterCalls())
@@ -180,17 +193,26 @@ func TestEngineTelemetryConfigSkipsSharedExporters(t *testing.T) {
 		skipSharedTelemetryExporters = oldSkip
 	})
 
+	oldOTLP := configuredOTLPExporters
+	t.Cleanup(func() { configuredOTLPExporters = oldOTLP })
+	detected := 0
+	configuredOTLPExporters = func(context.Context) (sdktrace.SpanExporter, sdklog.Exporter, sdkmetric.Exporter) {
+		detected++
+		return nil, nil, nil
+	}
+
 	ctx := context.Background()
 
 	skipSharedTelemetryExporters = false
-	if cfg, _ := engineTelemetryConfig(ctx); !cfg.Detect {
-		t.Fatal("expected Detect to be enabled for a normal session")
-	}
+	cfg, _ := engineTelemetryConfig(ctx)
+	require.False(t, cfg.Detect, "the config adds the OTEL_* exporters itself")
+	require.Equal(t, 1, detected, "a normal session adds the OTEL_* exporters")
 
 	skipSharedTelemetryExporters = true
-	if cfg, cloud := engineTelemetryConfig(ctx); cfg.Detect || cloud.configured() {
-		t.Fatal("expected Detect and Cloud to be disabled for an internal silent session")
-	}
+	cfg, cloud := engineTelemetryConfig(ctx)
+	require.False(t, cfg.Detect)
+	require.False(t, cloud.configured(), "an internal silent session exports to no Cloud")
+	require.Equal(t, 1, detected, "an internal silent session adds no OTEL_* exporters")
 }
 
 func TestConfiguredRunnerHost(t *testing.T) {
