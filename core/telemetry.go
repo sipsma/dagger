@@ -322,6 +322,33 @@ func recordCacheEvidence(ctx context.Context, span trace.Span, ev *dagql.CacheDe
 		if ev.MissRequirementsGrew {
 			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissRequirementsGrewAttr, "true"))
 		}
+		if ev.MissSawExpired && ev.MissExpiredRemote {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissExpiredRemoteAttr, "true"))
+		}
+		if ev.MissIncompatibleCandidates && ev.MissIncompatibleRemote {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissIncompatibleRemoteAttr, "true"))
+		}
+		if (ev.MissProducerReleased || ev.MissRequirementsGrew) && ev.HitRemote {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissChosenRemoteAttr, "true"))
+		}
+		if len(ev.MissFreshInputs) > 0 {
+			fresh := make([]string, len(ev.MissFreshInputs))
+			for i, idx := range ev.MissFreshInputs {
+				fresh[i] = strconv.Itoa(idx)
+			}
+			attrs = append(attrs, attribute.StringSlice(telemetryattrs.CacheMissFreshInputsAttr, fresh))
+		}
+	}
+	if (ev.Outcome == dagql.CacheOutcomeExecuted || ev.Outcome == dagql.CacheOutcomeJoined) && ev.Adopted {
+		// A publication fact, shared by the call that executed and the calls
+		// that joined it, so joined calls stamp it too.
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedAttr, "true"))
+		if ev.AdoptedRemote {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedRemoteAttr, "true"))
+			if ev.AdoptedMergedAtUnixNano != 0 {
+				attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedMergedAtAttr, strconv.FormatInt(ev.AdoptedMergedAtUnixNano, 10)))
+			}
+		}
 	}
 	if ev.LookupAtUnixNano != 0 {
 		attrs = append(attrs, attribute.String(telemetryattrs.CacheLookupAtAttr, strconv.FormatInt(ev.LookupAtUnixNano, 10)))
