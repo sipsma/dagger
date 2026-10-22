@@ -435,3 +435,167 @@ func TestRemoteLookupWaitOnLazySpanState(t *testing.T) {
 	require.Equal(t, RemoteMergeDeadline, wait.outcome)
 	require.Positive(t, wait.waited)
 }
+
+// lookupTestSubscribed waits until a wait on the entry has taken its touch
+// channel, so a touch after it reaches the wait.
+func lookupTestSubscribed(t *testing.T, shared *sharedResult) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		shared.lazyMu.Lock()
+		defer shared.lazyMu.Unlock()
+		return shared.lazyTouched != nil
+	}, 10*time.Second, time.Millisecond)
+}
+
+func closed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// An evaluation doesn't wait for a lookup's merge behind an attempt already
+// running on its entry: the merge's offers can't land there any more. It
+// joins the attempt at once.
+func TestRemoteLookupNoWaitBehindAttempt(t *testing.T) {
+	ctx, c, srv, sessionID, bridge := lookupTestCache(t)
+	bridge.StartRemoteLookups()
+	started, release, ran := make(chan struct{}), make(chan struct{}), make(chan struct{}, 2)
+	frame := &ResultCall{Kind: ResultCallKindField, Type: NewResultCallType((&cacheTestObject{}).Type()), Field: "behind-attempt"}
+	resAny, err := c.GetOrInitCall(ctx, sessionID, srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
+		return cacheTestObjectResultWithValue(t, srv, frame, &cacheTestObject{Value: 1, lazyEval: func(context.Context) error {
+			close(started)
+			<-release
+			ran <- struct{}{}
+			return nil
+		}}), nil
+	})
+	require.NoError(t, err)
+	res := resAny.(ObjectResult[*cacheTestObject])
+	misses := queuedMisses(t, bridge)
+	require.Len(t, misses, 1)
+	joined := make(chan struct{}, 1)
+	c.testAfterLazyEvalJoin = func(*lazyEvalAttempt) { joined <- struct{}{} }
+	first := make(chan error, 1)
+	go func() { first <- c.Evaluate(ctx, res) }()
+	within(t, started)
+	bridge.ExpectRemoteMerge(misses[0].Recipe, NewRemoteMergeWait(), time.Now().Add(time.Minute))
+	second := make(chan error, 1)
+	go func() { second <- c.Evaluate(ctx, res) }()
+	within(t, joined)
+	close(release)
+	require.NoError(t, within(t, first))
+	require.NoError(t, within(t, second), "the second evaluation joined the attempt instead of waiting")
+	require.Nil(t, c.lazySpanCacheState(ctx, res.cacheSharedResult(), nil).lookupWait, "no wait ran")
+}
+
+// A wait already under way ends, as "started", once an attempt starts on its
+// entry by a path that doesn't wait.
+func TestRemoteLookupWaitEndsWhenTouched(t *testing.T) {
+	ctx, c, bridge, res, miss, ran := lazyLookupResult(t, "touched")
+	bridge.ExpectRemoteMerge(miss.Recipe, NewRemoteMergeWait(), time.Now().Add(time.Minute))
+	shared := res.cacheSharedResult()
+	waited := make(chan struct{})
+	go func() {
+		c.awaitRemoteMerge(ctx, shared)
+		close(waited)
+	}()
+	lookupTestSubscribed(t, shared)
+	require.False(t, closed(waited), "the wait ended before its entry was touched")
+	// An evaluation group runs without the wait, as a part delegation's does.
+	require.NoError(t, c.evaluateGroup(ctx, res, shared, LazyGroupWhole, nil))
+	within(t, ran)
+	within(t, waited)
+	wait := c.lazySpanCacheState(ctx, shared, nil).lookupWait
+	require.NotNil(t, wait)
+	require.Equal(t, remoteLookupStarted, wait.outcome)
+	require.Less(t, wait.waited, 30*time.Second)
+}
+
+// An entry whose evaluation group is complete doesn't wait, though its
+// result latch is unset, as on a parts value with other groups left.
+func TestRemoteLookupNoWaitOnCompleteGroup(t *testing.T) {
+	ctx, c, bridge, res, miss, _ := lazyLookupResult(t, "complete-group")
+	bridge.ExpectRemoteMerge(miss.Recipe, NewRemoteMergeWait(), time.Now().Add(time.Minute))
+	shared := res.cacheSharedResult()
+	shared.lazyMu.Lock()
+	shared.lazyGroupStateLocked(LazyGroupKey("meta")).complete = true
+	require.False(t, shared.lazyEvalComplete)
+	shared.lazyMu.Unlock()
+	start := time.Now()
+	c.awaitRemoteMerge(ctx, shared)
+	require.Less(t, time.Since(start), time.Second)
+	require.Nil(t, c.lazySpanCacheState(ctx, shared, nil).lookupWait, "no wait ran")
+}
+
+// A group that completes without an attempt, its work already consumed,
+// wakes the entry's waits too.
+func TestRemoteLookupWaitEndsOnCompletionWithoutAttempt(t *testing.T) {
+	ctx, c, bridge, res, miss, _ := lazyLookupResult(t, "no-attempt")
+	bridge.ExpectRemoteMerge(miss.Recipe, NewRemoteMergeWait(), time.Now().Add(time.Minute))
+	shared := res.cacheSharedResult()
+	waited := make(chan struct{})
+	go func() {
+		c.awaitRemoteMerge(ctx, shared)
+		close(waited)
+	}()
+	lookupTestSubscribed(t, shared)
+	require.False(t, closed(waited), "the wait ended before its entry was touched")
+	// The value's deferred work is gone, so the group completes with no
+	// attempt.
+	res.Self().lazyEval = nil
+	require.NoError(t, c.evaluateGroup(ctx, res, shared, LazyGroupWhole, nil))
+	within(t, waited)
+	wait := c.lazySpanCacheState(ctx, shared, nil).lookupWait
+	require.NotNil(t, wait)
+	require.Equal(t, remoteLookupStarted, wait.outcome)
+}
+
+// With _EXPERIMENTAL_DAGGER_REMOTE_CACHE_LOOKUP_WAIT_UNTOUCHED=0, the wait is
+// as it was: an entry whose result isn't complete waits, whatever its
+// groups, until the merge or the deadline.
+func TestRemoteLookupWaitUntouchedSwitchedOff(t *testing.T) {
+	t.Setenv(remoteLookupWaitUntouchedEnv, "0")
+	ctx, c, bridge, res, miss, _ := lazyLookupResult(t, "switched-off")
+	bridge.ExpectRemoteMerge(miss.Recipe, NewRemoteMergeWait(), time.Now().Add(300*time.Millisecond))
+	shared := res.cacheSharedResult()
+	shared.lazyMu.Lock()
+	shared.lazyGroupStateLocked(LazyGroupKey("meta")).complete = true
+	shared.lazyMu.Unlock()
+	c.awaitRemoteMerge(ctx, shared)
+	wait := c.lazySpanCacheState(ctx, shared, nil).lookupWait
+	require.NotNil(t, wait)
+	require.Equal(t, RemoteMergeDeadline, wait.outcome)
+}
+
+// A parts value whose resolver names no group completes its result with no
+// attempt and no group: that wakes the entry's waits too.
+func TestRemoteLookupWaitEndsOnCompletionWithNoGroups(t *testing.T) {
+	ctx, c := newPartsTestCache(t, nil)
+	bridge, _, err := c.AttachRemoteCacheBridge()
+	require.NoError(t, err)
+	bridge.StartRemoteLookups()
+	obj := &cacheTestPartsObject{Value: 1, groupEval: map[LazyGroupKey]LazyEvalFunc{}}
+	obj.resolveFn = func(context.Context, AnyResult, []PartKey) ([]LazyGroupKey, error) { return nil, nil }
+	res := newPartsTestResult(t, c, ctx, obj)
+	misses := queuedMisses(t, bridge)
+	require.Len(t, misses, 1)
+	bridge.ExpectRemoteMerge(misses[0].Recipe, NewRemoteMergeWait(), time.Now().Add(time.Minute))
+	shared := res.cacheSharedResult()
+	waited := make(chan struct{})
+	go func() {
+		c.awaitRemoteMerge(ctx, shared)
+		close(waited)
+	}()
+	lookupTestSubscribed(t, shared)
+	require.False(t, closed(waited), "the wait ended before its entry was touched")
+	// The all-groups pass, which a wait doesn't precede here, finds no
+	// group and sets the result's latch.
+	require.NoError(t, c.evaluateResolved(ctx, res, shared, nil))
+	within(t, waited)
+	wait := c.lazySpanCacheState(ctx, shared, nil).lookupWait
+	require.NotNil(t, wait)
+	require.Equal(t, remoteLookupStarted, wait.outcome)
+}
