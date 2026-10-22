@@ -183,7 +183,7 @@ func normalizeTransferRecord(rec PersistedRecord) (PersistedRecord, error) {
 // dependencies: its shape, as validateTransferRecordShape does, its payload by
 // its codec, and every reference it makes.
 func validateTransferRecord(rec PersistedRecord, deps []uint64) error {
-	if err := validateTransferRecordHeader(rec); err != nil {
+	if err := validateTransferRecordHeader(rec, true); err != nil {
 		return err
 	}
 	if err := validateTransferPayloads(rec); err != nil {
@@ -211,12 +211,19 @@ func validateTransferPayloads(rec PersistedRecord) error {
 	})
 }
 
+// mergeShapeSkipJSONEnv set to 0 makes validateTransferRecordShape check that
+// each payload is JSON, as it did. Otherwise it reads no payload: a record
+// whose payload is used is checked in full where it is (validateTransferRecord),
+// and a bundle decoded from the wire holds only JSON.
+const mergeShapeSkipJSONEnv = "_EXPERIMENTAL_DAGGER_MERGE_SHAPE_SKIP_JSON"
+
 // validateTransferRecordShape checks what validateTransferRecord checks
-// without decoding the record's payload: its identity, its envelope's
+// without reading the record's payload: its identity, its envelope's
 // structure, its dependencies, its offers' references, and its call's
-// references.
-func validateTransferRecordShape(rec PersistedRecord, deps []uint64) error {
-	if err := validateTransferRecordHeader(rec); err != nil {
+// references. checkJSON adds that each payload is JSON
+// (mergeShapeSkipJSONEnv).
+func validateTransferRecordShape(rec PersistedRecord, deps []uint64, checkJSON bool) error {
+	if err := validateTransferRecordHeader(rec, checkJSON); err != nil {
 		return err
 	}
 	if err := validateTransferEnvelopeStructure(rec.Envelope, true); err != nil {
@@ -230,15 +237,15 @@ func validateTransferRecordShape(rec PersistedRecord, deps []uint64) error {
 }
 
 // validateTransferRecordHeader checks a transferred record's identity, call,
-// envelope and storage links.
-func validateTransferRecordHeader(rec PersistedRecord) error {
+// envelope and storage links, and with checkJSON that its payloads are JSON.
+func validateTransferRecordHeader(rec PersistedRecord, checkJSON bool) error {
 	if rec.ResultID == 0 || rec.Envelope.ResultID != rec.ResultID {
 		return fmt.Errorf("row/envelope self ID mismatch")
 	}
 	if rec.Call == nil || rec.Call.Type == nil || rec.Call.Type.NamedType == "Query" {
 		return fmt.Errorf("missing transferable result call")
 	}
-	if err := validateTransferEnvelope(rec.Envelope, rec.Call.Type, true); err != nil {
+	if err := validateTransferEnvelope(rec.Envelope, rec.Call.Type, true, checkJSON); err != nil {
 		return err
 	}
 	if len(rec.SnapshotLinks) != 0 {
@@ -279,7 +286,7 @@ func directTransferReferences(direct map[uint64]bool) PersistedRefVisitor {
 	}
 }
 
-func validateTransferEnvelope(env PersistedResultEnvelope, typ *ResultCallType, root bool) error {
+func validateTransferEnvelope(env PersistedResultEnvelope, typ *ResultCallType, root, checkJSON bool) error {
 	if typ == nil {
 		return fmt.Errorf("missing envelope type")
 	}
@@ -289,12 +296,12 @@ func validateTransferEnvelope(env PersistedResultEnvelope, typ *ResultCallType, 
 	if !root && env.SessionResourceHandle != "" {
 		return fmt.Errorf("inline resource handle has no owner row")
 	}
-	return validateTransferEnvelopeKind(env, typ, root)
+	return validateTransferEnvelopeKind(env, typ, root, checkJSON)
 }
 
 // validateTransferEnvelopeKind is validateTransferEnvelope's per-kind check,
 // one case per envelope kind.
-func validateTransferEnvelopeKind(env PersistedResultEnvelope, typ *ResultCallType, root bool) error {
+func validateTransferEnvelopeKind(env PersistedResultEnvelope, typ *ResultCallType, root, checkJSON bool) error {
 	switch env.Kind {
 	case persistedResultKindNull:
 		if typ.NonNull {
@@ -312,16 +319,16 @@ func validateTransferEnvelopeKind(env PersistedResultEnvelope, typ *ResultCallTy
 			return fmt.Errorf("invalid list envelope")
 		}
 		for _, item := range env.Items {
-			if err := validateTransferEnvelope(item, typ.Elem, false); err != nil {
+			if err := validateTransferEnvelope(item, typ.Elem, false, checkJSON); err != nil {
 				return err
 			}
 		}
 	case persistedResultKindObject:
-		if typ.Elem != nil || env.TypeName == "" || len(env.Items) != 0 || len(env.ScalarJSON) != 0 || !json.Valid(env.ObjectJSON) {
+		if typ.Elem != nil || env.TypeName == "" || len(env.Items) != 0 || len(env.ScalarJSON) != 0 || checkJSON && !json.Valid(env.ObjectJSON) {
 			return fmt.Errorf("invalid object envelope")
 		}
 	case persistedResultKindScalar:
-		if typ.Elem != nil || env.TypeName == "" || env.ObjectCodec != "" || !json.Valid(env.ScalarJSON) {
+		if typ.Elem != nil || env.TypeName == "" || env.ObjectCodec != "" || checkJSON && !json.Valid(env.ScalarJSON) {
 			return fmt.Errorf("invalid scalar envelope")
 		}
 	default:

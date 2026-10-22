@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -31,6 +32,8 @@ func checkValueBundle(bundle ValueBundle, shapeOnly bool) ([]uint64, error) {
 	if len(bundle.Roots) == 0 {
 		return nil, fmt.Errorf("bundle has no roots")
 	}
+	// The shape check reads the payloads only when switched back to.
+	shapeJSON := os.Getenv(mergeShapeSkipJSONEnv) == "0"
 	rows := map[uint64]TransferredValue{}
 	for _, row := range bundle.Values {
 		id := uint64(row.Ordinal)
@@ -50,11 +53,13 @@ func checkValueBundle(bundle ValueBundle, shapeOnly bool) ([]uint64, error) {
 			rows[id] = row
 			continue
 		}
-		validate := validateTransferRecord
+		var err error
 		if shapeOnly {
-			validate = validateTransferRecordShape
+			err = validateTransferRecordShape(row.Record, row.DependencyIDs, shapeJSON)
+		} else {
+			err = validateTransferRecord(row.Record, row.DependencyIDs)
 		}
-		if err := validate(row.Record, row.DependencyIDs); err != nil {
+		if err != nil {
 			return nil, fmt.Errorf("row %d: %w", id, err)
 		}
 		rows[id] = row
