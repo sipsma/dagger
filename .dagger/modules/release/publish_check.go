@@ -74,6 +74,16 @@ func (r *Release) PublishWithMockEndpoints(
 	// +defaultPath="/"
 	source *dagger.Directory,
 ) (rerr error) {
+	// Build the nested release engine's image while the release repo and the
+	// mock services are set up: neither needs the other, and the image build
+	// is the longer of the two. releaseEngine makes the same call, so its
+	// engine starts from this build.
+	engineImageBuilt := make(chan error, 1)
+	go func() {
+		_, err := releaseEngineImage(r.Workspace, r.RemoteCacheURL, r.CloudURL, r.CloudToken).Sync(ctx)
+		engineImageBuilt <- err
+	}()
+
 	env, err := newPublishCheckEnv(ctx, source.WithoutDirectory(".git"), r.Workspace)
 	if err != nil {
 		return err
@@ -85,6 +95,9 @@ func (r *Release) PublishWithMockEndpoints(
 	engine, err := env.releaseEngine(ctx)
 	if err != nil {
 		return err
+	}
+	if err := <-engineImageBuilt; err != nil {
+		return fmt.Errorf("build nested release engine image: %w", err)
 	}
 	engine, err = engine.Start(ctx)
 	if err != nil {
@@ -435,22 +448,32 @@ func publishCheckRelease(ctx context.Context, source *dagger.Directory) (tag, ve
 	return tag, strings.TrimPrefix(tag, "v"), nil
 }
 
-func (env *publishCheckEnv) releaseEngine(ctx context.Context) (*dagger.Service, error) {
-	dev := dag.EngineDev(env.workspace, dagger.EngineDevOpts{
+// releaseEngineDev is the engine-dev the nested release engine comes from.
+func releaseEngineDev(ws *dagger.Workspace) *dagger.EngineDev {
+	return dag.EngineDev(ws, dagger.EngineDevOpts{
 		SubnetNumber: 90,
 	}).IncrementSubnet()
-	networkCIDR, err := dev.NetworkCidr(ctx)
+}
+
+// releaseEngineImage is the nested release engine's image, before the check
+// configures it and binds the mock services to it.
+func releaseEngineImage(ws *dagger.Workspace, remoteCacheURL, cloudURL, cloudToken *dagger.Secret) *dagger.Container {
+	return releaseEngineDev(ws).Container(dagger.EngineDevContainerOpts{
+		RemoteCacheURL: remoteCacheURL,
+		CloudURL:       cloudURL,
+		CloudToken:     cloudToken,
+	})
+}
+
+func (env *publishCheckEnv) releaseEngine(ctx context.Context) (*dagger.Service, error) {
+	networkCIDR, err := releaseEngineDev(env.workspace).NetworkCidr(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// This replaces engine-dev's default engine.json, so keep its docker.io
 	// mirror: without it the release engine pulls straight from Docker Hub.
-	engineCtr := dev.Container(dagger.EngineDevContainerOpts{
-		RemoteCacheURL: env.remoteCacheURL,
-		CloudURL:       env.cloudURL,
-		CloudToken:     env.cloudToken,
-	}).
+	engineCtr := releaseEngineImage(env.workspace, env.remoteCacheURL, env.cloudURL, env.cloudToken).
 		WithNewFile("/etc/dagger/engine.json", `{
   "registries": {
     "docker.io": {
