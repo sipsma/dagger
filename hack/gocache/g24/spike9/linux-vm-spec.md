@@ -16,7 +16,7 @@ Use an isolated checkout at the supplied commit, with yq v4.49.2 at
 `$HOME/gocache-bench/yq` (commit `7ccaf8e700ce99eb3f0f6cef7f5930a0b3c827cd`).
 Require at least 30 GiB free. Do not run alongside another timing series.
 Check `uptime`; reschedule if load1 exceeds 16. The harness repeats this check
-immediately before its outer Dagger launch. Use the runner's installed beta.19
+immediately before its outer Dagger launch. Use the runner's installed beta.20
 CLI; `DAGGER_BIN` can select its location. No host Go commands are needed.
 
 ```bash
