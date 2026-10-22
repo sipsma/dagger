@@ -50,7 +50,8 @@ import (
 // that depend on it relocate onto that entry. It holds when merge would keep
 // the entry's value for a record of the recipe with the row's expiry, judged
 // against the cache before the merge. If any held row doesn't hold, the merge
-// commits nothing and its reply names every stale held row.
+// commits nothing and its reply names every stale held row. A bundle that
+// carries a held row and a record of the same recipe is malformed.
 //
 // The reply reports every target as the commit left it, read under the same
 // lock, with the cache's generation and clock. Merge runs in no session and
@@ -499,6 +500,9 @@ func (c *Cache) prepareValueMerge(ctx context.Context, input ValueBundle, skipKe
 			}
 		}
 	}
+	if err := prep.checkHeldRecipes(); err != nil {
+		return nil, err
+	}
 
 	if skipKept && !c.blobBacked {
 		prep.light = c.keptMergeRecords(prep)
@@ -528,6 +532,32 @@ func (prep *valueMergePrep) prepareRecordPayloads(ctx context.Context, relocate 
 		}
 		if err := prep.prepareRecordPayload(id, relocate); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// checkHeldRecipes refuses a bundle that carries a held row and a record of
+// the same recipe, as malformed: the held row is checked against the
+// recipe's current entry, which the record could replace. It runs once every
+// row's recipe is derived; a preparation that finds a held row stale has
+// answered before then, committing nothing either way.
+func (prep *valueMergePrep) checkHeldRecipes() error {
+	if len(prep.held) == 0 {
+		return nil
+	}
+	held := map[string]uint64{}
+	for _, id := range prep.order {
+		if prep.held[id] {
+			held[prep.plans[id].recipe.String()] = id
+		}
+	}
+	for _, id := range prep.order {
+		if prep.held[id] {
+			continue
+		}
+		if other, ok := held[prep.plans[id].recipe.String()]; ok {
+			return fmt.Errorf("merge values: held row %d and row %d have the same recipe", other, id)
 		}
 	}
 	return nil
