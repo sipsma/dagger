@@ -16,6 +16,7 @@ import (
 	"github.com/opencontainers/go-digest"
 
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/engine/remotecache/pack"
 	"github.com/dagger/dagger/engine/snapshots"
 )
 
@@ -133,7 +134,14 @@ type Hello struct {
 	// for a nested engine a check starts as a service: no later process
 	// comes back under this identity, and it may be killed without a stop.
 	Ephemeral bool `json:"ephemeral,omitempty"`
+	// Features are what the engine supports beyond the base protocol.
+	Features []string `json:"features,omitempty"`
 }
+
+// FeaturePacks is an engine's feature of uploading and reading packs: the
+// service asks it for packs, and sends it chains whose layers are stored in
+// them.
+const FeaturePacks = "packs"
 
 // Welcome is the service's reply to Hello.
 type Welcome struct{}
@@ -185,19 +193,30 @@ type SkippedRoot struct {
 }
 
 // Upload gives the engine one presigned PUT per blob the service needs from
-// an export. An empty map needs nothing, and the engine releases the chains.
+// an export, and one per pack of small blobs it needs stored together. An
+// upload with neither needs nothing, and the engine releases the chains.
 type Upload struct {
 	ExportID string                   `json:"exportID"`
 	URLs     map[digest.Digest]string `json:"urls"`
+	Packs    []UploadPack             `json:"packs,omitempty"`
 }
 
-// Uploaded answers Upload.
+// UploadPack is one pack to upload: its ID, its presigned PUT, and its
+// members in order. The engine PUTs the pack's header, then each member.
+type UploadPack struct {
+	Pack    digest.Digest `json:"pack"`
+	URL     string        `json:"url"`
+	Members []pack.Member `json:"members"`
+}
+
+// Uploaded answers Upload. Done and Failed name blobs and packs; a pack is
+// done or failed whole.
 type Uploaded struct {
 	Done   []digest.Digest `json:"done"`
 	Failed []UploadFailure `json:"failed,omitempty"`
 }
 
-// UploadFailure is one blob the engine could not upload.
+// UploadFailure is one blob or pack the engine could not upload.
 type UploadFailure struct {
 	Digest  digest.Digest `json:"digest"`
 	Message string        `json:"message"`
@@ -337,6 +356,9 @@ type Renew struct {
 	RenewalKey string                  `json:"renewalKey"`
 	Layers     []snapshots.ExportLayer `json:"layers"`
 	NeededBlob digest.Digest           `json:"neededBlob"`
+	// Packs maps each of the layers stored in a pack to its pack's ID, as
+	// the chain's offer carried them.
+	Packs map[digest.Digest]digest.Digest `json:"packs,omitempty"`
 }
 
 // Renewed answers Renew: an address per layer, or Unavailable when a layer is
