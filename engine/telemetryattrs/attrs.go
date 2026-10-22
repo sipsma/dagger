@@ -751,8 +751,10 @@ const (
 	// merge committed on the engine), "stale" (it committed nothing, refused
 	// for held rows the engine no longer held), "failed" (it failed),
 	// "deadline", "disconnected" (the connection that would carry it ended),
-	// "detached" (the remote cache integration stopped) or "canceled" (the
-	// evaluation's caller gave up).
+	// "started" (an evaluation of the entry began meanwhile, so the merge
+	// could no longer place offers on all of it), "detached" (the remote
+	// cache integration stopped) or "canceled" (the evaluation's caller gave
+	// up). A wait runs only on an entry no evaluation has begun.
 	CacheRemoteLookupWaitedAttr      = "dagger.io/cache.remote_lookup.waited_ns"    //nolint:gosec // telemetry attribute names, not credentials
 	CacheRemoteLookupWaitOutcomeAttr = "dagger.io/cache.remote_lookup.wait_outcome" //nolint:gosec // telemetry attribute names, not credentials
 

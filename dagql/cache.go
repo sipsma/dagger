@@ -2812,6 +2812,11 @@ type sharedResult struct {
 	// deferred anywhere on this result is settled. It is the fast path;
 	// correctness derives from the group state.
 	lazyEvalComplete bool
+	// lazyTouched, when not nil, closes when the entry is touched: an
+	// attempt is published on one of its groups, a group completes without
+	// one, or the result completes with no group (touchLazyLocked). Waits for a remote lookup's merge on
+	// the entry end then (cache_remote_lookup.go). Guarded by lazyMu.
+	lazyTouched chan struct{}
 }
 
 // lazyGroupState is one evaluation group's cache-side lazy state. The
@@ -4825,6 +4830,9 @@ func (c *Cache) evaluateResolved(ctx context.Context, res AnyResult, shared *sha
 		}
 		if settled {
 			shared.lazyEvalComplete = true
+			// A value with no group to evaluate completes here, with no
+			// attempt and no group completing.
+			shared.touchLazyLocked()
 		}
 		shared.lazyMu.Unlock()
 	}
@@ -4902,6 +4910,7 @@ func prepareLazyGroupEvalLocked(
 
 	g.eval = nil
 	g.complete = true
+	shared.touchLazyLocked()
 	if partsVal == nil {
 		// The whole group is the value's entire deferred work; a parts value's
 		// result-level latch is set only by an all-groups pass (evaluateResolved).
@@ -5113,6 +5122,7 @@ func (c *Cache) runLazyTask(ctx context.Context, res AnyResult, shared *sharedRe
 			attempt.spanCtx = lazySpan.SpanContext()
 		}
 		g.attempt = attempt
+		shared.touchLazyLocked()
 		shared.lazyMu.Unlock()
 
 		if spec != nil {

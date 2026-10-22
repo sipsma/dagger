@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"log/slog"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -58,6 +59,16 @@ const (
 	// RemoteMergeFailed: the merge arrived and failed.
 	RemoteMergeFailed = "failed"
 )
+
+// remoteLookupStarted is the outcome of a wait that ended because its entry
+// was touched: an evaluation of it began, so the merge could no longer place
+// offers on every group.
+const remoteLookupStarted = "started"
+
+// remoteLookupWaitUntouchedEnv set to 0 makes an evaluation wait whenever its
+// entry's result isn't complete, as it did, rather than only on an untouched
+// entry.
+const remoteLookupWaitUntouchedEnv = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_LOOKUP_WAIT_UNTOUCHED"
 
 // RemoteMergeWait is a merge evaluations can wait for. Done closes when it
 // ends, and Outcome then says how.
@@ -333,18 +344,14 @@ func (c *Cache) noteRemoteMiss(req *CallRequest, recipe digest.Digest) string {
 
 // awaitRemoteMerge waits, before an evaluation, for a merge expected to
 // carry the entry's value, until it ends, its deadline passes, the bridge
-// detaches or ctx ends. An entry whose evaluation is complete doesn't wait.
-// Only the expectation's own end retires it: another evaluation of the entry
-// still waits after this one gives up.
+// detaches, ctx ends, or the entry is touched. It waits only on an untouched
+// entry (lazyUntouchedLocked): once an evaluation of the entry has begun or a
+// group of it is complete, the merge can't place offers on every group. Only
+// the expectation's own end retires it: another evaluation of the entry still
+// waits after this one gives up.
 func (c *Cache) awaitRemoteMerge(ctx context.Context, shared *sharedResult) {
 	b := c.partContentSource.attachedBridge()
 	if b == nil || b.lookups.expecting.Load() == 0 {
-		return
-	}
-	shared.lazyMu.Lock()
-	complete := shared.lazyEvalComplete
-	shared.lazyMu.Unlock()
-	if complete {
 		return
 	}
 	c.egraphMu.RLock()
@@ -355,12 +362,28 @@ func (c *Cache) awaitRemoteMerge(ctx context.Context, shared *sharedResult) {
 	if !ok {
 		return
 	}
+	untouchedOnly := os.Getenv(remoteLookupWaitUntouchedEnv) != "0"
+	shared.lazyMu.Lock()
+	if shared.lazyEvalComplete || untouchedOnly && !shared.lazyUntouchedLocked() {
+		shared.lazyMu.Unlock()
+		return
+	}
+	var touched <-chan struct{}
+	if untouchedOnly {
+		if shared.lazyTouched == nil {
+			shared.lazyTouched = make(chan struct{})
+		}
+		touched = shared.lazyTouched
+	}
+	shared.lazyMu.Unlock()
 	timer := time.NewTimer(exp.deadline.Sub(start))
 	defer timer.Stop()
 	var outcome string
 	select {
 	case <-exp.wait.Done():
 		outcome = exp.wait.Outcome()
+	case <-touched:
+		outcome = remoteLookupStarted
 	case <-timer.C:
 		outcome = RemoteMergeDeadline
 	case <-b.lookups.done:
@@ -375,4 +398,36 @@ func (c *Cache) awaitRemoteMerge(ctx context.Context, shared *sharedResult) {
 		"recipe", recipe.String(),
 		"waited", waited,
 		"outcome", outcome)
+}
+
+// lazyUntouchedLocked reports whether no evaluation of the entry has begun or
+// finished: no group, the whole or a named one, has a published attempt,
+// pending bookkeeping or completion, and the result isn't complete. A
+// direct scan of a value's metadata, which runs under the value's own
+// latches with no attempt, leaves it untouched. lazyMu must be held.
+func (res *sharedResult) lazyUntouchedLocked() bool {
+	if res.lazyEvalComplete || !res.lazyWhole.untouched() {
+		return false
+	}
+	for _, g := range res.lazyPartGroups {
+		if !g.untouched() {
+			return false
+		}
+	}
+	return true
+}
+
+func (g *lazyGroupState) untouched() bool {
+	return g.attempt == nil && !g.syncPending && !g.complete
+}
+
+// touchLazyLocked ends the waits for a remote lookup's merge on the entry: an
+// attempt was just published on one of its groups, a group completed without
+// one, or the result completed with no group to evaluate. lazyMu must be
+// held.
+func (res *sharedResult) touchLazyLocked() {
+	if res.lazyTouched != nil {
+		close(res.lazyTouched)
+		res.lazyTouched = nil
+	}
 }
