@@ -513,6 +513,8 @@ func durationSummary(ds []time.Duration) string {
 	}
 	sorted := slices.Clone(ds)
 	slices.Sort(sorted)
-	at := func(q float64) time.Duration { return sorted[int(q*float64(len(sorted)-1))].Round(10 * time.Microsecond) }
+	at := func(q float64) time.Duration {
+		return sorted[int(q*float64(len(sorted)-1))].Round(10 * time.Microsecond)
+	}
 	return fmt.Sprintf("n=%d p50=%s p90=%s p99=%s max=%s", len(sorted), at(0.5), at(0.9), at(0.99), sorted[len(sorted)-1].Round(10*time.Microsecond))
 }
