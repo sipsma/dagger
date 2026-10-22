@@ -6,6 +6,11 @@ include = ["../../../go.sum", "../../../go.mod", "../../../util/parallel"]
   source = "go"
 
 [[dependencies]]
+  name = "golang"
+  source = "github.com/dagger/go@0aa5adbd893d9cde58e899c8e2a4f9fe8029d2f6"
+  pin = "0aa5adbd893d9cde58e899c8e2a4f9fe8029d2f6"
+
+[[dependencies]]
   name = "wolfi"
   source = "https://github.com/dagger/wolfi@main"
   pin = "0b73dcbea9c7d63969d747386f96b0694fb4dadc"

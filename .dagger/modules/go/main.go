@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -285,6 +286,11 @@ func (p *Go) Env(
 	// +optional
 	platform dagger.Platform,
 ) *dagger.Container {
+	return p.env(platform).WithMountedDirectory("", p.Source)
+}
+
+// The build environment without the source.
+func (p *Go) env(platform dagger.Platform) *dagger.Container {
 	return p.Base.
 		// Go's module index keys imports by path, size and mtime, so normalized
 		// Git trees can alias across builds sharing GOCACHE. Keep the compiled
@@ -322,8 +328,7 @@ func (p *Go) Env(
 				return c
 			}
 			return c.WithEnvVariable("GOEXPERIMENT", strings.Join(p.Experiment, ","))
-		}).
-		WithMountedDirectory("", p.Source)
+		})
 }
 
 // List tests
@@ -390,12 +395,171 @@ func (p *Go) Build(
 		ldflags = append(ldflags, "-w")
 	}
 
+	// The directory of each package that builds per package, or "".
+	dirs := make([]string, len(mainPkgs))
+	perPackage := len(mainPkgs) > 0
+	for i, pkg := range mainPkgs {
+		dir, ok, err := p.packageDir(ctx, pkg)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			dirs[i] = dir
+		}
+		perPackage = perPackage && ok
+	}
+	fresh, err := p.freshOutput(ctx, perPackage, output)
+	if err != nil {
+		return nil, err
+	}
+	if fresh {
+		// Every binary is built per package and the source holds nothing at
+		// the output path, so the output is the binaries alone: assembled
+		// in a fresh directory, they depend on nothing but their builds.
+		out := dag.Directory()
+		for _, dir := range dirs {
+			bin, err := p.packageBinary(ctx, dir, platform, ldflags)
+			if err != nil {
+				return nil, err
+			}
+			out = out.WithFiles(output, []*dagger.File{bin})
+		}
+		return out, nil
+	}
+	// Otherwise binaries go into the build container in package order, as go
+	// build writes them, so the output is what one go build per package made:
+	// with what the source holds at the output path, and whole builds mixed in.
 	env := p.Env(platform)
 	cmd := []string{"go", "build", "-o", output}
-	for _, pkg := range mainPkgs {
+	for i, pkg := range mainPkgs {
+		if dirs[i] != "" {
+			bin, err := p.packageBinary(ctx, dirs[i], platform, ldflags)
+			if err != nil {
+				return nil, err
+			}
+			env = env.WithFiles(output, []*dagger.File{bin})
+			continue
+		}
 		env = env.WithExec(goCommand(cmd, []string{pkg}, ldflags, p.Tags, p.Values, p.Race))
 	}
 	return dag.Directory().WithDirectory(output, env.Directory(output)), nil
+}
+
+// Whether a build's output can be assembled in a fresh directory: every
+// package builds per package, and the output path, relative to the source,
+// holds nothing in it. go build writes into the source mount, so an output
+// path the source already has, or an absolute one, keeps what is there.
+func (p *Go) freshOutput(ctx context.Context, perPackage bool, output string) (bool, error) {
+	if !perPackage || path.IsAbs(output) {
+		return false, nil
+	}
+	rel := path.Clean(output)
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return false, nil
+	}
+	exists, err := p.Source.Exists(ctx, rel)
+	if err != nil {
+		return false, err
+	}
+	return !exists, nil
+}
+
+// The directory of a main package, relative to the source: one named by a
+// relative path, such as "./cmd/foo", or the root package named by the
+// source's module path. Any other package isn't one: it builds with one 'go
+// build', as before.
+func (p *Go) packageDir(ctx context.Context, pkg string) (string, bool, error) {
+	if pkg == "." || strings.HasPrefix(pkg, "./") {
+		dir := path.Clean(pkg)
+		return dir, dir != ".." && !strings.HasPrefix(dir, "../"), nil
+	}
+	if strings.HasPrefix(pkg, "../") || path.IsAbs(pkg) {
+		return "", false, nil
+	}
+	mod, err := p.modulePath(ctx)
+	if err != nil || mod == "" {
+		return "", false, err
+	}
+	// Only the module's own root package: a longer path may be another
+	// module's, such as a nested or replaced one.
+	return ".", pkg == mod, nil
+}
+
+// The module path the source's root go.mod declares, or "" without one.
+func (p *Go) modulePath(ctx context.Context) (string, error) {
+	exists, err := p.Source.Exists(ctx, "go.mod")
+	if err != nil || !exists {
+		return "", err
+	}
+	gomod, err := p.Source.File("go.mod").Contents(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(gomod, "\n") {
+		line, _, _ = strings.Cut(line, "//")
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "module" {
+			return strings.Trim(fields[1], "\"`"), nil
+		}
+	}
+	return "", nil
+}
+
+// Build a main package with dagger/go's per-package builder: one cached exec
+// per package, so a change re-runs only the packages it reaches, and the
+// -ldflags stamps re-run only the main package's compile and link.
+func (p *Go) packageBinary(ctx context.Context, pkgDir string, platform dagger.Platform, ldflags []string) (*dagger.File, error) {
+	target, err := p.target(ctx, platform)
+	if err != nil {
+		return nil, err
+	}
+	// The source as a workspace, so the build is keyed by its content.
+	ws := p.Source.AsWorkspace()
+	golang := dag.Golang(dagger.GolangOpts{
+		Base:       p.env(platform),
+		BuildFlags: buildFlags(ldflags, p.Tags, p.Values, p.Race),
+		// Where Env mounts the source, so paths in the binary are the same.
+		MountPath: "/app",
+	})
+	return golang.Packages(ws).Get(pkgDir).Platforms().Get(target).Binary(ws), nil
+}
+
+// The GOOS/GOARCH a build targets: the platform's, or with none, what go
+// build in the build environment targets, which go env tells from its
+// environment, its configuration file and its own platform.
+func (p *Go) target(ctx context.Context, platform dagger.Platform) (string, error) {
+	if platform != "" {
+		spec := platforms.Normalize(platforms.MustParse(string(platform)))
+		return spec.OS + "/" + spec.Architecture, nil
+	}
+	out, err := p.env(platform).WithExec([]string{"go", "env", "GOOS", "GOARCH"}).Stdout(ctx)
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return "", fmt.Errorf("go env GOOS GOARCH: unexpected output %q", out)
+	}
+	return fields[0] + "/" + fields[1], nil
+}
+
+// The go build flags goCommand passes, each as one -flag=value argument.
+func buildFlags(ldflags, tags, values []string, race bool) []string {
+	var flags []string
+	ldflags = slices.Clone(ldflags)
+	for _, val := range values {
+		ldflags = append(ldflags, "-X '"+val+"'")
+	}
+	if len(ldflags) > 0 {
+		flags = append(flags, "-ldflags="+strings.Join(ldflags, " "))
+	}
+	if len(tags) > 0 {
+		flags = append(flags, "-tags="+strings.Join(tags, ","))
+	}
+	if race {
+		flags = append(flags, "-race")
+	}
+	return flags
 }
 
 // Build a single main package, and return the compiled binary

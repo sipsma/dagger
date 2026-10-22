@@ -334,7 +334,7 @@ clients = ["./.dagger/modules/engine-dev", "./.dagger/modules/cli-dev"]
 is-module = true
 
 [sdks.go.scopes.".dagger/modules/go"]
-clients = ["dagger.io/linux/wolfi"]
+clients = ["github.com/dagger/go@0aa5adbd893d9cde58e899c8e2a4f9fe8029d2f6", "dagger.io/linux/wolfi"]
 is-module = true
 
 [modules.dagger-dev]
