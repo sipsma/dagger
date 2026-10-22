@@ -688,8 +688,15 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 	if containerdsnapshot.ContentPrecommitEnabled() {
 		metadataContent = containerdsnapshot.NewPrecommitStore(metadataContent)
 	}
+	// An overlay snapshot's commit records the disk usage measured before
+	// the metadata database's write transaction, not walked inside it.
+	backendSnapshotter := srv.snapshotter
+	measureUsage := srv.snapshotterName == "overlayfs" && srv.snapshotterMDStore != nil && bkcache.UsageFirstEnabled()
+	if measureUsage {
+		backendSnapshotter = containerdsnapshot.NewUsageFirstSnapshotter(backendSnapshotter, srv.snapshotterMDStore, srv.snapshotterRootDir)
+	}
 	srv.containerdMetaDB = ctdmetadata.NewDB(srv.containerdMetaBoltDB, metadataContent, map[string]ctdsnapshot.Snapshotter{
-		srv.snapshotterName: srv.snapshotter,
+		srv.snapshotterName: backendSnapshotter,
 	})
 	if err := srv.containerdMetaDB.Init(context.TODO()); err != nil {
 		return localCacheStateResetNone, fmt.Errorf("failed to init metadata db: %w", err)
@@ -716,6 +723,8 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 		// files rather than the remote cache.
 		BuiltinContent: srv.builtinContentStore,
 		MetadataDB:     srv.containerdMetaDB,
+		// With the backend above recording what was measured.
+		MeasureUsageBeforeCommit: measureUsage,
 	})
 	if err != nil {
 		return localCacheStateResetNone, fmt.Errorf("failed to create snapshot manager: %w", err)

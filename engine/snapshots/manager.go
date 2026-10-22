@@ -51,6 +51,10 @@ type SnapshotManagerOpt struct {
 	// DefaultSharedMountLinger and DefaultMaxIdleSharedMounts.
 	SharedMountLinger   time.Duration
 	MaxIdleSharedMounts int
+	// MeasureUsageBeforeCommit has a mutable snapshot's disk usage measured
+	// before its commit (CommitUsage), for a backend snapshotter that
+	// records the measurement.
+	MeasureUsageBeforeCommit bool
 }
 
 type ImportedImage struct {
@@ -158,6 +162,9 @@ type snapshotManager struct {
 	localMounter func([]mount.Mount) Mounter
 
 	mountPool sharableMountPool
+
+	// measureUsageBeforeCommit is SnapshotManagerOpt.MeasureUsageBeforeCommit.
+	measureUsageBeforeCommit bool
 }
 
 func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
@@ -179,6 +186,7 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		backgroundReleases:     newBackgroundReleases(maxPendingReleases),
 		localMounter:           opt.LocalMounter,
 	}
+	cm.measureUsageBeforeCommit = opt.MeasureUsageBeforeCommit
 	if cm.localMounter == nil {
 		cm.localMounter = func(ms []mount.Mount) Mounter { return LocalMounterWithMounts(ms) }
 	}

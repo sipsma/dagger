@@ -1534,7 +1534,9 @@ func (svc *Service) runAndSnapshotChanges(
 		return res, false, nil
 	}
 
-	immutableRef, err := mutableRef.Commit(ctx)
+	// The service can still write the snapshot while it commits (see
+	// above), so its usage is measured by the commit itself.
+	immutableRef, err := mutableRef.Commit(bkcache.WithUsageAtCommit(ctx))
 	if err != nil {
 		return res, false, fmt.Errorf("failed to commit remounted ref for %s: %w", target, err)
 	}

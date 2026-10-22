@@ -16,9 +16,11 @@ import (
 	"github.com/containerd/containerd/v2/core/metadata"
 	"github.com/containerd/containerd/v2/core/mount"
 	ctdsnapshots "github.com/containerd/containerd/v2/core/snapshots"
+	"github.com/containerd/containerd/v2/core/snapshots/storage"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/containerd/v2/plugins/content/local"
 	"github.com/containerd/containerd/v2/plugins/snapshots/native"
+	"github.com/containerd/containerd/v2/plugins/snapshots/overlay"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	containerdsnapshot "github.com/dagger/dagger/engine/snapshots/containerd"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -43,6 +45,15 @@ type Store struct {
 	BeforeSnapshotUpdate func(context.Context, ctdsnapshots.Info) error
 	// BeforeStat runs before each snapshot Stat the manager makes.
 	BeforeStat func(ctx context.Context, key string)
+	// BeforeUsage and BeforeCommit run before each snapshot Usage and
+	// Commit the managers make.
+	BeforeUsage  func(ctx context.Context, key string)
+	BeforeCommit func(ctx context.Context, name, key string)
+	// Overlay and OverlayManager are the overlay snapshotter and its
+	// manager, with StoreOptions.Overlay.
+	Overlay        bkcache.Snapshotter
+	OverlayManager bkcache.SnapshotManager
+	overlay        ctdsnapshots.Snapshotter
 	// LeaseCommitErr, when set, rolls back each transaction the manager
 	// makes through SnapshotManagerOpt.MetadataDB and returns it.
 	LeaseCommitErr error
@@ -79,6 +90,15 @@ type StoreOptions struct {
 	// TxTimes, when set, records each write transaction on the metadata
 	// database: its caller, its wait for the single writer lock and its hold.
 	TxTimes *TxTimes
+	// Overlay adds an overlay snapshotter to the metadata database, with its
+	// own manager (Store.OverlayManager). A snapshot of it with no parent is
+	// written in its upper directory, which needs no mount; nothing applies
+	// layers to it.
+	Overlay bool
+	// OverlayUsageFirst has the overlay manager measure a snapshot's usage
+	// before its commit and its backend record the measurement, as the
+	// engine does (engine/server/server.go).
+	OverlayUsageFirst bool
 }
 
 func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
@@ -99,18 +119,59 @@ func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
 	if containerdsnapshot.ContentPrecommitEnabled() {
 		backend = containerdsnapshot.NewPrecommitStore(backend)
 	}
-	s.DB = metadata.NewDB(tx, backend, map[string]ctdsnapshots.Snapshotter{"native": rawSnapshots})
+	backends := map[string]ctdsnapshots.Snapshotter{"native": rawSnapshots}
+	if opts.Overlay {
+		backends["overlayfs"] = s.openOverlay(t, opts.OverlayUsageFirst)
+	}
+	s.DB = metadata.NewDB(tx, backend, backends)
 	require.NoError(t, s.DB.Init(context.Background()))
 	s.Leases = bkcache.NewLeaseManager(metadata.NewLeaseManager(s.DB), Namespace)
 	s.Content = containerdsnapshot.NewContentStore(s.DB.ContentStore(), Namespace)
 	s.Snapshots = containerdsnapshot.NewSnapshotter("native", s.DB.Snapshotter("native"), Namespace)
 	s.openManager(t)
+	if opts.Overlay {
+		s.Overlay = containerdsnapshot.NewSnapshotter("overlayfs", s.DB.Snapshotter("overlayfs"), Namespace)
+		s.OverlayManager, err = bkcache.NewSnapshotManager(bkcache.SnapshotManagerOpt{
+			Snapshotter:   &observedSnapshotter{Snapshotter: s.Overlay, store: s},
+			ContentStore:  s.Content,
+			LeaseManager:  s.Leases,
+			MountPoolRoot: filepath.Join(s.root, "overlay-mounts"),
+			MetadataDB:    observedTransactor{DB: s.DB, store: s},
+			// As the engine sets it for its overlay backend.
+			MeasureUsageBeforeCommit: opts.OverlayUsageFirst,
+		})
+		require.NoError(t, err)
+	}
 	t.Cleanup(func() {
 		require.NoError(t, s.Manager.Close())
+		if s.OverlayManager != nil {
+			require.NoError(t, s.OverlayManager.Close())
+		}
 		require.NoError(t, rawSnapshots.Close())
+		if s.overlay != nil {
+			require.NoError(t, s.overlay.Close())
+		}
 		require.NoError(t, db.Close())
 	})
 	return s
+}
+
+// openOverlay opens an overlay snapshotter on a metadata store the store
+// opens itself, as the engine does, wrapped as the engine wraps it when
+// usageFirst is set.
+func (s *Store) openOverlay(t testing.TB, usageFirst bool) ctdsnapshots.Snapshotter {
+	t.Helper()
+	root := filepath.Join(s.root, "overlay")
+	require.NoError(t, os.MkdirAll(root, 0o700))
+	ms, err := storage.NewMetaStore(filepath.Join(root, "metadata.db"))
+	require.NoError(t, err)
+	// userxattr is named so that construction does not probe a mount.
+	s.overlay, err = overlay.NewSnapshotter(root, overlay.WithMetaStore(ms), overlay.WithMountOptions([]string{"userxattr"}))
+	require.NoError(t, err)
+	if usageFirst {
+		return containerdsnapshot.NewUsageFirstSnapshotter(s.overlay, ms, root)
+	}
+	return s.overlay
 }
 
 func (s *Store) openManager(t testing.TB) {
@@ -260,6 +321,20 @@ func (s *observedSnapshotter) Stat(ctx context.Context, key string) (ctdsnapshot
 		s.store.BeforeStat(ctx, key)
 	}
 	return s.Snapshotter.Stat(ctx, key)
+}
+
+func (s *observedSnapshotter) Usage(ctx context.Context, key string) (ctdsnapshots.Usage, error) {
+	if s.store.BeforeUsage != nil {
+		s.store.BeforeUsage(ctx, key)
+	}
+	return s.Snapshotter.Usage(ctx, key)
+}
+
+func (s *observedSnapshotter) Commit(ctx context.Context, name, key string, opts ...ctdsnapshots.Opt) error {
+	if s.store.BeforeCommit != nil {
+		s.store.BeforeCommit(ctx, name, key)
+	}
+	return s.Snapshotter.Commit(ctx, name, key, opts...)
 }
 
 func (s *observedSnapshotter) Update(ctx context.Context, info ctdsnapshots.Info, fieldpaths ...string) (ctdsnapshots.Info, error) {

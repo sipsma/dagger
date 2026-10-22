@@ -806,6 +806,7 @@ func (sr *mutableRef) Commit(ctx context.Context) (ImmutableRef, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "ensure lease for snapshot commit")
 	}
+	ctx = sr.measureUsage(ctx)
 
 	sr.cm.mu.Lock()
 	defer sr.cm.mu.Unlock()
@@ -821,6 +822,7 @@ func (sr *mutableRef) CommitWithUsage(ctx context.Context, usage snapshots.Usage
 	if err != nil {
 		return nil, errors.Wrap(err, "ensure lease for snapshot commit")
 	}
+	ctx = sr.measureUsage(ctx)
 
 	sr.cm.mu.Lock()
 	defer sr.cm.mu.Unlock()
