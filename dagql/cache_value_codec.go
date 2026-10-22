@@ -324,17 +324,31 @@ func validateTransferEnvelopeKind(env PersistedResultEnvelope, typ *ResultCallTy
 			}
 		}
 	case persistedResultKindObject:
-		if typ.Elem != nil || env.TypeName == "" || len(env.Items) != 0 || len(env.ScalarJSON) != 0 || checkJSON && !json.Valid(env.ObjectJSON) {
+		if !validTransferObjectEnvelope(env, typ, checkJSON) {
 			return fmt.Errorf("invalid object envelope")
 		}
 	case persistedResultKindScalar:
-		if typ.Elem != nil || env.TypeName == "" || env.ObjectCodec != "" || checkJSON && !json.Valid(env.ScalarJSON) {
+		if !validTransferScalarEnvelope(env, typ, checkJSON) {
 			return fmt.Errorf("invalid scalar envelope")
 		}
 	default:
 		return fmt.Errorf("unknown envelope kind %q", env.Kind)
 	}
 	return nil
+}
+
+// validTransferObjectEnvelope is validateTransferEnvelopeKind's object check:
+// a named non-list type, no items, no scalar payload and, with checkJSON, an
+// object payload that is JSON.
+func validTransferObjectEnvelope(env PersistedResultEnvelope, typ *ResultCallType, checkJSON bool) bool {
+	return typ.Elem == nil && env.TypeName != "" && len(env.Items) == 0 && len(env.ScalarJSON) == 0 && (!checkJSON || json.Valid(env.ObjectJSON))
+}
+
+// validTransferScalarEnvelope is validateTransferEnvelopeKind's scalar check:
+// a named non-list type, no object codec and, with checkJSON, a scalar
+// payload that is JSON.
+func validTransferScalarEnvelope(env PersistedResultEnvelope, typ *ResultCallType, checkJSON bool) bool {
+	return typ.Elem == nil && env.TypeName != "" && env.ObjectCodec == "" && (!checkJSON || json.Valid(env.ScalarJSON))
 }
 
 // validateTransferEnvelopeStructure checks what visitPersistedEnvelope checks
