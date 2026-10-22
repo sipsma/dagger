@@ -78,10 +78,11 @@ func (b *stopBudget) serverContext(parent context.Context) (context.Context, con
 }
 
 // flushContext returns a context, detached from parent's cancellation, for one
-// final flush: it ends after maxFlush, or with the budget if that is sooner.
-func (b *stopBudget) flushContext(parent context.Context, maxFlush time.Duration) (context.Context, context.CancelFunc) {
+// final flush: it ends after stopFlushTimeout, or with the budget if that is
+// sooner.
+func (b *stopBudget) flushContext(parent context.Context) (context.Context, context.CancelFunc) {
 	deadline := b.deadline()
-	if capped := b.now().Add(maxFlush); capped.Before(deadline) {
+	if capped := b.now().Add(stopFlushTimeout); capped.Before(deadline) {
 		deadline = capped
 	}
 	return context.WithDeadline(context.WithoutCancel(parent), deadline)

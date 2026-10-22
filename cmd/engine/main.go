@@ -697,10 +697,10 @@ func main() { //nolint:gocyclo
 		// event provider; flush them before the global providers close.
 		// Each final flush gets what remains of the stop budget, at most
 		// stopFlushTimeout.
-		flushCtx, flushCancel := engineStopBudget.flushContext(ctx, stopFlushTimeout)
+		flushCtx, flushCancel := engineStopBudget.flushContext(ctx)
 		eventExport.shutdownAtExit(flushCtx)
 		flushCancel()
-		flushCtx, flushCancel = engineStopBudget.flushContext(ctx, stopFlushTimeout)
+		flushCtx, flushCancel = engineStopBudget.flushContext(ctx)
 		closeResourceMetrics(flushCtx, resourceMetrics)
 		flushCancel()
 		if closeCommandPlacement != nil {
@@ -719,7 +719,7 @@ func main() { //nolint:gocyclo
 		// Their shared processor/exporter wrappers do not close it.
 		telemetry.Close()
 		if workloadExport != nil {
-			flushCtx, cancel := engineStopBudget.flushContext(ctx, stopFlushTimeout)
+			flushCtx, cancel := engineStopBudget.flushContext(ctx)
 			if err := workloadExport.Shutdown(flushCtx); err != nil {
 				bklog.G(ctx).WithError(err).Warn("workload export shutdown incomplete")
 			}
