@@ -9,6 +9,7 @@ import (
 	"github.com/dagger/dagger/dagql/idtui"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/telemetryattrs"
+	telemetry "github.com/dagger/otel-go"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -293,4 +294,81 @@ func TestConfiguredRunnerHost(t *testing.T) {
 		cloudEngineEnvSet = true
 		require.Equal(t, engine.DefaultCloudRunnerHost, configuredRunnerHost())
 	})
+}
+
+// blockingSpanExporter holds every export until release is closed, as an
+// OTLP endpoint that cannot keep up with a burst does, and records what it
+// was sent.
+type blockingSpanExporter struct {
+	release  chan struct{}
+	exported atomic.Int64
+}
+
+func (e *blockingSpanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	select {
+	case <-e.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	e.exported.Add(int64(len(spans)))
+	return nil
+}
+
+func (e *blockingSpanExporter) Shutdown(context.Context) error { return nil }
+
+// The OTLP endpoint a CLI is given by OTEL_EXPORTER_OTLP_*, such as the outer
+// engine's for a CLI in a container, carries the engine's trace onward as
+// Cloud does, so it gets the same large queue: a burst of spans beyond the
+// SDK's default 2048 slots, sent while the endpoint is slow, all arrive.
+func TestEngineTelemetryConfigQueuesOTLPSpansLikeCloud(t *testing.T) {
+	oldFrontend := Frontend
+	oldSkip := skipSharedTelemetryExporters
+	oldOTLP := configuredOTLPExporters
+	oldLive := telemetry.LiveTracesEnabled
+	t.Cleanup(func() {
+		Frontend = oldFrontend
+		skipSharedTelemetryExporters = oldSkip
+		configuredOTLPExporters = oldOTLP
+		telemetry.LiveTracesEnabled = oldLive
+	})
+	skipSharedTelemetryExporters = false
+	telemetry.LiveTracesEnabled = true
+
+	otlpSpans := &blockingSpanExporter{release: make(chan struct{})}
+	otlpLogs := new(countingLogExporter)
+	otlpMetrics := new(countingMetricExporter)
+	configuredOTLPExporters = func(context.Context) (sdktrace.SpanExporter, sdklog.Exporter, sdkmetric.Exporter) {
+		return otlpSpans, otlpLogs, otlpMetrics
+	}
+	cfg, cloud := engineTelemetryConfigWithCloud(withoutFrontendTelemetry(context.Background()), func(context.Context) (sdktrace.SpanExporter, sdklog.Exporter, sdkmetric.Exporter, bool) {
+		return nil, nil, nil, false
+	})
+	require.False(t, cloud.configured())
+	require.Empty(t, cfg.LiveTraceExporters, "the OTLP span exporter takes its own processor")
+	require.Equal(t, []sdklog.Exporter{otlpLogs}, cfg.LiveLogExporters)
+	require.Equal(t, []sdkmetric.Exporter{otlpMetrics}, cfg.LiveMetricExporters)
+	require.Len(t, cfg.SpanProcessors, 1)
+	processor := cfg.SpanProcessors[0]
+	t.Cleanup(func() {
+		require.NoError(t, processor.Shutdown(context.Background()))
+	})
+
+	const burst = 3 * 2048
+	for i := range burst {
+		processor.OnEnd(tracetest.SpanStub{
+			Name: "relayed engine span",
+			SpanContext: trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID:    trace.TraceID{1},
+				SpanID:     trace.SpanID{byte(i >> 8), byte(i), 1},
+				TraceFlags: trace.FlagsSampled,
+			}),
+			StartTime: time.Now(),
+			EndTime:   time.Now(),
+		}.Snapshot())
+	}
+	close(otlpSpans.release)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	require.NoError(t, processor.ForceFlush(ctx))
+	require.Equal(t, int64(burst), otlpSpans.exported.Load(), "every span of the burst reaches the OTLP endpoint")
 }
