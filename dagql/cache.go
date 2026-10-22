@@ -87,7 +87,16 @@ type CachePruneReport struct {
 	// DroppedValues counts the values a blob-backed cache's run dropped:
 	// those that only holdings kept once their stored roots went.
 	DroppedValues int
+	// Canceled reports that the run's context ended between drops, so it
+	// stopped there: the report covers exactly the drops it made.
+	Canceled bool
 }
+
+// ShutdownGCCutEnv switches off cutting the shutdown GC to keep the stop's
+// tail: "0" makes a prune run its whole plan whatever its context, and the
+// engine's shutdown GC run under the whole stop budget, as before. Any other
+// value, or none, leaves the cut on. For measuring.
+const ShutdownGCCutEnv = "_EXPERIMENTAL_DAGGER_SHUTDOWN_GC_CUT"
 
 // CacheRetentionDrop is one retention edge a prune run dropped: the entry's
 // result number, and the engine's clock under the graph lock that deleted the
@@ -492,10 +501,11 @@ func NewCache(
 	opts ...CacheOption,
 ) (*Cache, error) {
 	c := &Cache{
-		traceBootID:       newTraceBootID(),
-		snapshotManager:   snapshotManager,
-		snapshotGC:        snapshotGC,
-		partContentSource: NewPartContentSource(nil),
+		traceBootID:            newTraceBootID(),
+		snapshotManager:        snapshotManager,
+		snapshotGC:             snapshotGC,
+		partContentSource:      NewPartContentSource(nil),
+		pruneStopsWhenCanceled: os.Getenv(ShutdownGCCutEnv) != "0",
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -2430,6 +2440,10 @@ type Cache struct {
 	partPrefetchMu     sync.Mutex
 	partPrefetchConfig *partPrefetchConfig
 	partPrefetchRoom   atomic.Pointer[func(int64) bool]
+
+	// pruneStopsWhenCanceled makes a prune whose context ends stop between
+	// drops (ShutdownGCCutEnv). Read when the cache is made.
+	pruneStopsWhenCanceled bool
 
 	// usageSnapshotChains carries the parent chains the last usage pass
 	// resolved into the next one; see snapshotChains.

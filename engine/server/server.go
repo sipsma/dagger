@@ -179,6 +179,10 @@ type Server struct {
 	dagqlCacheTargetEstimatedBytes int64
 	metadataPruneMonitorBlocked    atomic.Bool
 
+	// testBeforeShutdownGC, when set, runs at the start of the graceful
+	// stop's GC pass with that pass's context. Tests only.
+	testBeforeShutdownGC func(context.Context)
+
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelCauseFunc
 	shuttingDown   atomic.Bool
@@ -942,6 +946,87 @@ func (srv *Server) Clients() []string {
 	return slices.Collect(maps.Keys(clients))
 }
 
+// shutdownTailReserve is the share of a stop's remaining budget kept for the
+// tail of GracefulStop: closing the dagql cache, then engine.stop and the prune
+// events, which tell the remote cache what the engine kept and dropped. A fifth
+// of what remains, at least 15s and at most a minute.
+func shutdownTailReserve(remaining time.Duration) time.Duration {
+	return min(max(remaining/5, 15*time.Second), time.Minute)
+}
+
+// shutdownGCCutEnabled reports whether the stop cuts its GC to keep its tail
+// (dagql.ShutdownGCCutEnv).
+func shutdownGCCutEnabled() bool {
+	return os.Getenv(dagql.ShutdownGCCutEnv) != "0"
+}
+
+// shutdownCleanupContext bounds the stop's clean-up, its GC pass, to the
+// stop's deadline less the tail's reserve, read from what remains when it is
+// called. A stop without a deadline has a clean-up without one.
+// With the cut switched off (dagql.ShutdownGCCutEnv=0), it has the stop's own
+// deadline, as before.
+func shutdownCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok || !shutdownGCCutEnabled() {
+		return context.WithCancel(ctx)
+	}
+	return context.WithDeadline(ctx, deadline.Add(-shutdownTailReserve(time.Until(deadline))))
+}
+
+// withoutDeadlineExceeded drops the parts of err that are only a deadline
+// passing and keeps every other failure, looking through joined errors. A part
+// that wraps a deadline together with another failure is kept whole.
+func withoutDeadlineExceeded(err error) (rest error, dropped bool) {
+	if err == nil {
+		return nil, false
+	}
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		if onlyDeadlineExceeded(err) {
+			return nil, true
+		}
+		return err, false
+	}
+	var kept []error
+	for _, part := range joined.Unwrap() {
+		part, partDropped := withoutDeadlineExceeded(part)
+		dropped = dropped || partDropped
+		if part != nil {
+			kept = append(kept, part)
+		}
+	}
+	if !dropped {
+		return err, false
+	}
+	return errors.Join(kept...), true
+}
+
+// onlyDeadlineExceeded reports whether err is nothing but a deadline passing:
+// its chain of wraps ends at context.DeadlineExceeded, or at a joined error
+// whose parts all are, as a cancelled usage measurement's error is.
+func onlyDeadlineExceeded(err error) bool {
+	for err != nil {
+		if err == context.DeadlineExceeded {
+			return true
+		}
+		if joined, ok := err.(interface{ Unwrap() []error }); ok {
+			deadlines := 0
+			for _, part := range joined.Unwrap() {
+				if part == nil {
+					continue
+				}
+				if !onlyDeadlineExceeded(part) {
+					return false
+				}
+				deadlines++
+			}
+			return deadlines > 0
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
+}
+
 // GracefulStop stops sessions, persists the dagql cache and closes the engine's
 // DBs. The DBs run without syncing (bolt NoSync=true plus
 // NoFreelistSync/NoGrowSync, SQLite synchronous=OFF) for performance, and the
@@ -1046,7 +1131,24 @@ func (srv *Server) GracefulStop(ctx context.Context) error {
 
 	if srv.engineCache != nil && srv.localCacheGCEnabled {
 		stopPhase("prune local cache", func() {
-			if gcErr := srv.gcLocked(ctx, localCacheGCGracefulShutdown); gcErr != nil {
+			// The GC gets what the stop's tail doesn't need, and is cut when
+			// that runs out: the cache's close and the engine events after it
+			// matter more than collecting what the next start collects anyway.
+			gcCtx, done := shutdownCleanupContext(ctx)
+			defer done()
+			if srv.testBeforeShutdownGC != nil {
+				srv.testBeforeShutdownGC(gcCtx)
+			}
+			gcErr := srv.gcLocked(gcCtx, localCacheGCGracefulShutdown)
+			if gcCtx.Err() != nil && ctx.Err() == nil {
+				// Only the clean-up's deadline passed: the cut isn't an error
+				// of the stop, but anything else the GC failed at still is.
+				if rest, cut := withoutDeadlineExceeded(gcErr); cut {
+					slog.Warn("graceful stop cut the local cache GC to keep the stop's tail", "error", gcErr)
+					gcErr = rest
+				}
+			}
+			if gcErr != nil {
 				err = errors.Join(err, fmt.Errorf("failed to prune local cache during graceful shutdown: %w", gcErr))
 			}
 		})

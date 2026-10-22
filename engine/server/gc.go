@@ -345,6 +345,12 @@ func (srv *Server) gcLocked(ctx context.Context, reason localCacheGCReason) erro
 	if srv.isShuttingDown() && reason != localCacheGCGracefulShutdown {
 		return nil
 	}
+	// A pass whose context has ended, such as a shutdown GC whose share of
+	// the stop budget is spent, starts nothing.
+	cut := shutdownGCCutEnabled()
+	if err := context.Cause(ctx); cut && err != nil {
+		return err
+	}
 
 	srv.releaseIdleSharedMounts(ctx)
 	rerr := srv.pruneLocalCacheLocked(ctx, reason)
@@ -355,6 +361,10 @@ func (srv *Server) gcLocked(ctx context.Context, reason localCacheGCReason) erro
 	// stay on disk until some later prune happened to remove an entry.
 	// This runs with GC disabled too: disabling GC stops the engine from
 	// choosing entries to drop, but nothing references this data anymore.
+	if err := context.Cause(ctx); cut && err != nil {
+		// Cut before collecting: the next pass collects it.
+		return errors.Join(rerr, err)
+	}
 	if err := srv.snapshotGarbage.CollectIfPending(ctx); err != nil {
 		bklog.G(ctx).Errorf("snapshot garbage collection error: %+v", err)
 		rerr = errors.Join(rerr, fmt.Errorf("collect snapshot garbage: %w", err))

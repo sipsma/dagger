@@ -331,9 +331,13 @@ func (c *Cache) Prune(ctx context.Context, policies []CachePrunePolicy) (CachePr
 		// decide it has nothing to do; most passes remove nothing.
 		measured bool
 	)
+policyLoop:
 	for policyIdx, policy := range policies {
 		if c.testBeforePrunePolicy != nil {
 			c.testBeforePrunePolicy(policyIdx)
+		}
+		if c.pruneCanceled(ctx, &report) {
+			break
 		}
 		fresh := false
 		if !measured {
@@ -386,6 +390,11 @@ func (c *Cache) Prune(ctx context.Context, policies []CachePrunePolicy) (CachePr
 		policyReclaimed := int64(0)
 		policyApplied := 0
 		for _, planEntry := range plan {
+			// A run whose context ends stops between drops: the edges it
+			// didn't reach stay for a later run.
+			if c.pruneCanceled(ctx, &report) {
+				break policyLoop
+			}
 			snapRes, ok := snapshot.results[planEntry.candidate.resultID]
 			if ok {
 				c.tracePruneCandidateSelected(ctx, policyIdx, planEntry.candidate, snapRes, planEntry.reclaimBytes)
@@ -454,13 +463,32 @@ func (c *Cache) Prune(ctx context.Context, policies []CachePrunePolicy) (CachePr
 		c.egraphMu.Unlock()
 	}
 
-	if len(report.Entries) > 0 && c.snapshotGC != nil {
-		if err := c.snapshotGC(ctx); err != nil {
-			return report, fmt.Errorf("snapshot gc after prune: %w", err)
-		}
-	}
+	return report, c.finishPrune(ctx, report)
+}
 
-	return report, nil
+// pruneCanceled reports whether a prune stops here because its context has
+// ended (ShutdownGCCutEnv), and marks its report cancelled if so.
+func (c *Cache) pruneCanceled(ctx context.Context, report *CachePruneReport) bool {
+	if !c.pruneStopsWhenCanceled || ctx.Err() == nil {
+		return false
+	}
+	report.Canceled = true
+	return true
+}
+
+// finishPrune ends a prune. A cancelled one returns its context's cause and
+// leaves snapshot garbage to a later run; one that removed entries collects it.
+func (c *Cache) finishPrune(ctx context.Context, report CachePruneReport) error {
+	if report.Canceled {
+		return context.Cause(ctx)
+	}
+	if len(report.Entries) == 0 || c.snapshotGC == nil {
+		return nil
+	}
+	if err := c.snapshotGC(ctx); err != nil {
+		return fmt.Errorf("snapshot gc after prune: %w", err)
+	}
+	return nil
 }
 
 func (c *Cache) snapshotPruneState(mode pruneSnapshotMode, directResultBytes int64) pruneSnapshot {
