@@ -621,6 +621,7 @@ func logOfferInstall(ctx context.Context, receiver AnyResult, source *PartSource
 		attribute.String(telemetryattrs.CacheOfferStatusesAttr, timing.statuses),
 		attribute.String(telemetryattrs.CacheOfferAheadAttr, strconv.Itoa(timing.Ahead)),
 		attribute.String(telemetryattrs.CacheOfferJoinedAttr, strconv.Itoa(timing.Joined)),
+		attribute.String(telemetryattrs.CacheOfferPrefetchedAttr, strconv.Itoa(timing.prefetched)),
 	)
 }
 
@@ -722,6 +723,9 @@ type partInstallTiming struct {
 	streams   int
 	rangeMode string
 	statuses  string
+	// prefetched counts the layers whose blob prefetching held or was
+	// fetching when the import started.
+	prefetched int
 	snapshots.ImportTiming
 	imported time.Duration
 	// commit runs from the end of the import to the install, or to failure.
@@ -755,6 +759,7 @@ func (t partInstallTiming) fields() []any {
 		"statuses", t.statuses,
 		"ahead", t.Ahead,
 		"joined", t.Joined,
+		"prefetched", t.prefetched,
 	}
 }
 
@@ -849,6 +854,7 @@ func (c *Cache) installChainPart(ctx context.Context, receiver AnyResult, source
 		}
 		logOfferInstallFailed(ctx, receiver, source, rerr, contentFailed, downloaded.read.Load(), now.Sub(start), timing, !committing.IsZero())
 	}()
+	timing.prefetched = c.partPrefetchHeld(copied[0].Chain.Layers)
 	importStart := time.Now()
 	imported, err := c.snapshotManager.ImportChain(ctx, &snapshots.ExportChain{Layers: copied[0].Chain.Layers, Provider: downloaded, Timing: &timing.ImportTiming})
 	timing.imported = time.Since(importStart)
@@ -866,6 +872,8 @@ func (c *Cache) installChainPart(ctx context.Context, receiver AnyResult, source
 	}
 	cleanup := &partCleanup{fn: imported.Release}
 	defer func() { rerr = errors.Join(rerr, cleanup.release(ctx)) }()
+	// The import holds the chain's content now: prefetch holds of it can go.
+	c.partPrefetchConsumed(copied[0].Chain.Layers)
 	committing = time.Now()
 	source.descriptor.SnapshotID = imported.SnapshotID()
 	// Keep admitted authority across a stale receiver preparation. Its donor

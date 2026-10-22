@@ -732,6 +732,7 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 	if err != nil {
 		return localCacheStateResetDagqlOpenFailed, fmt.Errorf("failed to create dagql cache: %w", err)
 	}
+	srv.engineCache.SetPartPrefetchRoom(srv.partPrefetchRoom)
 	if resetReason := srv.engineCache.PersistenceResetReason(); resetReason != dagql.CachePersistenceResetNone {
 		return localCacheStateResetReason("dagql_" + string(resetReason)), nil
 	}
