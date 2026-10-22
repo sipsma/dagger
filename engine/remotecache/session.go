@@ -1,12 +1,14 @@
 package remotecache
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -15,6 +17,7 @@ import (
 	"github.com/opencontainers/go-digest"
 
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/engine/remotecache/pack"
 	"github.com/dagger/dagger/engine/remotecache/protocol"
 )
 
@@ -108,6 +111,10 @@ func (s *session) hello() error {
 	cacheID, generation := s.adapter.CacheIdentity()
 	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
 	defer cancel()
+	var features []string
+	if pack.Enabled() {
+		features = append(features, protocol.FeaturePacks)
+	}
 	reply, err := s.request(ctx, protocol.TypeHello, protocol.Hello{
 		CacheID:       cacheID,
 		Generation:    generation,
@@ -115,6 +122,7 @@ func (s *session) hello() error {
 		EngineName:    s.cfg.EngineName,
 		HeldRows:      true,
 		Ephemeral:     s.cfg.Ephemeral,
+		Features:      features,
 	})
 	if err != nil {
 		return fmt.Errorf("hello: %w", err)
@@ -220,6 +228,7 @@ func (s *session) renew(req *dagql.RenewalRequest) {
 		RenewalKey: req.RenewalKey,
 		Layers:     req.Layers,
 		NeededBlob: req.NeededBlob,
+		Packs:      req.Packs,
 	})
 	if err == nil && env.Type == protocol.TypeRenewed {
 		var renewed protocol.Renewed
@@ -362,7 +371,8 @@ func (s *session) handleUpload(env protocol.Envelope) {
 }
 
 // uploadSummary counts an upload's blobs: those asked for, those that
-// failed, and the bytes of those uploaded.
+// failed, and the bytes of those uploaded. A pack's members count as blobs,
+// and its bytes are the pack's.
 type uploadSummary struct {
 	blobs, failed int
 	bytes         int64
@@ -384,6 +394,9 @@ func (s *session) upload(ctx context.Context, env protocol.Envelope, blobs BlobS
 		summary = uploadSummary{blobs: len(req.URLs)}
 		wg      sync.WaitGroup
 	)
+	for _, up := range req.Packs {
+		summary.blobs += len(up.Members)
+	}
 	for dgst, address := range req.URLs {
 		select {
 		case s.uploadSlots <- struct{}{}:
@@ -410,11 +423,144 @@ func (s *session) upload(ctx context.Context, env protocol.Envelope, blobs BlobS
 			}
 		}()
 	}
+	for _, up := range req.Packs {
+		select {
+		case s.uploadSlots <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return summary, context.Cause(ctx)
+		}
+		queued := time.Since(received)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-s.uploadSlots }()
+			start := time.Now()
+			size, err := s.uploadPack(ctx, blobs, up)
+			s.logPackUpload(ctx, req.ExportID, up, size, queued, time.Since(start), err)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				summary.failed += len(up.Members)
+				reply.Failed = append(reply.Failed, protocol.UploadFailure{Digest: up.Pack, Message: err.Error()})
+			} else {
+				summary.bytes += size
+				reply.Done = append(reply.Done, up.Pack)
+			}
+		}()
+	}
 	wg.Wait()
 	if err := context.Cause(ctx); err != nil {
 		return summary, err
 	}
 	return summary, s.reply(env, protocol.TypeUploaded, reply)
+}
+
+// uploadPack PUTs one pack: its header, then each member read from the
+// export's chains. It fails with no PUT when the members don't make the pack
+// the service named, or when the chains lack a member or hold it at another
+// size; and it fails when the PUT didn't take the whole pack.
+func (s *session) uploadPack(ctx context.Context, blobs BlobSource, up protocol.UploadPack) (int64, error) {
+	id, err := pack.ID(up.Members)
+	if err != nil {
+		return 0, err
+	}
+	if id != up.Pack {
+		return 0, fmt.Errorf("pack %s: its members make pack %s", up.Pack, id)
+	}
+	header, err := pack.Header(up.Members)
+	if err != nil {
+		return 0, err
+	}
+	size, err := pack.Size(up.Members)
+	if err != nil {
+		return 0, err
+	}
+	body := &packUploadBody{parts: []io.Reader{bytes.NewReader(header)}}
+	defer body.Close()
+	for _, m := range up.Members {
+		r, n, err := blobs.ReadBlob(ctx, m.Digest)
+		if err != nil {
+			return 0, fmt.Errorf("pack member %s: %w", m.Digest, err)
+		}
+		body.closers = append(body.closers, r)
+		if n != m.Size {
+			return 0, fmt.Errorf("pack member %s has %d bytes, the pack says %d", m.Digest, n, m.Size)
+		}
+		body.parts = append(body.parts, io.LimitReader(r, n))
+	}
+	body.reader = io.MultiReader(body.parts...)
+	if err := s.cfg.put(ctx, up.URL, body, size); err != nil {
+		return 0, err
+	}
+	read, err := body.result()
+	if err != nil {
+		return 0, fmt.Errorf("pack %s: %w", up.Pack, err)
+	}
+	if read != size {
+		return 0, fmt.Errorf("pack %s: the upload took %d of %d bytes", up.Pack, read, size)
+	}
+	return size, nil
+}
+
+// packUploadBody is a pack's PUT body: its header, then its members, opened
+// before the PUT. A transport may still read a body after the response came,
+// and close it from another goroutine, so a close never waits for a read: it
+// closes the members, which ends any read.
+type packUploadBody struct {
+	parts   []io.Reader
+	closers []io.Closer
+	reader  io.Reader
+
+	read      atomic.Int64
+	mu        sync.Mutex
+	err       error
+	closeOnce sync.Once
+}
+
+func (b *packUploadBody) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	b.read.Add(int64(n))
+	if err != nil && !errors.Is(err, io.EOF) {
+		b.mu.Lock()
+		if b.err == nil {
+			b.err = err
+		}
+		b.mu.Unlock()
+	}
+	return n, err
+}
+
+// result is how many bytes the PUT read, and the error reading them.
+func (b *packUploadBody) result() (int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.read.Load(), b.err
+}
+
+func (b *packUploadBody) Close() error {
+	b.closeOnce.Do(func() {
+		for _, c := range b.closers {
+			_ = c.Close()
+		}
+	})
+	return nil
+}
+
+// logPackUpload logs one pack's upload, as logUpload does a blob's.
+func (s *session) logPackUpload(ctx context.Context, exportID string, up protocol.UploadPack, size int64, queued, duration time.Duration, err error) {
+	level, outcome := slog.LevelInfo, "ok"
+	switch {
+	case context.Cause(ctx) != nil:
+		level, outcome = slog.LevelWarn, "canceled"
+	case err != nil:
+		level, outcome = slog.LevelWarn, "error"
+	}
+	args := []any{"export", exportID, "pack", up.Pack.String(), "members", len(up.Members), "bytes", size, "queued", queued, "duration", duration, "outcome", outcome}
+	if err != nil {
+		args = append(args, "error", err.Error())
+	}
+	s.cfg.Logger.Log(ctx, level, "remote cache pack uploaded", args...)
 }
 
 // uploadBlob PUTs one blob, and returns its size once it is read.

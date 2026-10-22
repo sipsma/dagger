@@ -223,6 +223,11 @@ func (cm *snapshotManager) importLayer(
 		if joined {
 			timing.Joined++
 		}
+		if packs, ok := provider.(PackProvider); ok && err == nil {
+			if _, packed := packs.PackOf(desc.Digest); packed {
+				timing.Packed++
+			}
+		}
 	}
 	if err != nil {
 		return nil, err

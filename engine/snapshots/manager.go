@@ -149,6 +149,8 @@ type snapshotManager struct {
 	ownerLeaseLocker       *locker.Locker
 	// fetches runs chain-content downloads, one per blob.
 	fetches contentFetches
+	// packs runs reads of packs, one per pack, and holds their members.
+	packs packFetches
 	// backgroundReleases releases read-only mounts off their callers' paths.
 	backgroundReleases *backgroundReleases
 	// sharedMounts keeps one read-only mount per snapshot for its readers.

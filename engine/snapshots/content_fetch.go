@@ -221,8 +221,14 @@ func (cm *snapshotManager) fetchAhead(ctx context.Context, desc ocispecs.Descrip
 }
 
 // downloadChainContent copies desc's blob from provider into the content
-// store, under ctx's lease.
+// store, under ctx's lease. A blob stored in a pack comes from a read of the
+// whole pack.
 func (cm *snapshotManager) downloadChainContent(ctx context.Context, desc ocispecs.Descriptor, provider content.Provider) (rerr error) {
+	if packs, ok := provider.(PackProvider); ok {
+		if id, ok := packs.PackOf(desc.Digest); ok {
+			return cm.downloadPackedContent(ctx, desc, packs, id)
+		}
+	}
 	ref := "snapshot-import-" + rand.Text()
 	writer, err := content.OpenWriter(ctx, cm.ContentStore, content.WithRef(ref), content.WithDescriptor(desc))
 	if cerrdefs.IsAlreadyExists(err) {
