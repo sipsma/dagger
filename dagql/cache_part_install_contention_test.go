@@ -100,7 +100,16 @@ func runInstallContention(t *testing.T, load string, n int) {
 		}
 	}
 	txs := &testutil.TxTimes{}
-	store := testutil.NewStoreWith(t, testutil.StoreOptions{Bolt: testutil.EngineBoltOptions(), TxTimes: txs})
+	// The databases are opened as the engine opens them, and the overlay
+	// manager's large commits share the metadata database with the
+	// installs, as an engine's exec and import commits do.
+	store := testutil.NewStoreWith(t, testutil.StoreOptions{
+		Bolt:              testutil.EngineBoltOptions(),
+		NoSyncSnapshots:   true,
+		TxTimes:           txs,
+		Overlay:           true,
+		OverlayUsageFirst: snapshots.UsageFirstEnabled(),
+	})
 	ctx, c, srv := transferTestCache(t)
 	c.snapshotManager = store.Manager
 	transport := newContentTestTransport()
@@ -226,7 +235,7 @@ func buildContentionLayer(t *testing.T, store *testutil.Store, parent snapshots.
 	owner, err := store.Leases.Create(ctx, leases.WithRandomID())
 	require.NoError(t, err)
 	ctx = leases.WithLease(ctx, owner.ID)
-	ref, err := commitContentionFiles(ctx, store, parent, files)
+	ref, err := commitContentionFiles(ctx, store.Manager, parent, files)
 	require.NoError(t, err)
 	require.NoError(t, store.Manager.AttachLease(ctx, owner.ID, ref.SnapshotID()))
 	t.Cleanup(func() {
@@ -236,8 +245,8 @@ func buildContentionLayer(t *testing.T, store *testutil.Store, parent snapshots.
 	return ref
 }
 
-func commitContentionFiles(ctx context.Context, store *testutil.Store, parent snapshots.ImmutableRef, files map[string][]byte) (snapshots.ImmutableRef, error) {
-	mut, err := store.Manager.New(ctx, parent)
+func commitContentionFiles(ctx context.Context, manager snapshots.SnapshotManager, parent snapshots.ImmutableRef, files map[string][]byte) (snapshots.ImmutableRef, error) {
+	mut, err := manager.New(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +323,7 @@ func startContentionLoad(t *testing.T, ctx context.Context, c *Cache, srv *Serve
 		}
 	case "commits":
 		// As execs and imports commit snapshots: a large snapshot, many
-		// files, committed over and over.
+		// files, committed over and over, on overlay as the engine's are.
 		var mu sync.Mutex
 		var commits []time.Duration
 		wg.Add(1)
@@ -335,7 +344,7 @@ func startContentionLoad(t *testing.T, ctx context.Context, c *Cache, srv *Serve
 					return
 				}
 				start := time.Now()
-				ref, err := commitContentionFiles(leases.WithLease(context.Background(), lease.ID), store, nil, files)
+				ref, err := commitContentionFiles(leases.WithLease(context.Background(), lease.ID), store.OverlayManager, nil, files)
 				if !assert.NoError(t, err) {
 					return
 				}

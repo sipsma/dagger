@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -99,6 +100,43 @@ type StoreOptions struct {
 	// before its commit and its backend record the measurement, as the
 	// engine does (engine/server/server.go).
 	OverlayUsageFirst bool
+	// NoSyncSnapshots opens the snapshotters' own metadata stores without
+	// syncing, as the engine opens its overlay snapshotter's (initBoltDBs).
+	// Otherwise each snapshot write in a metadata transaction also syncs the
+	// snapshotter's store, which the engine's never does.
+	NoSyncSnapshots bool
+}
+
+// engineSnapshotStoreOptions are the options the engine opens its overlay
+// snapshotter's metadata store with (engine/server/server.go, initBoltDBs).
+func engineSnapshotStoreOptions(opts *bolt.Options) error {
+	opts.NoSync = true
+	opts.NoFreelistSync = true
+	opts.FreelistType = bolt.FreelistMapType
+	opts.NoStatistics = true
+	opts.NoGrowSync = true
+	return nil
+}
+
+// nativeDefaultsMu serializes the swap of bbolt's default options that opens
+// a native snapshotter's store with the engine's options: the native
+// snapshotter takes no options and copies the defaults when it is made.
+var nativeDefaultsMu sync.Mutex
+
+func newNativeSnapshotter(t testing.TB, root string, noSync bool) ctdsnapshots.Snapshotter {
+	t.Helper()
+	if noSync {
+		nativeDefaultsMu.Lock()
+		saved := *bolt.DefaultOptions
+		require.NoError(t, engineSnapshotStoreOptions(bolt.DefaultOptions))
+		defer func() {
+			*bolt.DefaultOptions = saved
+			nativeDefaultsMu.Unlock()
+		}()
+	}
+	sn, err := native.NewSnapshotter(root)
+	require.NoError(t, err)
+	return sn
 }
 
 func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
@@ -106,8 +144,7 @@ func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
 	s := &Store{root: t.TempDir()}
 	rawContent, err := local.NewStore(filepath.Join(s.root, "content"))
 	require.NoError(t, err)
-	rawSnapshots, err := native.NewSnapshotter(filepath.Join(s.root, "snapshots"))
-	require.NoError(t, err)
+	rawSnapshots := newNativeSnapshotter(t, filepath.Join(s.root, "snapshots"), opts.NoSyncSnapshots)
 	db, err := bolt.Open(filepath.Join(s.root, "metadata.db"), 0600, opts.Bolt)
 	require.NoError(t, err)
 	var tx metadata.Transactor = db
@@ -121,7 +158,7 @@ func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
 	}
 	backends := map[string]ctdsnapshots.Snapshotter{"native": rawSnapshots}
 	if opts.Overlay {
-		backends["overlayfs"] = s.openOverlay(t, opts.OverlayUsageFirst)
+		backends["overlayfs"] = s.openOverlay(t, opts.OverlayUsageFirst, opts.NoSyncSnapshots)
 	}
 	s.DB = metadata.NewDB(tx, backend, backends)
 	require.NoError(t, s.DB.Init(context.Background()))
@@ -159,11 +196,15 @@ func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
 // openOverlay opens an overlay snapshotter on a metadata store the store
 // opens itself, as the engine does, wrapped as the engine wraps it when
 // usageFirst is set.
-func (s *Store) openOverlay(t testing.TB, usageFirst bool) ctdsnapshots.Snapshotter {
+func (s *Store) openOverlay(t testing.TB, usageFirst, noSync bool) ctdsnapshots.Snapshotter {
 	t.Helper()
 	root := filepath.Join(s.root, "overlay")
 	require.NoError(t, os.MkdirAll(root, 0o700))
-	ms, err := storage.NewMetaStore(filepath.Join(root, "metadata.db"))
+	var msOpts []storage.Opt
+	if noSync {
+		msOpts = append(msOpts, engineSnapshotStoreOptions)
+	}
+	ms, err := storage.NewMetaStore(filepath.Join(root, "metadata.db"), msOpts...)
 	require.NoError(t, err)
 	// userxattr is named so that construction does not probe a mount.
 	s.overlay, err = overlay.NewSnapshotter(root, overlay.WithMetaStore(ms), overlay.WithMountOptions([]string{"userxattr"}))
