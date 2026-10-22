@@ -283,7 +283,7 @@ type TestSplit {
   Test CLI Engine
   """
   pub testCliEngine: Void @check {
-    testCliEngineSpecific(["TestCLI", "TestEngine"])
+    testCliEngineSpecific(["^TestCLI$", "^TestEngine$"])
   }
 
   """
@@ -347,7 +347,15 @@ type TestSplit {
   Test Workspaces
   """
   pub testWorkspaces: Void @check {
-    testSpecific(["TestWorkspace"])
+    testSpecific([
+      "^TestWorkspace$",
+      "^TestWorkspaceAPI$",
+      "^TestWorkspaceCompat$",
+      "^TestWorkspaceLegacyDefaultPath$",
+      "^TestWorkspaceMigration$",
+      "^TestWorkspaceModules$",
+      "^TestWorkspaceSelection$",
+    ])
   }
 
   """
