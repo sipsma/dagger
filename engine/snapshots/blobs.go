@@ -20,6 +20,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/semaphore"
 )
 
 var ErrNoBlobs = errors.Errorf("no blobs for snapshot")
@@ -112,6 +113,7 @@ func (cm *snapshotManager) ensureExportBlob(
 	parentSnapshotID string,
 	ref *immutableRef,
 	refCfg compression.Config,
+	gate *semaphore.Weighted,
 	stats *ExportStats,
 ) (_ ocispecs.Descriptor, _ bool, rerr error) {
 	if ref == nil {
@@ -170,6 +172,19 @@ func (cm *snapshotManager) ensureExportBlob(
 				stats.LayersReused++
 				return ensureExportBlobResult{desc: desc, hasLayer: true}, nil
 			}
+		}
+
+		// Building the blob reads the layer and compresses it: a gate shared
+		// by exports bounds how many build at once, engine-wide. It is held
+		// until the blob is recorded, and never while waiting above.
+		if gate != nil {
+			gateStart := time.Now()
+			acquireErr := gate.Acquire(ctx, 1)
+			stats.BuildWait += time.Since(gateStart)
+			if acquireErr != nil {
+				return ensureExportBlobResult{}, acquireErr
+			}
+			defer gate.Release(1)
 		}
 
 		usage, err := cm.Snapshotter.Usage(ctx, ref.SnapshotID())

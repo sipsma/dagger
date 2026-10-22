@@ -410,13 +410,18 @@ func OpenSelectedChains(ctx context.Context, capture *HeldCapturedClosure, outpu
 			return nil, err
 		}
 		chains.refs = append(chains.refs, ref)
-		chain, err := ref.ExportChain(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		chains.chains = append(chains.chains, chain)
+		chains.Entries = append(chains.Entries, SelectedChain{Ordinal: row.ordinal, Address: out.Address})
+	}
+	// The outputs' chains open as one export, so that their layers build
+	// together and a layer they share builds once.
+	opened, err := snapshots.ExportChains(ctx, chains.refs, cfg)
+	if err != nil {
+		return nil, err
+	}
+	chains.chains = opened
+	for i, chain := range opened {
 		chains.Stats.Add(chain.Stats)
-		chains.Entries = append(chains.Entries, SelectedChain{Ordinal: row.ordinal, Address: out.Address, Layers: chain.Layers, Provider: chain.Provider})
+		chains.Entries[i].Layers, chains.Entries[i].Provider = chain.Layers, chain.Provider
 	}
 	return chains, nil
 }
