@@ -95,7 +95,7 @@ func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
 		tx = timedTransactor{DB: db, times: opts.TxTimes}
 	}
 	// As the engine builds its metadata database (engine/server/server.go).
-	var backend content.Store = rawContent
+	backend := rawContent
 	if containerdsnapshot.ContentPrecommitEnabled() {
 		backend = containerdsnapshot.NewPrecommitStore(backend)
 	}
