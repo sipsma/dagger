@@ -69,7 +69,7 @@ func evidenceTestCacheAttrs(t *testing.T, kvs []attribute.KeyValue) map[string]s
 		}
 		switch k {
 		case telemetryattrs.CacheStructuralInputsAttr, telemetryattrs.CacheDepsAttr, telemetryattrs.CachePartsAttr,
-			telemetryattrs.CacheMissFreshInputsAttr:
+			telemetryattrs.CacheMissFreshInputsAttr, telemetryattrs.CacheMissNearInputsDifferAttr:
 			// The contract's native string slices (checked separately via
 			// evidenceTestStructuralInputs and evidenceTestStringSlice).
 			assert.Equal(t, attribute.STRINGSLICE, kv.Value.Type(), "contract attribute %s must be STRINGSLICE-typed", k)
@@ -427,6 +427,98 @@ func TestRecordCacheEvidenceMappingRemoteLookup(t *testing.T) {
 			want, wantOK := tc.want[telemetryattrs.CacheMissRemoteLookupAttr]
 			assert.Equal(t, wantOK, ok)
 			assert.Equal(t, want, v)
+		})
+	}
+}
+
+// The nearest-term facts stamp on executed misses only, and only those the
+// search recorded.
+func TestRecordCacheEvidenceMappingNear(t *testing.T) {
+	t.Parallel()
+	selfDig := digest.FromString("evidence-near-self")
+	for _, tc := range []struct {
+		name   string
+		ev     dagql.CacheDecision
+		want   map[string]string
+		differ []string
+	}{
+		{
+			name: "inputs, remote",
+			ev: dagql.CacheDecision{Outcome: dagql.CacheOutcomeExecuted, NearSearch: dagql.CacheNearSearchFound, NearScanned: 3,
+				NearKind: dagql.CacheNearKindInputs, NearInputsDiffer: []int{1}, NearResultID: 42, NearRemote: true, NearMergedAtUnixNano: 1760000000123456789},
+			want: map[string]string{
+				telemetryattrs.CacheOutcomeAttr:          "executed",
+				telemetryattrs.CacheMissNearSearchAttr:   "found",
+				telemetryattrs.CacheMissNearScannedAttr:  "3",
+				telemetryattrs.CacheMissNearKindAttr:     "inputs",
+				telemetryattrs.CacheMissNearResultIDAttr: "42",
+				telemetryattrs.CacheMissNearRemoteAttr:   "true",
+				telemetryattrs.CacheMissNearMergedAtAttr: "1760000000123456789",
+			},
+			differ: []string{"1"},
+		},
+		{
+			name: "self, local",
+			ev:   dagql.CacheDecision{Outcome: dagql.CacheOutcomeExecuted, NearSearch: dagql.CacheNearSearchFound, NearScanned: 1, NearKind: dagql.CacheNearKindSelf, NearResultID: 7},
+			want: map[string]string{
+				telemetryattrs.CacheOutcomeAttr:          "executed",
+				telemetryattrs.CacheMissNearSearchAttr:   "found",
+				telemetryattrs.CacheMissNearScannedAttr:  "1",
+				telemetryattrs.CacheMissNearKindAttr:     "self",
+				telemetryattrs.CacheMissNearResultIDAttr: "7",
+			},
+		},
+		{
+			name: "truncated",
+			ev:   dagql.CacheDecision{Outcome: dagql.CacheOutcomeExecuted, NearSearch: dagql.CacheNearSearchTruncated, NearScanned: 32},
+			want: map[string]string{
+				telemetryattrs.CacheOutcomeAttr:         "executed",
+				telemetryattrs.CacheMissNearSearchAttr:  "truncated",
+				telemetryattrs.CacheMissNearScannedAttr: "32",
+			},
+		},
+		{
+			name: "none, nothing scanned",
+			ev:   dagql.CacheDecision{Outcome: dagql.CacheOutcomeExecuted, NearSearch: dagql.CacheNearSearchNone},
+			want: map[string]string{
+				telemetryattrs.CacheOutcomeAttr:         "executed",
+				telemetryattrs.CacheMissNearSearchAttr:  "none",
+				telemetryattrs.CacheMissNearScannedAttr: "0",
+			},
+		},
+		{
+			name: "not run",
+			ev:   dagql.CacheDecision{Outcome: dagql.CacheOutcomeExecuted},
+			want: map[string]string{telemetryattrs.CacheOutcomeAttr: "executed"},
+		},
+		{
+			name: "joined",
+			ev: dagql.CacheDecision{Outcome: dagql.CacheOutcomeJoined, NearSearch: dagql.CacheNearSearchFound, NearScanned: 1,
+				NearKind: dagql.CacheNearKindInputs, NearInputsDiffer: []int{0}, NearResultID: 42},
+			want: map[string]string{telemetryattrs.CacheOutcomeAttr: "joined"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sr, span := evidenceTestRecordingSpan(t)
+			ev := tc.ev
+			ev.MissUnknownInputIndex = -1
+			ev.SelfDigest = selfDig
+			ev.PairingDigest = selfDig
+			recordCacheEvidence(context.Background(), span, &ev, nil)
+			ended := evidenceTestEndedAttrs(t, sr, span)
+			want := map[string]string{
+				telemetryattrs.CacheContractAttr:      telemetryattrs.CacheContractV1,
+				telemetryattrs.CacheSelfDigestAttr:    selfDig.String(),
+				telemetryattrs.CachePairingDigestAttr: selfDig.String(),
+			}
+			for k, v := range tc.want {
+				want[k] = v
+			}
+			assert.DeepEqual(t, evidenceTestCacheAttrs(t, ended), want)
+			differ, present := evidenceTestStringSlice(ended, telemetryattrs.CacheMissNearInputsDifferAttr)
+			assert.Equal(t, tc.differ != nil, present)
+			assert.DeepEqual(t, tc.differ, differ)
 		})
 	}
 }
