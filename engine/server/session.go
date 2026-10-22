@@ -133,11 +133,13 @@ type daggerSession struct {
 	// (POST /query) span, captured once on the first traced main-client query (when
 	// the propagated ids are in hand). At teardown removeDaggerSession stamps the
 	// EXACT final engine span count on a carrier span parented here (so it lands in
-	// this trace) and Reaps the counter entry. See wcprofSpanCounter
-	// (engine/server/wcprofcount.go).
+	// this trace). See wcprofSpanCounter (engine/server/wcprofcount.go).
 	wcprofTraceID    trace.TraceID
 	wcprofRootSpanID trace.SpanID
 	wcprofTraceOnce  sync.Once
+	// wcprofSpans counts the session's engine spans per trace, which the
+	// carrier declares for the session's trace.
+	wcprofSpans *wcprofSpanCounter
 	// cacheSpans counts the session's cache spans, which the same carrier
 	// declares (see cacheSpanCounter).
 	cacheSpans *cacheSpanCounter
@@ -955,10 +957,11 @@ func (srv *Server) initializeSessionTelemetry(sess *daggerSession, clientMetadat
 	spanLimits := sdktrace.NewSpanLimits()
 	spanLimits.LinkCountLimit = 16384
 	sess.cacheSpans = &cacheSpanCounter{}
+	sess.wcprofSpans = newWcprofSpanCounter(sess.sessionID)
 	tracerOpts := []sdktrace.TracerProviderOption{
 		sdktrace.WithRawSpanLimits(spanLimits),
 		sdktrace.WithSpanProcessor(dagql.NewWcprofLazyParentProcessor()),
-		sdktrace.WithSpanProcessor(srv.wcprofSpanCount),
+		sdktrace.WithSpanProcessor(sess.wcprofSpans),
 		sdktrace.WithSpanProcessor(sess.cacheSpans),
 		// Stamp origin before the live processors freeze their start snapshots.
 		sdktrace.WithSpanProcessor(telemetryOriginSpanProcessor{sessionID: sess.sessionID}),
@@ -1287,7 +1290,6 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	telemetryCtx, cancelTelemetry := context.WithTimeout(teardownCtx, 60*time.Second)
 	defer cancelTelemetry()
 	srv.stampSessionComplete(telemetryCtx, sess)
-	srv.wcprofSpanCount.Reap(sess.wcprofTraceID)
 	telemetryErr := sess.shutdownTelemetry(telemetryCtx)
 	errs = errors.Join(errs, telemetryErr)
 	archiveErrs = errors.Join(archiveErrs, telemetryErr)
@@ -1362,16 +1364,15 @@ func (srv *Server) getOrCreateSessionLocked(sessionID, clientID string) (*dagger
 //
 // The carrier also marks the session's end for its cache spans: it declares
 // how many spans of this session named a cache entry
-// (dagger.io/cache.session.spans). The wcprof count is per trace, and the
-// first session to end in a shared trace reaps it, so a later session can
-// have cache spans and a zero wcprof count. The carrier is sent when either
-// count is above zero, and carries the wcprof count only when it is; the
-// loader ignores a carrier with no count.
+// (dagger.io/cache.session.spans). Both counts are the session's own, so
+// sessions that share a trace each declare their own spans. The carrier is
+// sent when either count is above zero, and carries the wcprof count only when
+// it is; the loader ignores a carrier with no count.
 func (srv *Server) stampSessionComplete(ctx context.Context, sess *daggerSession) {
 	if !sess.wcprofTraceID.IsValid() || !sess.wcprofRootSpanID.IsValid() {
 		return
 	}
-	n := srv.wcprofSpanCount.Final(sess.wcprofTraceID)
+	n := sess.wcprofSpans.Final(sess.wcprofTraceID)
 	cacheSpans := sess.cacheSpans.Count()
 	if n == 0 && cacheSpans == 0 {
 		return

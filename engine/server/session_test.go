@@ -1758,7 +1758,7 @@ func TestClientAncestryAndTelemetryRouteOrdering(t *testing.T) {
 
 func TestTelemetryRoutesClientsAndAncestorsExactlyOnce(t *testing.T) {
 	dbs := clientdb.NewDBs(t.TempDir())
-	srv := &Server{clientDBs: dbs, wcprofSpanCount: newWcprofSpanCounter()}
+	srv := &Server{clientDBs: dbs}
 	srv.telemetryPubSub = NewPubSub(srv)
 
 	root := &clientRuntime{clientRecord: &clientRecord{clientID: "root", clientMetadata: &engine.ClientMetadata{SessionID: "session", ClientID: "root"}}}
@@ -2794,9 +2794,8 @@ func TestSessionLifecycleObserverConcurrency(t *testing.T) {
 }
 
 // newTeardownTestServer builds a Server with just enough real state for
-// removeDaggerSession to run: an empty in-memory dagql cache, a live wcprof
-// counter, and a stubbed GC callback (scheduled via time.AfterFunc at the end
-// of teardown).
+// removeDaggerSession to run: an empty in-memory dagql cache and a stubbed GC
+// callback (scheduled via time.AfterFunc at the end of teardown).
 func newTeardownTestServer(t *testing.T) *Server {
 	t.Helper()
 	cache, err := dagql.NewCache(context.Background(), "", nil, nil)
@@ -2805,7 +2804,6 @@ func newTeardownTestServer(t *testing.T) *Server {
 		daggerSessions:     map[string]*daggerSession{},
 		releasedSessionIDs: map[string]struct{}{},
 		engineCache:        cache,
-		wcprofSpanCount:    newWcprofSpanCounter(),
 		throttledSessionGC: func() {},
 	}
 }

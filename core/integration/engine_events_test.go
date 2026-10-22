@@ -359,7 +359,7 @@ func (ClientSuite) TestEngineEventsToCloud(ctx context.Context, t *testctx.T) {
 
 // sharedTraceScript runs four sessions of telemetry-session, in two traces,
 // and orders them by what reaches the fake Cloud: a session's end arrives
-// after its teardown stamped it and dropped the trace's wcprof count.
+// after its teardown stamped it with the session's own counts.
 //
 // Under $SEQUENTIAL, two sessions run one after the other, each ending before
 // the next starts. Under $OVERLAPPING, two sessions overlap: both finish their

@@ -16,9 +16,8 @@ import (
 // so a consumer of the session's spans, such as the Cloud reading them from
 // the store, can tell when it has read all of them.
 //
-// Unlike wcprofSpanCounter it counts per session, not per trace: one is
-// registered on each session's tracer provider, so sessions that share a
-// trace count apart.
+// Like wcprofSpanCounter, it counts per session: one is registered on each
+// session's tracer provider, so sessions that share a trace count apart.
 type cacheSpanCounter struct {
 	count atomic.Int64
 }

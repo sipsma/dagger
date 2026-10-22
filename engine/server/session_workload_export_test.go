@@ -36,9 +36,8 @@ func TestSessionShutdownKeepsWorkloadExportOpen(t *testing.T) {
 	})
 
 	srv := &Server{
-		clientDBs:       clientdb.NewDBs(t.TempDir()),
-		wcprofSpanCount: newWcprofSpanCounter(),
-		workloadExport:  workloadExport,
+		clientDBs:      clientdb.NewDBs(t.TempDir()),
+		workloadExport: workloadExport,
 	}
 	srv.telemetryPubSub = NewPubSub(srv)
 	t.Cleanup(func() { require.NoError(t, srv.clientDBs.Close()) })

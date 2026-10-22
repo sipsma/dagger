@@ -183,7 +183,6 @@ func (r *cloudReceiver) snapshot() (auths, spans, logs, metrics []string) {
 func newCloudTestSession(t *testing.T, srv *Server, md *engine.ClientMetadata) (*daggerSession, *clientRuntime) {
 	t.Helper()
 	srv.clientDBs = clientdb.NewDBs(t.TempDir())
-	srv.wcprofSpanCount = newWcprofSpanCounter()
 	srv.telemetryPubSub = NewPubSub(srv)
 	md.SessionID, md.ClientID = "session", "root"
 	root := &clientRuntime{clientRecord: &clientRecord{clientID: "root", clientMetadata: md}}
