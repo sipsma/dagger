@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/util/hashutil"
 	set "github.com/hashicorp/go-set/v3"
 	"github.com/opencontainers/go-digest"
@@ -1099,7 +1100,7 @@ func (c *Cache) lookupCacheForRequest(
 	// the e-graph, and the hit's session claim changes only state with its
 	// own synchronization, so they run under the read lock and concurrent
 	// lookups do not queue behind each other.
-	c.egraphMu.RLock()
+	wcprof.RLockRW(ctx, &c.egraphMu, egraphMuProfIdent)
 	retRes, hit, persistedEdgeExpiresAtUnix, needsWrite, err := c.lookupCacheForRequestLocked(ctx, sessionID, req, requestDigest, requestSelf, requestInputs, requestInputRefs, true)
 	if err != nil || (!hit && !needsWrite) {
 		c.egraphMu.RUnlock()
@@ -1116,7 +1117,7 @@ func (c *Cache) lookupCacheForRequest(
 	} else {
 		// The hit teaches the e-graph: look it up again under the write lock.
 		c.egraphMu.RUnlock()
-		c.egraphMu.Lock()
+		wcprof.LockRW(ctx, &c.egraphMu, egraphMuProfIdent)
 		// One collector for this E interval: identity teaching can union
 		// classes or insert a new membership, and both are flushed before
 		// the unlock.
