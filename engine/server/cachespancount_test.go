@@ -64,14 +64,15 @@ func requireResourceAttr(t *testing.T, set *attribute.Set, key, want string) {
 }
 
 // cacheSpanTestSession is a session whose main client ran a traced query, with
-// its own tracer provider and cache span counter, recording what it exports.
-func cacheSpanTestSession(t *testing.T, id string, traceID trace.TraceID, wcprof *wcprofSpanCounter) (*daggerSession, *tracetest.SpanRecorder) {
+// its own tracer provider and span counters, recording what it exports.
+func cacheSpanTestSession(t *testing.T, id string, traceID trace.TraceID) (*daggerSession, *tracetest.SpanRecorder) {
 	t.Helper()
 	rec := tracetest.NewSpanRecorder()
 	sess := &daggerSession{
 		sessionID:          id,
 		mainClientCallerID: "main-" + id,
 		cacheSpans:         &cacheSpanCounter{},
+		wcprofSpans:        newWcprofSpanCounter(id),
 		wcprofTraceID:      traceID,
 		wcprofRootSpanID:   trace.SpanID{1},
 	}
@@ -79,7 +80,7 @@ func cacheSpanTestSession(t *testing.T, id string, traceID trace.TraceID, wcprof
 		sess.mainClientCallerID: {clientID: sess.mainClientCallerID, clientMetadata: &engine.ClientMetadata{SessionID: id, ClientID: sess.mainClientCallerID}},
 	}
 	sess.tracerProvider = sdktrace.NewTracerProvider(
-		sdktrace.WithSpanProcessor(wcprof),
+		sdktrace.WithSpanProcessor(sess.wcprofSpans),
 		sdktrace.WithSpanProcessor(sess.cacheSpans),
 		sdktrace.WithSpanProcessor(telemetryOriginSpanProcessor{sessionID: id}),
 		sdktrace.WithSpanProcessor(rec),
@@ -132,8 +133,8 @@ func carrierAttrs(rec *tracetest.SpanRecorder) (map[string]string, bool) {
 // the count and is not counted itself.
 func TestSessionCompleteDeclaresCacheSpans(t *testing.T) {
 	t.Parallel()
-	srv := &Server{wcprofSpanCount: newWcprofSpanCounter()}
-	sess, rec := cacheSpanTestSession(t, "s", trace.TraceID{1}, srv.wcprofSpanCount)
+	srv := &Server{}
+	sess, rec := cacheSpanTestSession(t, "s", trace.TraceID{1})
 	emitTestSpan(sess, "7")
 	emitTestSpan(sess, "")
 	emitTestSpan(sess, "8")
@@ -147,49 +148,82 @@ func TestSessionCompleteDeclaresCacheSpans(t *testing.T) {
 	require.Equal(t, int64(2), sess.cacheSpans.Count(), "the carrier is not a cache span")
 }
 
-// Two sessions share one trace. The first to end reaps the trace's wcprof
-// count, so the second, which started no span afterwards, has a wcprof count
-// of 0. It still sends its carrier, with its own cache span count and no
-// wcprof count; the first session's wcprof count is unchanged.
+// Two sessions share one trace and run at once, as a test suite's clients of
+// one engine do. Each carrier declares only its own session's spans, whichever
+// session ends first.
 func TestSessionCompleteWithSharedTrace(t *testing.T) {
 	t.Parallel()
-	srv := &Server{wcprofSpanCount: newWcprofSpanCounter()}
+	srv := &Server{}
 	traceID := trace.TraceID{2}
-	a, recA := cacheSpanTestSession(t, "a", traceID, srv.wcprofSpanCount)
-	b, recB := cacheSpanTestSession(t, "b", traceID, srv.wcprofSpanCount)
+	a, recA := cacheSpanTestSession(t, "a", traceID)
+	b, recB := cacheSpanTestSession(t, "b", traceID)
 	emitTestSpan(a, "1")
 	emitTestSpan(b, "2")
 	emitTestSpan(b, "3")
 	emitTestSpan(a, "")
 
 	srv.stampSessionComplete(context.Background(), a)
-	srv.wcprofSpanCount.Reap(traceID)
+	emitTestSpan(b, "")
 	srv.stampSessionComplete(context.Background(), b)
-	srv.wcprofSpanCount.Reap(traceID)
 
 	attrsA, ok := carrierAttrs(recA)
 	require.True(t, ok)
 	require.Equal(t, "1", attrsA[telemetryattrs.CacheSessionSpansAttr])
-	require.Equal(t, "4", attrsA[telemetryattrs.WcprofSessionSpanCountAttr], "the trace's whole wcprof count, as before")
+	require.Equal(t, "2", attrsA[telemetryattrs.WcprofSessionSpanCountAttr], "a's own spans, not b's")
 
 	attrsB, ok := carrierAttrs(recB)
-	require.True(t, ok, "a session with cache spans sends its carrier")
+	require.True(t, ok)
 	require.Equal(t, "2", attrsB[telemetryattrs.CacheSessionSpansAttr])
-	_, hasWcprof := attrsB[telemetryattrs.WcprofSessionSpanCountAttr]
-	require.False(t, hasWcprof, "no wcprof count of 0")
+	require.Equal(t, "3", attrsB[telemetryattrs.WcprofSessionSpanCountAttr], "b's own spans, including those before a ended")
+}
+
+// A session with engine spans but no cache spans still sends its carrier when
+// another session of its trace has ended first.
+func TestSessionCompleteAfterAnotherSessionOfItsTrace(t *testing.T) {
+	t.Parallel()
+	srv := &Server{}
+	traceID := trace.TraceID{6}
+	a, _ := cacheSpanTestSession(t, "a", traceID)
+	b, recB := cacheSpanTestSession(t, "b", traceID)
+	emitTestSpan(a, "1")
+	emitTestSpan(b, "")
+
+	srv.stampSessionComplete(context.Background(), a)
+	srv.stampSessionComplete(context.Background(), b)
+
+	attrsB, ok := carrierAttrs(recB)
+	require.True(t, ok, "b declares its own span")
+	require.Equal(t, "1", attrsB[telemetryattrs.WcprofSessionSpanCountAttr])
+	require.Equal(t, "0", attrsB[telemetryattrs.CacheSessionSpansAttr])
+}
+
+// A span without its origin client is not counted toward the wcprof total
+// either: the session's span exporter drops it before the store, so no
+// consumer ever receives it.
+func TestWcprofSpanWithoutOriginIsNotCounted(t *testing.T) {
+	t.Parallel()
+	srv := &Server{}
+	sess, rec := cacheSpanTestSession(t, "s", trace.TraceID{7})
+	emitTestSpan(sess, "")
+	emitTestSpanWithoutOrigin(sess, "")
+	srv.stampSessionComplete(context.Background(), sess)
+
+	attrs, ok := carrierAttrs(rec)
+	require.True(t, ok)
+	require.Equal(t, "1", attrs[telemetryattrs.WcprofSessionSpanCountAttr])
 }
 
 // A session with neither count sends no carrier; one that never recorded a
 // traced main query sends none either.
 func TestSessionCompleteNeedsACount(t *testing.T) {
 	t.Parallel()
-	srv := &Server{wcprofSpanCount: newWcprofSpanCounter()}
-	empty, rec := cacheSpanTestSession(t, "empty", trace.TraceID{3}, srv.wcprofSpanCount)
+	srv := &Server{}
+	empty, rec := cacheSpanTestSession(t, "empty", trace.TraceID{3})
 	srv.stampSessionComplete(context.Background(), empty)
 	_, ok := carrierAttrs(rec)
 	require.False(t, ok)
 
-	untraced, rec := cacheSpanTestSession(t, "untraced", trace.TraceID{4}, srv.wcprofSpanCount)
+	untraced, rec := cacheSpanTestSession(t, "untraced", trace.TraceID{4})
 	emitTestSpan(untraced, "5")
 	untraced.wcprofRootSpanID = trace.SpanID{}
 	srv.stampSessionComplete(context.Background(), untraced)
@@ -202,8 +236,8 @@ func TestSessionCompleteNeedsACount(t *testing.T) {
 // carrier declares only the spans the Cloud can read.
 func TestCacheSpanWithoutOriginIsNotCounted(t *testing.T) {
 	t.Parallel()
-	srv := &Server{wcprofSpanCount: newWcprofSpanCounter()}
-	sess, rec := cacheSpanTestSession(t, "s", trace.TraceID{5}, srv.wcprofSpanCount)
+	srv := &Server{}
+	sess, rec := cacheSpanTestSession(t, "s", trace.TraceID{5})
 	emitTestSpan(sess, "7")
 	emitTestSpanWithoutOrigin(sess, "8")
 	srv.stampSessionComplete(context.Background(), sess)

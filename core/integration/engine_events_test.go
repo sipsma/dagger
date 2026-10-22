@@ -401,11 +401,9 @@ func randomHex(t *testctx.T, n int) string {
 }
 
 // Sessions that share a trace each end with their own count of cache spans,
-// as section 11 of the telemetry design lays out (sharedTraceScript). One
-// after the other, each session's wcprof count covers the spans it started,
-// and together they cover the trace. Overlapping, A's wcprof count is the
-// whole trace's, B's included, as before; B's session end still arrives, with
-// its own cache span count and no wcprof count.
+// as section 11 of the telemetry design lays out (sharedTraceScript), and
+// their own wcprof count: the engine spans the session started, whether the
+// sessions run one after the other or overlap. Together they cover the trace.
 func (ClientSuite) TestCacheSpanCountsPerSessionInSharedTrace(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
 	cloud := newTelemetrySplitCloud(t, c)
@@ -461,11 +459,12 @@ func (ClientSuite) TestCacheSpanCountsPerSessionInSharedTrace(ctx context.Contex
 		require.Positive(t, cacheSpans, "session %s names cache entries", session)
 	}
 
-	// Each trace's session ends, in the order they arrived, and the spans the
-	// wcprof counter counted.
+	// Each session's end, and the engine spans the wcprof counter marked in
+	// each session and trace.
 	ends := map[string][]cacheSpanLine{}
 	seen := map[string]bool{}
 	counted := map[string]map[string]bool{}
+	bySession := map[string]map[string]bool{}
 	for _, span := range spans {
 		if span.isSessionEnd() && !seen[span.SpanID] {
 			seen[span.SpanID] = true
@@ -476,33 +475,25 @@ func (ClientSuite) TestCacheSpanCountsPerSessionInSharedTrace(ctx context.Contex
 				counted[span.TraceID] = map[string]bool{}
 			}
 			counted[span.TraceID][span.SpanID] = true
+			if bySession[span.Session] == nil {
+				bySession[span.Session] = map[string]bool{}
+			}
+			bySession[span.Session][span.SpanID] = true
 		}
 	}
-	require.Len(t, ends[sequentialTrace], 2)
-	require.Len(t, ends[overlappingTrace], 2)
-	wcprofCount := func(end cacheSpanLine) (int, bool) {
-		v, ok := end.attr(telemetryattrs.WcprofSessionSpanCountAttr)
-		if !ok {
-			return 0, false
+	for _, traceID := range []string{sequentialTrace, overlappingTrace} {
+		require.Len(t, ends[traceID], 2)
+		total := 0
+		for _, end := range ends[traceID] {
+			v, ok := end.attr(telemetryattrs.WcprofSessionSpanCountAttr)
+			require.True(t, ok, "session %s's end declares its engine spans", end.Session)
+			n, err := strconv.Atoi(v)
+			require.NoError(t, err)
+			require.Equal(t, len(bySession[end.Session]), n, "session %s declares its own engine spans", end.Session)
+			total += n
 		}
-		n, err := strconv.Atoi(v)
-		require.NoError(t, err)
-		return n, true
+		require.Equal(t, len(counted[traceID]), total, "the sessions' counts cover the trace")
 	}
-
-	first, ok := wcprofCount(ends[sequentialTrace][0])
-	require.True(t, ok)
-	second, ok := wcprofCount(ends[sequentialTrace][1])
-	require.True(t, ok, "the second session started its own spans after the first ended")
-	require.Positive(t, first)
-	require.Positive(t, second)
-	require.Equal(t, len(counted[sequentialTrace]), first+second, "one after the other, the two counts cover the trace")
-
-	a, ok := wcprofCount(ends[overlappingTrace][0])
-	require.True(t, ok)
-	require.Equal(t, len(counted[overlappingTrace]), a, "A's wcprof count is the whole trace's")
-	_, ok = wcprofCount(ends[overlappingTrace][1])
-	require.False(t, ok, "B's session end has no wcprof count")
 }
 
 // A client with DAGGER_CLOUD_TOKEN forwards the token into every engine it
