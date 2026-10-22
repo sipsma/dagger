@@ -62,7 +62,7 @@ func (cm *snapshotManager) ImportImage(
 	}()
 
 	for _, layer := range img.Layers {
-		next, err := cm.importLayer(ctx, layer, current, nil, opts, false, nil)
+		next, err := cm.importLayer(ctx, layer, current, nil, opts, false, nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -148,6 +148,7 @@ func (cm *snapshotManager) importLayer(
 	opts ImportImageOpts,
 	chainMode bool,
 	timing *ImportTiming,
+	chain *chainLayer,
 ) (ImmutableRef, error) {
 	diffID, err := diffIDFromDescriptor(desc)
 	if err != nil {
@@ -216,12 +217,18 @@ func (cm *snapshotManager) importLayer(
 	}
 
 	fetchStart := timing.now()
-	err = cm.importLayerContent(ctx, desc, provider, chainMode)
+	joined, err := cm.importLayerContent(ctx, desc, provider, chainMode, chain)
 	if timing != nil {
 		timing.Fetch += time.Since(fetchStart)
+		if joined {
+			timing.Joined++
+		}
 	}
 	if err != nil {
 		return nil, err
+	}
+	if chain != nil && chain.fetched != nil {
+		chain.fetched()
 	}
 	if parent != nil {
 		if err := cm.AttachLease(ctx, leaseID, parent.SnapshotID()); err != nil {
@@ -433,16 +440,26 @@ func setImportedImageMetadata(ref *immutableRef, opts ImportImageOpts) error {
 // lifetime like the rest of the builtin images' content.
 const BuiltinLayersLeaseID = "dagger/builtin-image/layers"
 
+// chainLayer is what a chain import passes each of its layer imports: the
+// chain whose import it is, its download of the layer's blob started ahead,
+// if any, and what to run once the layer's blob is in the content store.
+type chainLayer struct {
+	owner   *ExportChain
+	ahead   *contentFetch
+	fetched func()
+}
+
 // importLayerContent pins local bytes before asking the supplied provider.
-// Writer acquisition checks again, before ReaderAt, if another key supplied
-// the same blob since our first lookup. A chain import consults the builtin
-// image store between the two: a layer of a builtin image is then copied
-// from the engine's own files, with no network, and held for the engine's
-// lifetime under BuiltinLayersLeaseID.
-func (cm *snapshotManager) importLayerContent(ctx context.Context, desc ocispecs.Descriptor, provider content.Provider, chainMode bool) (rerr error) {
+// A chain import consults the builtin image store between the two: a layer
+// of a builtin image is then copied from the engine's own files, with no
+// network, and held for the engine's lifetime under BuiltinLayersLeaseID.
+// The provider's download goes through the fetch coordinator, which joins a
+// download of the same blob already in progress. It reports whether it
+// joined another import's download.
+func (cm *snapshotManager) importLayerContent(ctx context.Context, desc ocispecs.Descriptor, provider content.Provider, chainMode bool, chain *chainLayer) (bool, error) {
 	present, err := cm.pinContent(ctx, desc)
 	if err != nil || present {
-		return err
+		return false, err
 	}
 	if chainMode {
 		copied, err := cm.copyBuiltinLayer(ctx, desc)
@@ -451,35 +468,24 @@ func (cm *snapshotManager) importLayerContent(ctx context.Context, desc ocispecs
 			// blocks an import: log and download as today.
 			bklog.G(ctx).WithError(err).Warnf("builtin image store could not supply layer %s; downloading it", desc.Digest)
 		} else if copied {
-			return nil
+			return false, nil
 		}
 	}
 	if provider == nil {
-		return chainError(ctx, chainMode, desc, "provider", errors.Wrapf(cerrdefs.ErrNotFound, "missing local layer %s", desc.Digest))
+		return false, chainError(ctx, chainMode, desc, "provider", errors.Wrapf(cerrdefs.ErrNotFound, "missing local layer %s", desc.Digest))
 	}
-	ref := "snapshot-import-" + rand.Text()
-	writer, err := content.OpenWriter(ctx, cm.ContentStore, content.WithRef(ref), content.WithDescriptor(desc))
-	if cerrdefs.IsAlreadyExists(err) {
-		return nil
+	if !fetchAheadEnabled() {
+		return false, cm.downloadChainContent(ctx, desc, provider)
 	}
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = writer.Close()
-		if rerr != nil {
-			_ = cm.ContentStore.Abort(context.WithoutCancel(ctx), ref)
+	var owner *ExportChain
+	var ahead *contentFetch
+	if chain != nil {
+		owner = chain.owner
+		if chain.ahead != nil && chain.ahead.desc.Digest == desc.Digest {
+			ahead = chain.ahead
 		}
-	}()
-	reader, err := provider.ReaderAt(ctx, desc)
-	if err != nil {
-		return chainError(ctx, chainMode, desc, "provider", err)
 	}
-	defer reader.Close()
-	if chainMode {
-		return copyChainContent(ctx, writer, reader, desc)
-	}
-	return content.Copy(ctx, writer, io.NewSectionReader(reader, 0, reader.Size()), desc.Size, desc.Digest)
+	return cm.fetchChainContent(ctx, desc, provider, owner, ahead)
 }
 
 // copyBuiltinLayer copies the blob desc names from the builtin image store
