@@ -753,8 +753,8 @@ const (
 	// "deadline", "disconnected" (the connection that would carry it ended),
 	// "detached" (the remote cache integration stopped) or "canceled" (the
 	// evaluation's caller gave up).
-	CacheRemoteLookupWaitedAttr      = "dagger.io/cache.remote_lookup.waited_ns"
-	CacheRemoteLookupWaitOutcomeAttr = "dagger.io/cache.remote_lookup.wait_outcome"
+	CacheRemoteLookupWaitedAttr      = "dagger.io/cache.remote_lookup.waited_ns"    //nolint:gosec // telemetry attribute names, not credentials
+	CacheRemoteLookupWaitOutcomeAttr = "dagger.io/cache.remote_lookup.wait_outcome" //nolint:gosec // telemetry attribute names, not credentials
 
 	// CacheSelfDigestAttr is the engine-derived structural self digest of the
 	// call: the operation, its literal arguments (sensitive values redacted),
