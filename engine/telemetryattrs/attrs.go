@@ -785,6 +785,31 @@ const (
 	// call with no implicit inputs it equals CacheSelfDigestAttr.
 	CachePairingDigestAttr = "dagger.io/cache.pairing_digest"
 
+	// CacheShapeDigestAttr is the digest of the call's shape with every
+	// literal value masked: the result type, the field, the receiver's type,
+	// the module's name (not its ref or pin), the list selection and the
+	// view, and the arguments in order, each one's name and its value's kind,
+	// a list's length and an object's field names, recursively. Result refs
+	// and digest witnesses count only by kind, sensitive arguments are
+	// redacted first, and implicit inputs are left out. Calls that differ
+	// only in literal values share it, such as two builds whose flags carry
+	// different commits. Stamped beside CacheSelfDigestAttr.
+	CacheShapeDigestAttr = "dagger.io/cache.shape_digest"
+	// CacheArgDigestsAttr (with CacheShapeDigestAttr, absent when the call
+	// has no literal values) lists the digests of the call's literal values
+	// by position, as a native string array, in pre-order over the
+	// arguments, list elements and object fields. Each is 16 lowercase hex
+	// characters of xxh3-64(BE64(xxh3-64(value)) || kind): the value's bytes
+	// (a string's or enum's UTF-8, raw bytes, an int's or a float's 8
+	// big-endian bytes, a bool's one byte, 1 or 0) and the kind byte the self
+	// digest uses. Calls with one shape digest have the same positions, so a
+	// reader can tell which positions vary. At most 32 are listed: with more
+	// values, the last is xxh3-64 over the big-endian digests of every value
+	// from the 32nd on, in order. CacheArgCountAttr is the decimal-string
+	// number of values, so a reader can tell when the last one folds.
+	CacheArgDigestsAttr = "dagger.io/cache.arg_digests"
+	CacheArgCountAttr   = "dagger.io/cache.arg_count"
+
 	// CacheOutputContentDigestAttr is the completed result's RECORDED content
 	// digest — the last content-labeled extra digest on the result's
 	// authoritative call frame at span completion — emitted only when

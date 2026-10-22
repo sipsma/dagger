@@ -371,6 +371,15 @@ func recordCacheEvidence(ctx context.Context, span trace.Span, ev *dagql.CacheDe
 		if ev.PairingDigest != "" {
 			attrs = append(attrs, attribute.String(telemetryattrs.CachePairingDigestAttr, ev.PairingDigest.String()))
 		}
+		if ev.ShapeDigest != "" {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheShapeDigestAttr, ev.ShapeDigest.String()))
+			if len(ev.ArgDigests) > 0 {
+				attrs = append(attrs,
+					attribute.StringSlice(telemetryattrs.CacheArgDigestsAttr, ev.ArgDigests),
+					attribute.String(telemetryattrs.CacheArgCountAttr, strconv.Itoa(ev.ArgCount)),
+				)
+			}
+		}
 	}
 	if resultNumber, ok := dagql.CacheResultNumber(res); ok {
 		attrs = append(attrs, attribute.String(telemetryattrs.CacheResultIDAttr, strconv.FormatUint(resultNumber, 10)))

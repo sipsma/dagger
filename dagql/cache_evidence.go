@@ -167,6 +167,15 @@ type CacheDecision struct {
 	// the cross-run pairing anchor. Empty for CacheOutcomeUncached.
 	PairingDigest digest.Digest
 
+	// ShapeDigest is the digest of the call's shape with every literal value
+	// masked, ArgDigests the digests of those literals by position (at most
+	// callShapeArgLimit, the last folding the rest), and ArgCount the number
+	// of literals: what varies across runs among calls of one shape. Empty
+	// for CacheOutcomeUncached.
+	ShapeDigest digest.Digest
+	ArgDigests  []string
+	ArgCount    int
+
 	// pendingEdge is the retention edge the publication this call executed or
 	// joined adds to its result, set when the call is persistable. The last of
 	// the publication's waiters creates it, possibly after this call's span

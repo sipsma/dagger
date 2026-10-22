@@ -6014,6 +6014,14 @@ func (c *Cache) getOrInitCallInner(
 		if pairingDig, pairingErr := req.pairingDigest(c); pairingErr == nil {
 			ev.PairingDigest = pairingDig
 		}
+		// Best-effort too: the shape walks the frame the self digest just
+		// walked. It is derived once per call, not again when a takeover
+		// retries the call.
+		if ev.ShapeDigest == "" {
+			if shape, shapeErr := callShapeOf(req.ResultCall); shapeErr == nil {
+				ev.ShapeDigest, ev.ArgDigests, ev.ArgCount = shape.digest, shape.args, shape.count
+			}
+		}
 	}
 	callKey := callDigest.String()
 	profOp.SetIdent(callKey)
