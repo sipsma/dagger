@@ -66,6 +66,17 @@ func rangeTestReader(t *testing.T, size int, configure func(*partRangeConfig)) (
 	return transport, source, offer, data, &partInstallStats{}
 }
 
+// rangeTestSource is a size-byte blob's source and offer with the given
+// parallel config changes, for tests that open their own readers.
+func rangeTestSource(t *testing.T, size int, configure func(*partRangeConfig)) (*PartContentSource, PersistedPartOffer) {
+	t.Helper()
+	_, source, offer, _ := contentReaderFixture(t, rangeTestBlob(size))
+	if configure != nil {
+		configure(&source.ranges)
+	}
+	return source, offer
+}
+
 func openRangeTest(t *testing.T, source *PartContentSource, offer PersistedPartOffer, demand *PartDemandState, stats *partInstallStats) (contentReader, int64) {
 	t.Helper()
 	provider := source.Provider(t.Context(), offer, demand).(*partContentProvider)
@@ -177,7 +188,7 @@ func TestPartRangeReadsCloseCancels(t *testing.T) {
 // The engine-wide budget bounds the extra streams: a reader that finds none
 // left reads its blob on one stream, and a closed reader's streams go back.
 func TestPartRangeReadsStreamBudget(t *testing.T) {
-	_, source, offer, _, _ := rangeTestReader(t, 40<<20, func(cfg *partRangeConfig) {
+	source, offer := rangeTestSource(t, 40<<20, func(cfg *partRangeConfig) {
 		cfg.extra = semaphore.NewWeighted(2)
 	})
 	first, _ := openRangeTest(t, source, offer, nil, nil)
@@ -235,11 +246,11 @@ func TestPartRangeReadsOutsideWindow(t *testing.T) {
 
 // Small blobs, and a source with parallel reads off, read on one stream.
 func TestPartRangeReadsThresholds(t *testing.T) {
-	_, source, offer, _, _ := rangeTestReader(t, 1<<20, nil)
+	source, offer := rangeTestSource(t, 1<<20, nil)
 	small, _ := openRangeTest(t, source, offer, nil, nil)
 	require.IsType(t, &partHTTPReader{}, small)
 	require.NoError(t, small.Close())
-	_, source, offer, _, _ = rangeTestReader(t, 40<<20, func(cfg *partRangeConfig) { cfg.streams = 1 })
+	source, offer = rangeTestSource(t, 40<<20, func(cfg *partRangeConfig) { cfg.streams = 1 })
 	off, _ := openRangeTest(t, source, offer, nil, nil)
 	require.IsType(t, &partHTTPReader{}, off)
 	require.NoError(t, off.Close())
