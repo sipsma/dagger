@@ -104,6 +104,7 @@ func (s *session) hello() error {
 		Generation:    generation,
 		EngineVersion: s.cfg.EngineVersion,
 		EngineName:    s.cfg.EngineName,
+		HeldRows:      true,
 	})
 	if err != nil {
 		return fmt.Errorf("hello: %w", err)
