@@ -338,6 +338,9 @@ func recordCacheEvidence(ctx context.Context, span trace.Span, ev *dagql.CacheDe
 			}
 			attrs = append(attrs, attribute.StringSlice(telemetryattrs.CacheMissFreshInputsAttr, fresh))
 		}
+		if ev.MissRemoteLookup != "" {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissRemoteLookupAttr, ev.MissRemoteLookup))
+		}
 	}
 	if (ev.Outcome == dagql.CacheOutcomeExecuted || ev.Outcome == dagql.CacheOutcomeJoined) && ev.Adopted {
 		// A publication fact, shared by the call that executed and the calls
