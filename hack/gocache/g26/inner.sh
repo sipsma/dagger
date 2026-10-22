@@ -61,7 +61,7 @@ for arm in A B; do
     # go.mod requirements and go.sum.
     tree $arm /rm/$arm/twin $src
     (cd /rm/$arm/twin && sed -i '1s#.*#module example.com/yqtwin/v4#' go.mod &&
-      grep -rl 'github.com/mikefarah/yq/v4' --include='*.go' . | xargs sed -i 's#github.com/mikefarah/yq/v4#example.com/yqtwin/v4#g' &&
+      find . -name '*.go' -exec grep -l 'github.com/mikefarah/yq/v4' {} + | xargs -r sed -i 's#github.com/mikefarah/yq/v4#example.com/yqtwin/v4#g' &&
       git add -A && git -c user.email=g26@x -c user.name=g26 commit -qm twin)
   fi
 done
