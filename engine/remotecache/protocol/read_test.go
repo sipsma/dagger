@@ -12,6 +12,13 @@ import (
 	"github.com/dagger/dagger/dagql"
 )
 
+func mustMarshal(t testing.TB, v any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	require.NoError(t, err)
+	return raw
+}
+
 // readTestBody gives a merge request's body to decode in one pass.
 func readTestBody(env Envelope) any {
 	if env.Re == 0 && env.Type == TypeMerge {
@@ -40,6 +47,19 @@ func TestReadEnvelope(t *testing.T) {
 	require.Equal(t, Envelope{ID: 9, Type: TypeMerge}, env)
 	require.Equal(t, &merge, body)
 
+	// Whitespace anywhere JSON allows it reads the same.
+	spaced := []byte(" \n{ \"id\" : 9 ,\t\"type\" :\"merge\" , \"body\" :\r\n" + string(mustMarshal(t, merge)) + " \n} \n")
+	env, body, err = ReadEnvelope(spaced, readTestBody)
+	require.NoError(t, err)
+	require.Equal(t, Envelope{ID: 9, Type: TypeMerge}, env)
+	require.Equal(t, &merge, body)
+
+	// An escaped key is the key it spells, for the decoder as for Unmarshal.
+	env, body, err = ReadEnvelope([]byte(`{"id": 18, "t\u0079pe": "merge", "body": {"bundle": {"version": 3}}}`), readTestBody)
+	require.NoError(t, err)
+	require.Equal(t, Envelope{ID: 18, Type: TypeMerge}, env)
+	require.Equal(t, &Merge{Bundle: dagql.ValueBundle{Version: 3}}, body)
+
 	for name, raw := range map[string][]byte{
 		"no body for the type": readTestMessage(t, 10, 4, TypeLookedUp, LookedUp{Misses: []LookedUpMiss{{Status: LookupMerging, Merge: 9}}}),
 		"a reply":              readTestMessage(t, 11, 2, TypeMerge, merge),
@@ -47,6 +67,8 @@ func TestReadEnvelope(t *testing.T) {
 		"other key case":       []byte(`{"ID": 13, "Type": "merge", "Body": {"bundle": {"version": 3}}}`),
 		"unknown key":          []byte(`{"id": 14, "type": "merge", "extra": 1, "body": {"bundle": {"version": 3}}}`),
 		"a body it can't read": []byte(`{"id": 15, "type": "merge", "body": {"bundle": {"version": "three"}}}`),
+		"a field after body":   []byte(`{"id": 16, "type": "merge", "body": {"bundle": {"version": 3}}, "re": 0}`),
+		"a repeated key":       []byte(`{"id": 17, "type": "merge", "type": "merge", "body": {"bundle": {"version": 3}}}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			var want Envelope
