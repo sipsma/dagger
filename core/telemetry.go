@@ -323,13 +323,6 @@ func recordCacheEvidence(ctx context.Context, span trace.Span, ev *dagql.CacheDe
 			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissRequirementsGrewAttr, "true"))
 		}
 		attrs = appendRemoteMissAttrs(attrs, ev)
-		if len(ev.MissFreshInputs) > 0 {
-			fresh := make([]string, len(ev.MissFreshInputs))
-			for i, idx := range ev.MissFreshInputs {
-				fresh[i] = strconv.Itoa(idx)
-			}
-			attrs = append(attrs, attribute.StringSlice(telemetryattrs.CacheMissFreshInputsAttr, fresh))
-		}
 		if ev.MissRemoteLookup != "" {
 			attrs = append(attrs, attribute.String(telemetryattrs.CacheMissRemoteLookupAttr, ev.MissRemoteLookup))
 		}
@@ -387,6 +380,47 @@ func recordCacheEvidence(ctx context.Context, span trace.Span, ev *dagql.CacheDe
 		attrs = append(attrs, cacheStateAttrs(state)...)
 	}
 	span.SetAttributes(attrs...)
+}
+
+// appendRemoteMissAttrs appends an executed call's miss facts about remote
+// values and new inputs: whether the candidate the miss lost to expiry, to the
+// session's resources or at serve time was a merged value, and which inputs
+// were new to the cache.
+func appendRemoteMissAttrs(attrs []attribute.KeyValue, ev *dagql.CacheDecision) []attribute.KeyValue {
+	if ev.MissSawExpired && ev.MissExpiredRemote {
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissExpiredRemoteAttr, "true"))
+	}
+	if ev.MissIncompatibleCandidates && ev.MissIncompatibleRemote {
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissIncompatibleRemoteAttr, "true"))
+	}
+	if (ev.MissProducerReleased || ev.MissRequirementsGrew) && ev.HitRemote {
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissChosenRemoteAttr, "true"))
+	}
+	if len(ev.MissFreshInputs) > 0 {
+		fresh := make([]string, len(ev.MissFreshInputs))
+		for i, idx := range ev.MissFreshInputs {
+			fresh[i] = strconv.Itoa(idx)
+		}
+		attrs = append(attrs, attribute.StringSlice(telemetryattrs.CacheMissFreshInputsAttr, fresh))
+	}
+	return attrs
+}
+
+// appendAdoptionAttrs appends the facts of a publication that adopted its
+// recipe's live entry.
+func appendAdoptionAttrs(attrs []attribute.KeyValue, ev *dagql.CacheDecision) []attribute.KeyValue {
+	if (ev.Outcome == dagql.CacheOutcomeExecuted || ev.Outcome == dagql.CacheOutcomeJoined) && ev.Adopted {
+		// A publication fact, shared by the call that executed and the calls
+		// that joined it, so joined calls stamp it too.
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedAttr, "true"))
+		if ev.AdoptedRemote {
+			attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedRemoteAttr, "true"))
+			if ev.AdoptedMergedAtUnixNano != 0 {
+				attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedMergedAtAttr, strconv.FormatInt(ev.AdoptedMergedAtUnixNano, 10)))
+			}
+		}
+	}
+	return attrs
 }
 
 // appendNearAttrs maps an executed miss's nearest-term facts onto the
@@ -880,37 +914,4 @@ func anyReturns(ctx context.Context, frame *dagql.ResultCall, types ...string) b
 		return false
 	}
 	return anyReturns(ctx, receiver, types...)
-}
-
-// appendRemoteMissAttrs appends an executed call's miss facts about remote
-// values: whether the candidate the miss lost to expiry, to the session's
-// resources or at serve time was a merged value.
-func appendRemoteMissAttrs(attrs []attribute.KeyValue, ev *dagql.CacheDecision) []attribute.KeyValue {
-	if ev.MissSawExpired && ev.MissExpiredRemote {
-		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissExpiredRemoteAttr, "true"))
-	}
-	if ev.MissIncompatibleCandidates && ev.MissIncompatibleRemote {
-		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissIncompatibleRemoteAttr, "true"))
-	}
-	if (ev.MissProducerReleased || ev.MissRequirementsGrew) && ev.HitRemote {
-		attrs = append(attrs, attribute.String(telemetryattrs.CacheMissChosenRemoteAttr, "true"))
-	}
-	return attrs
-}
-
-// appendAdoptionAttrs appends the facts of a publication that adopted its
-// recipe's live entry.
-func appendAdoptionAttrs(attrs []attribute.KeyValue, ev *dagql.CacheDecision) []attribute.KeyValue {
-	if (ev.Outcome == dagql.CacheOutcomeExecuted || ev.Outcome == dagql.CacheOutcomeJoined) && ev.Adopted {
-		// A publication fact, shared by the call that executed and the calls
-		// that joined it, so joined calls stamp it too.
-		attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedAttr, "true"))
-		if ev.AdoptedRemote {
-			attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedRemoteAttr, "true"))
-			if ev.AdoptedMergedAtUnixNano != 0 {
-				attrs = append(attrs, attribute.String(telemetryattrs.CacheAdoptedMergedAtAttr, strconv.FormatInt(ev.AdoptedMergedAtUnixNano, 10)))
-			}
-		}
-	}
-	return attrs
 }
