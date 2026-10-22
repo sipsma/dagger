@@ -69,7 +69,7 @@ func evidenceTestCacheAttrs(t *testing.T, kvs []attribute.KeyValue) map[string]s
 		}
 		switch k {
 		case telemetryattrs.CacheStructuralInputsAttr, telemetryattrs.CacheDepsAttr, telemetryattrs.CachePartsAttr,
-			telemetryattrs.CacheMissFreshInputsAttr, telemetryattrs.CacheMissNearInputsDifferAttr:
+			telemetryattrs.CacheMissFreshInputsAttr, telemetryattrs.CacheMissNearInputsDifferAttr, telemetryattrs.CacheArgDigestsAttr:
 			// The contract's native string slices (checked separately via
 			// evidenceTestStructuralInputs and evidenceTestStringSlice).
 			assert.Equal(t, attribute.STRINGSLICE, kv.Value.Type(), "contract attribute %s must be STRINGSLICE-typed", k)
@@ -521,6 +521,77 @@ func TestRecordCacheEvidenceMappingNear(t *testing.T) {
 			assert.DeepEqual(t, tc.differ, differ)
 		})
 	}
+}
+
+// The shape digest rides beside the self digest on every stamped outcome but
+// uncached, with its literal digests as a native string array and their count
+// as a decimal string, both absent when the call has no literals.
+func TestRecordCacheEvidenceMappingShape(t *testing.T) {
+	t.Parallel()
+	selfDig := digest.FromString("evidence-shape-self")
+	shapeDig := digest.Digest("xxh3:0123456789abcdef")
+	args := []string{"00000000000000aa", "00000000000000bb"}
+	for _, tc := range []struct {
+		name string
+		ev   dagql.CacheDecision
+		want map[string]string
+		args []string
+	}{
+		{
+			name: "executed",
+			ev:   dagql.CacheDecision{Outcome: dagql.CacheOutcomeExecuted, SelfDigest: selfDig, ShapeDigest: shapeDig, ArgDigests: args, ArgCount: 40},
+			want: map[string]string{
+				telemetryattrs.CacheOutcomeAttr:     "executed",
+				telemetryattrs.CacheShapeDigestAttr: shapeDig.String(),
+				telemetryattrs.CacheArgCountAttr:    "40",
+			},
+			args: args,
+		},
+		{
+			name: "hit",
+			ev:   dagql.CacheDecision{Outcome: dagql.CacheOutcomeHit, SelfDigest: selfDig, ShapeDigest: shapeDig, ArgDigests: args, ArgCount: 2},
+			want: map[string]string{
+				telemetryattrs.CacheOutcomeAttr:     "hit",
+				telemetryattrs.CacheShapeDigestAttr: shapeDig.String(),
+				telemetryattrs.CacheArgCountAttr:    "2",
+			},
+			args: args,
+		},
+		{
+			name: "joined, no literals",
+			ev:   dagql.CacheDecision{Outcome: dagql.CacheOutcomeJoined, SelfDigest: selfDig, ShapeDigest: shapeDig},
+			want: map[string]string{
+				telemetryattrs.CacheOutcomeAttr:     "joined",
+				telemetryattrs.CacheShapeDigestAttr: shapeDig.String(),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sr, span := evidenceTestRecordingSpan(t)
+			ev := tc.ev
+			ev.MissUnknownInputIndex = -1
+			recordCacheEvidence(context.Background(), span, &ev, nil)
+			ended := evidenceTestEndedAttrs(t, sr, span)
+			want := map[string]string{
+				telemetryattrs.CacheContractAttr:   telemetryattrs.CacheContractV1,
+				telemetryattrs.CacheSelfDigestAttr: selfDig.String(),
+			}
+			for k, v := range tc.want {
+				want[k] = v
+			}
+			assert.DeepEqual(t, evidenceTestCacheAttrs(t, ended), want)
+			got, present := evidenceTestStringSlice(ended, telemetryattrs.CacheArgDigestsAttr)
+			assert.Equal(t, tc.args != nil, present)
+			assert.DeepEqual(t, tc.args, got)
+		})
+	}
+	// Uncached derives no identity, so nothing is stamped.
+	sr, span := evidenceTestRecordingSpan(t)
+	recordCacheEvidence(context.Background(), span, &dagql.CacheDecision{Outcome: dagql.CacheOutcomeUncached, MissUnknownInputIndex: -1}, nil)
+	got := evidenceTestCacheAttrs(t, evidenceTestEndedAttrs(t, sr, span))
+	_, shaped := got[telemetryattrs.CacheShapeDigestAttr]
+	assert.Assert(t, !shaped)
 }
 
 // Adoption is a fact of the publication, so the executed call and the calls
