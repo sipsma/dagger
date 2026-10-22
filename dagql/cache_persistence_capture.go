@@ -199,7 +199,7 @@ func (c *Cache) capturePartRecord(ctx context.Context, shared *sharedResult, imp
 	if payload.snapshotLinkIntent != nil {
 		payload.snapshotOwnerLinks = cloneSnapshotRefLinks(payload.snapshotLinkIntent.Links)
 	}
-	frame := shared.loadResultCall().clone()
+	frame := shared.loadResultCall().cloneSame()
 	value := capturedRowValue(shared, payload, frame)
 	if err := context.Cause(ctx); err != nil {
 		return PersistedRecord{}, err
