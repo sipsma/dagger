@@ -1046,9 +1046,31 @@ done < /tmp/expected-artifacts
 sha256sum -c checksums.txt --ignore-missing >/tmp/checksums.out
 cat /tmp/checksums.out
 
+# read_head sets disposition, content_type and content_encoding from one
+# head-object request, as "--query <field> --output text" prints them: a
+# missing field reads as None.
+read_head() {
+	aws --endpoint-url "$AWS_ENDPOINT_URL" s3api head-object --bucket "$AWS_BUCKET" --key "$1" --output json > /tmp/head-object.json
+	head_vars="$(python3 - <<'PY'
+import json
+import shlex
+
+head = json.load(open("/tmp/head-object.json", encoding="utf-8"))
+for var, field in (
+    ("disposition", "ContentDisposition"),
+    ("content_type", "ContentType"),
+    ("content_encoding", "ContentEncoding"),
+):
+    value = head.get(field)
+    print(var + "=" + shlex.quote("None" if value is None else str(value)))
+PY
+)"
+	eval "$head_vars"
+}
+
 	while IFS= read -r file; do
 		[ -n "$file" ] || continue
-		disposition="$(aws --endpoint-url "$AWS_ENDPOINT_URL" s3api head-object --bucket "$AWS_BUCKET" --key "$S3_DIR/$file" --query ContentDisposition --output text)"
+		read_head "$S3_DIR/$file"
 		if [ "$disposition" != "attachment;filename=$file" ]; then
 			echo "unexpected content disposition for $file: $disposition" >&2
 			exit 1
@@ -1058,28 +1080,24 @@ cat /tmp/checksums.out
 			*.zip) expected_type="application/zip" ;;
 			*) echo "unknown artifact extension for $file" >&2; exit 1 ;;
 		esac
-		content_type="$(aws --endpoint-url "$AWS_ENDPOINT_URL" s3api head-object --bucket "$AWS_BUCKET" --key "$S3_DIR/$file" --query ContentType --output text)"
 		if [ "$content_type" != "$expected_type" ]; then
 			echo "unexpected content type for $file: expected $expected_type, got $content_type" >&2
 			exit 1
 		fi
-		content_encoding="$(aws --endpoint-url "$AWS_ENDPOINT_URL" s3api head-object --bucket "$AWS_BUCKET" --key "$S3_DIR/$file" --query ContentEncoding --output text)"
 		if [ "$content_encoding" != "None" ] && [ "$content_encoding" != "null" ] && [ -n "$content_encoding" ]; then
 			echo "unexpected content encoding for $file: $content_encoding" >&2
 			exit 1
 		fi
 	done < /tmp/expected-artifacts
-	disposition="$(aws --endpoint-url "$AWS_ENDPOINT_URL" s3api head-object --bucket "$AWS_BUCKET" --key "$S3_DIR/checksums.txt" --query ContentDisposition --output text)"
+	read_head "$S3_DIR/checksums.txt"
 	if [ "$disposition" != "attachment;filename=checksums.txt" ]; then
 		echo "unexpected content disposition for checksums.txt: $disposition" >&2
 		exit 1
 	fi
-	content_type="$(aws --endpoint-url "$AWS_ENDPOINT_URL" s3api head-object --bucket "$AWS_BUCKET" --key "$S3_DIR/checksums.txt" --query ContentType --output text)"
 	if [ "$content_type" != "text/plain; charset=utf-8" ]; then
 		echo "unexpected content type for checksums.txt: $content_type" >&2
 		exit 1
 	fi
-	content_encoding="$(aws --endpoint-url "$AWS_ENDPOINT_URL" s3api head-object --bucket "$AWS_BUCKET" --key "$S3_DIR/checksums.txt" --query ContentEncoding --output text)"
 	if [ "$content_encoding" != "None" ] && [ "$content_encoding" != "null" ] && [ -n "$content_encoding" ]; then
 		echo "unexpected content encoding for checksums.txt: $content_encoding" >&2
 		exit 1
