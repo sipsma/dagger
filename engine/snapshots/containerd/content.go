@@ -81,6 +81,17 @@ func (c *Store) Writer(ctx context.Context, opts ...content.WriterOpt) (content.
 		return nil, err
 	}
 	ctx = namespaces.WithNamespace(ctx, c.ns)
+	var wOpts content.WriterOpts
+	for _, opt := range opts {
+		if err := opt(&wOpts); err != nil {
+			return nil, err
+		}
+	}
+	if wOpts.Desc.Digest != "" {
+		// For the local store's writer, which the metadata database opens
+		// without the digest (NewPrecommitStore).
+		ctx = withPrecommitDigest(ctx, wOpts.Desc.Digest)
+	}
 	w, err := c.Store.Writer(ctx, opts...)
 	if err != nil {
 		return nil, err

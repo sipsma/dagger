@@ -94,7 +94,12 @@ func NewStoreWith(t testing.TB, opts StoreOptions) *Store {
 	if opts.TxTimes != nil {
 		tx = timedTransactor{DB: db, times: opts.TxTimes}
 	}
-	s.DB = metadata.NewDB(tx, rawContent, map[string]ctdsnapshots.Snapshotter{"native": rawSnapshots})
+	// As the engine builds its metadata database (engine/server/server.go).
+	var backend content.Store = rawContent
+	if containerdsnapshot.ContentPrecommitEnabled() {
+		backend = containerdsnapshot.NewPrecommitStore(backend)
+	}
+	s.DB = metadata.NewDB(tx, backend, map[string]ctdsnapshots.Snapshotter{"native": rawSnapshots})
 	require.NoError(t, s.DB.Init(context.Background()))
 	s.Leases = bkcache.NewLeaseManager(metadata.NewLeaseManager(s.DB), Namespace)
 	s.Content = containerdsnapshot.NewContentStore(s.DB.ContentStore(), Namespace)

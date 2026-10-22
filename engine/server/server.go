@@ -686,7 +686,13 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 		return localCacheStateResetNone, fmt.Errorf("failed to create content store: %w", err)
 	}
 
-	srv.containerdMetaDB = ctdmetadata.NewDB(srv.containerdMetaBoltDB, srv.localContentStore, map[string]ctdsnapshot.Snapshotter{
+	// A blob's commit fsyncs before the metadata database's write
+	// transaction, not while holding the database's single writer.
+	metadataContent := srv.localContentStore
+	if containerdsnapshot.ContentPrecommitEnabled() {
+		metadataContent = containerdsnapshot.NewPrecommitStore(metadataContent)
+	}
+	srv.containerdMetaDB = ctdmetadata.NewDB(srv.containerdMetaBoltDB, metadataContent, map[string]ctdsnapshot.Snapshotter{
 		srv.snapshotterName: srv.snapshotter,
 	})
 	if err := srv.containerdMetaDB.Init(context.TODO()); err != nil {
