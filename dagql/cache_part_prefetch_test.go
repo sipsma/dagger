@@ -262,7 +262,7 @@ func (h blockingHandler) Handle(context.Context, stdslog.Record) error {
 	return nil
 }
 func (h blockingHandler) WithAttrs([]stdslog.Attr) stdslog.Handler { return h }
-func (h blockingHandler) WithGroup(string) stdslog.Handler { return h }
+func (h blockingHandler) WithGroup(string) stdslog.Handler         { return h }
 
 // A full queue drops its oldest job and logs it without holding the
 // prefetcher's mutex, so a slow log writer can't stall a retirement, which
