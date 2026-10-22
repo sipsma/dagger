@@ -140,18 +140,39 @@ func (s *session) read() {
 			s.cancel(fmt.Errorf("read: %w", err))
 			return
 		}
-		var env protocol.Envelope
-		if err := json.Unmarshal(data, &env); err != nil {
+		env, body, err := s.readEnvelope(data)
+		if err != nil {
 			s.cfg.Logger.Warn("remote cache: undecodable message", "error", err)
 			continue
 		}
-		s.dispatch(env)
+		s.dispatchBody(env, body)
 	}
+}
+
+// readEnvelope reads a message, and a merge request's body with it in one
+// pass, unless decodeOnce is off.
+func (s *session) readEnvelope(data []byte) (protocol.Envelope, any, error) {
+	if !s.cfg.decodeOnce {
+		var env protocol.Envelope
+		err := json.Unmarshal(data, &env)
+		return env, nil, err
+	}
+	return protocol.ReadEnvelope(data, func(env protocol.Envelope) any {
+		if env.Re == 0 && env.Type == protocol.TypeMerge {
+			return &protocol.Merge{}
+		}
+		return nil
+	})
 }
 
 // dispatch routes a message: a reply to the engine request it names, an
 // upload to the export it continues, any other request to its handler.
 func (s *session) dispatch(env protocol.Envelope) {
+	s.dispatchBody(env, nil)
+}
+
+// dispatchBody is dispatch with the body readEnvelope decoded, if any.
+func (s *session) dispatchBody(env protocol.Envelope, body any) {
 	if env.Re != 0 {
 		s.mu.Lock()
 		waiter := s.pending[env.Re]
@@ -171,7 +192,8 @@ func (s *session) dispatch(env protocol.Envelope) {
 		// Recorded in arrival order, before any later answer that names it
 		// is read.
 		s.merges.start(env.ID)
-		s.go_(func() { s.handleMerge(env) })
+		merge, _ := body.(*protocol.Merge)
+		s.go_(func() { s.handleMerge(env, merge) })
 	case protocol.TypeOffer:
 		s.go_(func() { s.handleOffer(env) })
 	default:
@@ -593,14 +615,16 @@ func (s *session) logUpload(ctx context.Context, exportID string, dgst digest.Di
 // handleMerge merges a bundle and answers. The merge ends, for the lookups
 // waiting on it, before the reply is written: its offers are in the cache,
 // unless it committed nothing.
-func (s *session) handleMerge(env protocol.Envelope) {
-	var req protocol.Merge
-	if err := env.Decode(&req); err != nil {
-		s.merges.end(env.ID, dagql.RemoteMergeFailed)
-		s.replyError(env, err)
-		return
+func (s *session) handleMerge(env protocol.Envelope, req *protocol.Merge) {
+	if req == nil {
+		req = &protocol.Merge{}
+		if err := env.Decode(req); err != nil {
+			s.merges.end(env.ID, dagql.RemoteMergeFailed)
+			s.replyError(env, err)
+			return
+		}
 	}
-	merged, err := s.adapter.Merge(s.ctx, env.ID, req)
+	merged, err := s.adapter.Merge(s.ctx, env.ID, *req)
 	switch {
 	case err != nil:
 		s.merges.end(env.ID, dagql.RemoteMergeFailed)
