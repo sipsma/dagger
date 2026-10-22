@@ -12,7 +12,8 @@ and other modules considering tool-owned schedulers.
 ## Run
 
 Base: dagger/dagger 49065f5de3. Requires Bash, git, coreutils and Dagger
-(checked with v1.0.0-beta.19). The CLI is selected from `DAGGER_BIN` if set,
+v1.0.0-beta.20. The initial functional check used v1.0.0-beta.19.
+The CLI is selected from `DAGGER_BIN` if set,
 otherwise `$HOME/.local/bin/dagger` if it exists, otherwise `dagger` on PATH.
 Its resolved path and `dagger version` output are recorded in `host-meta.txt`.
 The linux-vm series uses the CLI's default engine, not a fresh dev engine.
