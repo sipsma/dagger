@@ -5869,7 +5869,19 @@ func (c *Cache) getOrInitCall(
 	ctx, profOp := wcprof.BeginOp(ctx, wcprof.OpKindCall, profCallClass(req.ResultCall), wcprof.OpOpts{
 		ClientID: profClientID(ctx),
 	})
+	// The profile reads why the lookup decided what it did from the decision's
+	// carrier, which a recording span arms; with none, it arms one for this
+	// invocation only, and disarms it after so the span sees what it would
+	// have.
+	armed := req.CacheEvidence == nil
+	if armed {
+		req.CacheEvidence = NewCacheDecision()
+	}
 	res, err := c.getOrInitCallTakingOver(ctx, sessionID, resolver, req, fn, profOp)
+	profLookupFacts(ctx, profOp, req.CacheEvidence, res)
+	if armed {
+		req.CacheEvidence = nil
+	}
 	outcome := profOp.OutcomeHint()
 	switch {
 	case err != nil:
@@ -6263,7 +6275,7 @@ func (c *Cache) lookupCacheForDigests(
 		return nil, false, nil
 	}
 
-	c.egraphMu.Lock()
+	wcprof.LockRW(ctx, &c.egraphMu, egraphMuProfIdent)
 	now := time.Now()
 	nowUnix := now.Unix()
 	match := c.lookupMatchForDigestsLocked(recipeDigest, extraDigests, nowUnix)
@@ -6437,7 +6449,10 @@ func (c *Cache) wait(
 		if oc.execSpanCtx.IsValid() {
 			pubSpan = beginOTelPublishResult(context.WithoutCancel(oc.sharedWorkCtx))
 		}
-		oc.initCompletedResultErr = c.initCompletedResult(context.WithoutCancel(oc.sharedWorkCtx), resolver, oc, req, sessionID)
+		// Publication's own waits (the graph lock's) belong to pubOp; the
+		// shared execution's op has ended.
+		pubCtx := wcprof.ContextWithOpID(context.WithoutCancel(oc.sharedWorkCtx), pubOp.ID())
+		oc.initCompletedResultErr = c.initCompletedResult(pubCtx, resolver, oc, req, sessionID)
 		if pubOp != nil {
 			var resID uint64
 			if oc.res != nil {
@@ -6881,7 +6896,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	if c.testBeforePublicationIndex != nil {
 		c.testBeforePublicationIndex(oc)
 	}
-	c.egraphMu.Lock()
+	wcprof.LockRW(ctx, &c.egraphMu, egraphMuProfIdent)
 	// One current entry per recipe (cache_current_entry.go). A fresh value is
 	// indexed under the recipe of its stored frame, unless that recipe
 	// already has a current entry: then it adopts a live one (D1), waits for
