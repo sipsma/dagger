@@ -512,6 +512,14 @@ func BenchmarkMergeValuesResent(b *testing.B) {
 			benchmarkMergeResent(b, mergeBenchShape{records: records, fields: 16})
 		})
 	}
+	// The merge's shape check with and without reading the payloads again
+	// (_EXPERIMENTAL_DAGGER_MERGE_SHAPE_SKIP_JSON), in one run.
+	for _, skip := range []string{"0", "1"} {
+		b.Run("records=2000/shape-skip-json="+skip, func(b *testing.B) {
+			b.Setenv(mergeShapeSkipJSONEnv, skip)
+			benchmarkMergeResent(b, mergeBenchShape{records: 2_000, fields: 16})
+		})
+	}
 }
 
 func benchmarkMergeResent(b *testing.B, shape mergeBenchShape) {
