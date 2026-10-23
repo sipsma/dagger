@@ -7129,7 +7129,9 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		if cur == nil {
 			break
 		}
-		if !cur.noValueLocked() && !c.resultExpiredAtLocked(cur, now.Unix()) {
+		// A call's own entry (cache_call_record.go) has no value of its own
+		// to adopt: a value of the call takes it as it takes an expired one.
+		if !cur.noValueLocked() && cur.returnedID == 0 && !c.resultExpiredAtLocked(cur, now.Unix()) {
 			if cur.attachmentState() == resultAttachmentOpen {
 				cur.attachDepsMu.Lock()
 				waitCh, holder := cur.attachDepsWaitCh, cur.attachHolder
