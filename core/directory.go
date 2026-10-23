@@ -26,6 +26,7 @@ import (
 	bkcontenthash "github.com/dagger/dagger/engine/contenthash"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	enginetel "github.com/dagger/dagger/engine/telemetry"
+	"github.com/dagger/dagger/engine/wcprof"
 	bkclient "github.com/dagger/dagger/internal/buildkit/client"
 	"github.com/dagger/dagger/util/layercopy"
 	"github.com/dagger/dagger/util/patternmatcher"
@@ -3021,9 +3022,12 @@ func (dir *Directory) copyFiles(
 	for _, src := range srcs {
 		inputs = append(inputs, src)
 	}
-	if err := cache.Evaluate(ctx, inputs...); err != nil {
+	evalCtx, evalOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "withFiles.evalInputs", wcprof.OpOpts{})
+	if err := cache.Evaluate(evalCtx, inputs...); err != nil {
+		evalOp.EndErr(err)
 		return err
 	}
+	evalOp.EndErr(nil)
 	ourDir, err := parent.Self().Dir.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
@@ -3070,15 +3074,21 @@ func (dir *Directory) copyFiles(
 	if len(srcs) == 1 {
 		description = fmt.Sprintf("withfile %s %s", copyDestPaths[0], filepath.Base(srcPaths[0]))
 	}
-	newRef, err := query.SnapshotManager().New(ctx, dirCacheRef, bkcache.WithRecordType(bkclient.UsageRecordTypeRegular),
+	newCtx, newOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "withFiles.new", wcprof.OpOpts{})
+	newRef, err := query.SnapshotManager().New(newCtx, dirCacheRef, bkcache.WithRecordType(bkclient.UsageRecordTypeRegular),
 		bkcache.WithDescription(description))
+	newOp.EndErr(err)
 	if err != nil {
 		return err
 	}
-	defer newRef.Release(context.WithoutCancel(ctx))
+	defer func() {
+		relCtx, relOp := wcprof.BeginOp(context.WithoutCancel(ctx), wcprof.OpKindInternal, "withFiles.release", wcprof.OpOpts{})
+		relOp.EndErr(newRef.Release(relCtx))
+	}()
 
 	var usage snapshots.Usage
-	if err := MountRef(ctx, newRef, func(root string, destMnt *mount.Mount) (rerr error) {
+	copyCtx, copyOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "withFiles.mountDestAndCopy", wcprof.OpOpts{})
+	if err := MountRef(copyCtx, newRef, func(root string, destMnt *mount.Mount) (rerr error) {
 		var ownership *Ownership
 		if owner != "" {
 			var err error
@@ -3106,7 +3116,8 @@ func (dir *Directory) copyFiles(
 				DestPathHintIsDir: destPathHintIsDirectory[i],
 			}
 
-			if err := MountRef(ctx, srcCacheRefs[i], func(srcRoot string, srcMnt *mount.Mount) error {
+			srcCtx, srcOp := wcprof.BeginOp(copyCtx, wcprof.OpKindInternal, "withFiles.mountSource", wcprof.OpOpts{})
+			if err := MountRef(srcCtx, srcCacheRefs[i], func(srcRoot string, srcMnt *mount.Mount) error {
 				if attemptUnpackDockerCompatibility {
 					resolvedSrcPath, err := containerdfs.RootPath(srcRoot, srcPath)
 					if err != nil {
@@ -3123,19 +3134,30 @@ func (dir *Directory) copyFiles(
 						return nil
 					}
 				}
-				return copier.CopyFile(ctx, layercopy.Mount{Root: srcRoot, Mount: srcMnt}, srcPath, destPath, opts)
+				_, cpOp := wcprof.BeginOp(srcCtx, wcprof.OpKindInternal, "withFiles.copyFile", wcprof.OpOpts{})
+				err := copier.CopyFile(ctx, layercopy.Mount{Root: srcRoot, Mount: srcMnt}, srcPath, destPath, opts)
+				cpOp.EndErr(err)
+				return err
 			}, mountRefAsReadOnly); err != nil {
+				srcOp.EndErr(err)
 				return err
 			}
+			srcOp.EndErr(nil)
 		}
 
+		_, usageOp := wcprof.BeginOp(copyCtx, wcprof.OpKindInternal, "withFiles.usage", wcprof.OpOpts{})
 		usage, err = copier.Usage()
+		usageOp.EndErr(err)
 		return err
 	}); err != nil {
+		copyOp.EndErr(err)
 		return err
 	}
+	copyOp.EndErr(nil)
 
-	snap, err := newRef.CommitWithUsage(ctx, usage)
+	commitCtx, commitOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "withFiles.commit", wcprof.OpOpts{})
+	snap, err := newRef.CommitWithUsage(commitCtx, usage)
+	commitOp.EndErr(err)
 	if err != nil {
 		return err
 	}
