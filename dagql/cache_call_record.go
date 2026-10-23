@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -37,14 +38,15 @@ type callRecordIntent struct {
 }
 
 // recordCallLocked records call, a module function call whose publication
-// retained returned, as an entry of its own whose value is returned, retained
-// with the edge expiry given. A call whose recipe is one of returned's, its
-// own value, records nothing. The call's entry is its recipe's current entry,
-// under the rules every entry follows (cache_current_entry.go): another
-// value of the recipe stays as it is; a live entry of the call stays, and
-// takes the retention if it names returned; an expired one takes the new
-// value in place if nothing uses it, and is retired for a new entry
-// otherwise. It returns the call's entry it recorded or retained, nil when
+// decided to retain returned, as an entry of its own whose value is
+// returned, retained with the edge expiry given. A call whose recipe is one
+// of returned's, its own value, records nothing. The call's entry is its
+// recipe's current entry, under the rules every entry follows
+// (cache_current_entry.go): another value of the recipe stays as it is; a
+// live entry of the call stays, and takes the retention if it names
+// returned; an expired one, whose own expiry or whose value's has passed,
+// takes the new value in place if nothing uses it, and is retired for a new
+// entry otherwise. It returns the call's entry it recorded or retained, nil when
 // none, and the entries a replaced value's dependencies may leave unowned
 // and the replaced value's release, for the caller to collect and run after
 // unlocking. Requires egraphMu for writing.
@@ -173,6 +175,27 @@ func (c *Cache) servedEntryLocked(res *sharedResult) *sharedResult {
 		return c.resultsByID[res.returnedID]
 	}
 	return res
+}
+
+// recordCall records oc's call as an entry of its own (recordCallLocked),
+// once its publication has decided to retain the returned result, and
+// returns that entry, nil when none. Recording can join classes, as identity
+// teaching does, and its notifications are flushed before the unlock; what a
+// replaced value leaves is collected and released after it. A failure is
+// logged: the call itself succeeded.
+func (c *Cache) recordCall(ctx context.Context, oc *ongoingCall) *sharedResult {
+	c.egraphMu.Lock()
+	notify, notifyOwner := c.beginShareNotificationsLocked()
+	entry, queue, releases := c.recordCallLocked(ctx, oc.res, oc.callRecord, oc.persistedEdgeExpiresAtUnix)
+	c.flushShareNotificationsLocked(ctx, notify, notifyOwner)
+	duplicates := c.takeShareDuplicateHoldsLocked()
+	collected, err := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
+	c.egraphMu.Unlock()
+	c.releaseShareDuplicateHolds(ctx, duplicates)
+	if err = errors.Join(err, runOnReleaseFuncs(context.WithoutCancel(ctx), append(releases, collected...))); err != nil {
+		slog.WarnContext(ctx, "call record's replaced value release", "error", err)
+	}
+	return entry
 }
 
 // joinReturnedClassLocked puts res, an entry whose value is returned, in

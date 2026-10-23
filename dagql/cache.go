@@ -3351,8 +3351,9 @@ type ongoingCall struct {
 	// another call's result (cache_call_record.go). Set inside
 	// initCompletedResultOnce.
 	callRecord *callRecordIntent
-	// callEntry is the call's own entry the last waiter's handoff recorded
-	// or retained for callRecord, for that waiter's evidence.
+	// callEntry is the call's own entry the publication recorded or
+	// retained for callRecord, for every waiter's evidence. Set inside
+	// initCompletedResultOnce.
 	callEntry *sharedResult
 
 	waitCh                      chan struct{}
@@ -6633,6 +6634,12 @@ func (c *Cache) wait(
 		oc.producerClosed = oc.initCompletedResultErr != nil && oc.clientScopeLease.SessionClosed()
 		c.retireOngoingCallLocked(oc)
 		c.callsMu.Unlock()
+		// The call's own entry is recorded here, before any waiter leaves:
+		// every waiter's span names it, whichever of them the session's
+		// span for the call belongs to.
+		if oc.needsPersistedEdge && oc.callRecord != nil {
+			oc.callEntry = c.recordCall(pubCtx, oc)
+		}
 		logProducerRemovedOutcome(oc.sharedWorkCtx, "call", oc.callConcurrencyKeys.callKey, oc.initCompletedResultErr)
 	})
 	if oc.initCompletedResultErr != nil {
@@ -6665,6 +6672,7 @@ func (c *Cache) wait(
 		// The last waiter creates the edge, possibly after this call's span
 		// ends; until then the span reports it as the publication's.
 		ev.pendingEdge = oc.pendingEdge
+		ev.callEntry = oc.callEntry
 		ev.Adopted = oc.adopted
 		ev.AdoptedRemote = oc.adoptedRemote
 		ev.AdoptedMergedAtUnixNano = oc.adoptedMergedAt
@@ -6691,9 +6699,6 @@ func (c *Cache) wait(
 		// The final waiter always completes the centralized handoff so late
 		// persistence intent is committed before its temporary ownership drops.
 		handoffErr = c.releaseOngoingCallHandoff(ctx, oc)
-		if ev := req.CacheEvidence; ev != nil && handoffErr == nil && oc.callEntry != nil {
-			ev.callEntry = oc.callEntry
-		}
 	}
 	if claimErr != nil {
 		return nil, errors.Join(fmt.Errorf("wait: claim result: %w", claimErr), handoffErr)
@@ -6719,30 +6724,16 @@ func (c *Cache) releaseOngoingCallHandoff(ctx context.Context, oc *ongoingCall) 
 	}
 
 	c.egraphMu.Lock()
-	var (
-		shareDuplicates []*sharedResult
-		queue           collectionQueue
-		recordReleases  []OnReleaseFunc
-	)
 	if oc.needsPersistedEdge {
 		c.upsertPersistedEdgeLocked(ctx, oc.res, oc.persistedEdgeExpiresAtUnix, false)
 		oc.pendingEdge.created = true
-		if oc.callRecord != nil {
-			// Recording the call can join classes, as identity teaching
-			// does: its notifications are flushed before the unlock.
-			notify, notifyOwner := c.beginShareNotificationsLocked()
-			oc.callEntry, queue, recordReleases = c.recordCallLocked(ctx, oc.res, oc.callRecord, oc.persistedEdgeExpiresAtUnix)
-			c.flushShareNotificationsLocked(ctx, notify, notifyOwner)
-			shareDuplicates = c.takeShareDuplicateHoldsLocked()
-		}
 	}
-	queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, queue)
+	queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 	collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
 	c.egraphMu.Unlock()
-	c.releaseShareDuplicateHolds(ctx, shareDuplicates)
 	oc.handoffHoldActive = false
 
-	return errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), append(recordReleases, collectReleases...)))
+	return errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 }
 
 // rollbackPartialPublicationLocked expunges a freshly indexed result whose
