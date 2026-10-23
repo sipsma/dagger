@@ -92,6 +92,18 @@ type OpOpts struct {
 	// JSON-array string and interns it as the op's MetaID, so offline analysis
 	// can rank the exec by its real command. Empty for non-exec ops.
 	Argv []string
+	// Meta is free-form metadata for an op without Argv (e.g. an exec's
+	// cgroup CPU counters), interned as the op's MetaID. Ignored when Argv is
+	// set.
+	Meta string
+}
+
+// metaID interns the op's metadata: its argv, or else its Meta.
+func (r *Recorder) metaID(opts OpOpts) uint32 {
+	if id := r.internArgv(opts.Argv); id != 0 {
+		return id
+	}
+	return r.Intern(opts.Meta)
 }
 
 // internArgv marshals argv to the canonical scalar JSON-array string and interns
@@ -128,7 +140,7 @@ func BeginOp(ctx context.Context, kind OpKind, class string, opts OpOpts) (conte
 		classID:  r.Intern(class),
 		identID:  r.Intern(opts.Ident),
 		clientID: r.Intern(opts.ClientID),
-		metaID:   r.internArgv(opts.Argv),
+		metaID:   r.metaID(opts),
 		startNS:  r.Now(),
 	}
 	sh := r.shardFor(op.id)
@@ -333,7 +345,7 @@ func RecordOp(ctx context.Context, kind OpKind, class string, opts OpOpts, start
 		ClassID:  r.Intern(class),
 		IdentID:  r.Intern(opts.Ident),
 		ClientID: r.Intern(opts.ClientID),
-		MetaID:   r.internArgv(opts.Argv),
+		MetaID:   r.metaID(opts),
 		StartNS:  startNS,
 		EndNS:    endNS,
 	})

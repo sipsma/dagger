@@ -1,6 +1,12 @@
 package engineutil
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
 
 // Caps on the emitted user-exec argv. They bound the dump and
 // OTel attribute size; the group key (argv[0..1]) is never dropped or truncated.
@@ -71,4 +77,38 @@ func boundProfArgv(argv []string) []string {
 	out = append(out, capped[:keep]...)
 	out = append(out, fmt.Sprintf(profArgvSentinel, len(capped)-keep))
 	return out
+}
+
+// execCgroupCPU reads the CPU counters of an exec's resource cgroup (the parent
+// of its container's cgroup, so it still holds the container's usage after runc
+// removed the container) as `{"usage_usec":N,"user_usec":N,"system_usec":N}`, or
+// "" when there is no such cgroup or it can't be read. For wcprof only.
+func execCgroupCPU(cgroupPath string) string {
+	if cgroupPath == "" || !filepath.IsAbs(cgroupPath) || strings.Contains(cgroupPath, ":") {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(cgroupMountpoint, cgroupPath, "cpu.stat"))
+	if err != nil {
+		return ""
+	}
+	var usage, user, system int64
+	for _, line := range strings.Split(string(data), "\n") {
+		k, v, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			continue
+		}
+		switch k {
+		case "usage_usec":
+			usage = n
+		case "user_usec":
+			user = n
+		case "system_usec":
+			system = n
+		}
+	}
+	return fmt.Sprintf(`{"usage_usec":%d,"user_usec":%d,"system_usec":%d}`, usage, user, system)
 }

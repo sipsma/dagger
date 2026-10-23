@@ -2016,6 +2016,11 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 				processStartNS = releasedNS
 			}
 			runID := wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{Ident: state.id, WorkType: wcprof.WorkTypeUser, Argv: profArgv}, processStartNS, endNS, outcome)
+			if cpu := execCgroupCPU(cgroupPath); cpu != "" {
+				// The exec's own CPU time, from its cgroup once its processes
+				// have exited: a zero-length op under processRun.
+				wcprof.RecordOp(wcprof.ContextWithOpID(ctx, runID), wcprof.OpKindExecPhase, "exec.cgroupCPU", wcprof.OpOpts{Ident: state.id, Meta: cpu}, endNS, endNS, wcprof.OutcomeOK)
+			}
 			if initStartedNS, spawnedNS, exitedNS, ok := initTiming.read(); ok {
 				recordProcessRunSplit(ctx, runID, state.id, profArgv, processStartNS, endNS, initStartedNS, spawnedNS, exitedNS, outcome)
 			}
