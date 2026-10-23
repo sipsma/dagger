@@ -1718,12 +1718,19 @@ func (c *Cache) upsertPersistedEdgeLocked(ctx context.Context, res *sharedResult
 // left the cache.
 func (c *Cache) resultState(ctx context.Context, res *sharedResult, pendingEdge *pendingRetention) (CacheResultState, bool) {
 	parts, sizes := c.completePartKeysAndSizes(ctx, res)
+	// Deriving a frame's recipe can read the cache, so it happens before
+	// egraphMu is held. A frame is replaced, never changed in place.
+	var recipe digest.Digest
+	if frame := res.loadResultCall(); frame != nil {
+		recipe, _ = frame.deriveRecipeDigest(c)
+	}
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
 	if c.resultsByID[res.id] != res {
 		return CacheResultState{}, false
 	}
 	state := CacheResultState{
+		Recipe:        recipe,
 		Deps:          sortedResultIDs(res.deps),
 		ExpiresAtUnix: res.expiresAtUnix,
 		Parts:         parts,
