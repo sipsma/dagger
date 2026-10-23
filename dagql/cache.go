@@ -3351,6 +3351,9 @@ type ongoingCall struct {
 	// another call's result (cache_call_record.go). Set inside
 	// initCompletedResultOnce.
 	callRecord *callRecordIntent
+	// callEntry is the call's own entry the last waiter's handoff recorded
+	// or retained for callRecord, for that waiter's evidence.
+	callEntry *sharedResult
 
 	waitCh                      chan struct{}
 	cancel                      context.CancelCauseFunc
@@ -6688,6 +6691,9 @@ func (c *Cache) wait(
 		// The final waiter always completes the centralized handoff so late
 		// persistence intent is committed before its temporary ownership drops.
 		handoffErr = c.releaseOngoingCallHandoff(ctx, oc)
+		if ev := req.CacheEvidence; ev != nil && handoffErr == nil && oc.callEntry != nil {
+			ev.callEntry = oc.callEntry
+		}
 	}
 	if claimErr != nil {
 		return nil, errors.Join(fmt.Errorf("wait: claim result: %w", claimErr), handoffErr)
@@ -6725,7 +6731,7 @@ func (c *Cache) releaseOngoingCallHandoff(ctx context.Context, oc *ongoingCall) 
 			// Recording the call can join classes, as identity teaching
 			// does: its notifications are flushed before the unlock.
 			notify, notifyOwner := c.beginShareNotificationsLocked()
-			queue, recordReleases = c.recordCallLocked(ctx, oc.res, oc.callRecord, oc.persistedEdgeExpiresAtUnix)
+			oc.callEntry, queue, recordReleases = c.recordCallLocked(ctx, oc.res, oc.callRecord, oc.persistedEdgeExpiresAtUnix)
 			c.flushShareNotificationsLocked(ctx, notify, notifyOwner)
 			shareDuplicates = c.takeShareDuplicateHoldsLocked()
 		}
