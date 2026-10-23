@@ -395,27 +395,23 @@ func (p *Go) Build(
 		ldflags = append(ldflags, "-w")
 	}
 
-	// The directory of each package that builds per package, or "".
+	// The directory of each package, relative to the source.
 	dirs := make([]string, len(mainPkgs))
-	perPackage := len(mainPkgs) > 0
 	for i, pkg := range mainPkgs {
-		dir, ok, err := p.packageDir(ctx, pkg)
+		dir, err := p.packageDir(ctx, pkg)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			dirs[i] = dir
-		}
-		perPackage = perPackage && ok
+		dirs[i] = dir
 	}
-	fresh, err := p.freshOutput(ctx, perPackage, output)
+	fresh, err := p.freshOutput(ctx, output)
 	if err != nil {
 		return nil, err
 	}
 	if fresh {
-		// Every binary is built per package and the source holds nothing at
-		// the output path, so the output is the binaries alone: assembled
-		// in a fresh directory, they depend on nothing but their builds.
+		// The source holds nothing at the output path, so the output is the
+		// binaries alone: assembled in a fresh directory, they depend on
+		// nothing but their builds.
 		out := dag.Directory()
 		for _, dir := range dirs {
 			bin, err := p.packageBinary(ctx, dir, platform, ldflags)
@@ -427,30 +423,25 @@ func (p *Go) Build(
 		return out, nil
 	}
 	// Otherwise binaries go into the build container in package order, as go
-	// build writes them, so the output is what one go build per package made:
-	// with what the source holds at the output path, and whole builds mixed in.
+	// build writes them, so the output keeps what the source holds at the
+	// output path.
 	env := p.Env(platform)
-	cmd := []string{"go", "build", "-o", output}
-	for i, pkg := range mainPkgs {
-		if dirs[i] != "" {
-			bin, err := p.packageBinary(ctx, dirs[i], platform, ldflags)
-			if err != nil {
-				return nil, err
-			}
-			env = env.WithFiles(output, []*dagger.File{bin})
-			continue
+	for _, dir := range dirs {
+		bin, err := p.packageBinary(ctx, dir, platform, ldflags)
+		if err != nil {
+			return nil, err
 		}
-		env = env.WithExec(goCommand(cmd, []string{pkg}, ldflags, p.Tags, p.Values, p.Race))
+		env = env.WithFiles(output, []*dagger.File{bin})
 	}
 	return dag.Directory().WithDirectory(output, env.Directory(output)), nil
 }
 
-// Whether a build's output can be assembled in a fresh directory: every
-// package builds per package, and the output path, relative to the source,
-// holds nothing in it. go build writes into the source mount, so an output
-// path the source already has, or an absolute one, keeps what is there.
-func (p *Go) freshOutput(ctx context.Context, perPackage bool, output string) (bool, error) {
-	if !perPackage || path.IsAbs(output) {
+// Whether a build's output can be assembled in a fresh directory: the output
+// path, relative to the source, holds nothing in it. go build writes into the
+// source mount, so an output path the source already has, or an absolute one,
+// keeps what is there.
+func (p *Go) freshOutput(ctx context.Context, output string) (bool, error) {
+	if path.IsAbs(output) {
 		return false, nil
 	}
 	rel := path.Clean(output)
@@ -466,23 +457,25 @@ func (p *Go) freshOutput(ctx context.Context, perPackage bool, output string) (b
 
 // The directory of a main package, relative to the source: one named by a
 // relative path, such as "./cmd/foo", or the root package named by the
-// source's module path. Any other package isn't one: it builds with one 'go
-// build', as before.
-func (p *Go) packageDir(ctx context.Context, pkg string) (string, bool, error) {
+// source's module path.
+func (p *Go) packageDir(ctx context.Context, pkg string) (string, error) {
 	if pkg == "." || strings.HasPrefix(pkg, "./") {
 		dir := path.Clean(pkg)
-		return dir, dir != ".." && !strings.HasPrefix(dir, "../"), nil
-	}
-	if strings.HasPrefix(pkg, "../") || path.IsAbs(pkg) {
-		return "", false, nil
+		if dir == ".." || strings.HasPrefix(dir, "../") {
+			return "", fmt.Errorf("package %q is outside the source", pkg)
+		}
+		return dir, nil
 	}
 	mod, err := p.modulePath(ctx)
-	if err != nil || mod == "" {
-		return "", false, err
+	if err != nil {
+		return "", err
 	}
 	// Only the module's own root package: a longer path may be another
 	// module's, such as a nested or replaced one.
-	return ".", pkg == mod, nil
+	if mod == "" || pkg != mod {
+		return "", fmt.Errorf("package %q: name it by its path in the source, such as ./cmd/foo, or by the source's module path", pkg)
+	}
+	return ".", nil
 }
 
 // The module path the source's root go.mod declares, or "" without one.
