@@ -638,8 +638,9 @@ func TestRecordCacheEvidenceResultID(t *testing.T) {
 }
 
 // The span of a persistable call reports its result's state in the cache: its
-// dependencies, the retention its publication adds with the edge's expiry, its
-// own expiry and its type. A result with no filesystem part reports no parts.
+// recipe, its dependencies, the retention its publication adds with the
+// edge's expiry, its own expiry and its type. A result with no filesystem part
+// reports no parts.
 func TestRecordCacheEvidenceCacheState(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -664,6 +665,9 @@ func TestRecordCacheEvidenceCacheState(t *testing.T) {
 	assert.Equal(t, strconv.FormatInt(state.RetentionExpiresAtUnix, 10), got[telemetryattrs.CacheRetentionExpiresAttr])
 	assert.Equal(t, strconv.FormatInt(state.ExpiresAtUnix, 10), got[telemetryattrs.CacheExpiresAttr])
 	assert.Equal(t, "Int", got[telemetryattrs.CacheTypeAttr])
+	recipe, err := res.RecipeDigest(dagql.ContextWithCache(ctx, cache))
+	assert.NilError(t, err)
+	assert.Equal(t, recipe.String(), got["dagger.io/cache.recipe"], "the recipe of the entry the span names")
 	deps, ok := evidenceTestStringSlice(kvs, telemetryattrs.CacheDepsAttr)
 	assert.Assert(t, ok, "an empty dependency list is a recorded fact")
 	assert.Equal(t, 0, len(deps))
