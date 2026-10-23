@@ -44,27 +44,29 @@ type callRecordIntent struct {
 // value of the recipe stays as it is; a live entry of the call stays, and
 // takes the retention if it names returned; an expired one takes the new
 // value in place if nothing uses it, and is retired for a new entry
-// otherwise. It returns the entries a replaced value's dependencies may
-// leave unowned, and the replaced value's release, for the caller to
-// collect and run after unlocking. Requires egraphMu for writing.
-func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, call *callRecordIntent, edgeExpiresAtUnix int64) (collectionQueue, []OnReleaseFunc) {
+// otherwise. It returns the call's entry it recorded or retained, nil when
+// none, and the entries a replaced value's dependencies may leave unowned
+// and the replaced value's release, for the caller to collect and run after
+// unlocking. Requires egraphMu for writing.
+func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, call *callRecordIntent, edgeExpiresAtUnix int64) (*sharedResult, collectionQueue, []OnReleaseFunc) {
 	if returned == nil || returned.id == 0 || c.resultsByID[returned.id] != returned || call.recipe == "" || call.self == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if returned.returnedID != 0 || slices.Contains(returned.recipeKeys, call.recipe) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	now := time.Now()
 	cur := c.currentEntryForRecipeLocked(call.recipe)
 	if cur != nil {
 		if cur.returnedID == 0 {
-			return nil, nil
+			return nil, nil, nil
 		}
 		if !c.resultExpiredAtLocked(cur, now.Unix()) {
 			if cur.returnedID == returned.id {
 				c.upsertPersistedEdgeLocked(ctx, cur, edgeExpiresAtUnix, false)
+				return cur, nil, nil
 			}
-			return nil, nil
+			return nil, nil, nil
 		}
 		if c.resultInUseLocked(cur) {
 			c.retireResultLocked(cur)
@@ -75,7 +77,7 @@ func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, ca
 	deps, err := resultCallDependencies(frame, 0)
 	if err != nil {
 		slog.WarnContext(ctx, "call not recorded", "field", frame.Field, "error", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 	// A function can return its receiver or an argument: the entry owns it
 	// once, as it does every entry it names.
@@ -85,13 +87,13 @@ func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, ca
 	for _, dep := range deps {
 		if c.resultsByID[dep.resultID] == nil {
 			slog.WarnContext(ctx, "call not recorded: it names a result the cache doesn't have", "field", frame.Field, "result", uint64(dep.resultID), "path", dep.path)
-			return nil, nil
+			return nil, nil, nil
 		}
 	}
 	provenance, err := c.inputProvenanceForRefs(call.inputRefs)
 	if err != nil {
 		slog.WarnContext(ctx, "call not recorded", "field", frame.Field, "error", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	value := &sharedResult{
@@ -142,7 +144,7 @@ func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, ca
 	}
 	c.upsertPersistedEdgeLocked(ctx, res, edgeExpiresAtUnix, false)
 	if cur == nil {
-		return nil, nil
+		return res, nil, nil
 	}
 	// The new value's dependency edges are in place: the old value's can go
 	// now without collecting a dependency both share.
@@ -150,7 +152,7 @@ func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, ca
 	if err != nil {
 		slog.WarnContext(ctx, "call record's replaced dependencies", "field", frame.Field, "error", err)
 	}
-	return queue, []OnReleaseFunc{replaced.release}
+	return res, queue, []OnReleaseFunc{replaced.release}
 }
 
 // returnedEnvelope is the stored value of the call's entry id, whose value is

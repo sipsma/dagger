@@ -136,6 +136,12 @@ type CacheDecision struct {
 
 	// cache is the cache that decided, for ResultState.
 	cache *Cache
+
+	// callEntry is the call's own entry, when the publication this call
+	// executed or joined recorded the call as one (cache_call_record.go):
+	// the entry the call's span names in place of the result it returned.
+	// Set by the last of the publication's waiters, which records it.
+	callEntry *sharedResult
 }
 
 // CacheResultState is the state of a cache entry in its cache, as a span
@@ -164,6 +170,9 @@ type CacheResultState struct {
 // never waits on the cache's work, and reports false for a result the cache
 // does not hold.
 func (ev *CacheDecision) ResultState(ctx context.Context, res AnyResult) (CacheResultState, bool) {
+	if ev != nil && ev.cache != nil && ev.callEntry != nil {
+		return ev.cache.resultState(ctx, ev.callEntry, nil)
+	}
 	if ev == nil || ev.cache == nil || res == nil {
 		return CacheResultState{}, false
 	}
@@ -172,6 +181,16 @@ func (ev *CacheDecision) ResultState(ctx context.Context, res AnyResult) (CacheR
 		return CacheResultState{}, false
 	}
 	return ev.cache.resultState(ctx, shared, ev.pendingEdge)
+}
+
+// ResultNumber returns the number of the entry the call's span names: the
+// call's own entry, when its publication recorded the call as one, and res's
+// (CacheResultNumber) otherwise.
+func (ev *CacheDecision) ResultNumber(res AnyResult) (uint64, bool) {
+	if ev != nil && ev.callEntry != nil {
+		return uint64(ev.callEntry.id), true
+	}
+	return CacheResultNumber(res)
 }
 
 // NewCacheDecision returns an empty carrier with its index sentinel set.

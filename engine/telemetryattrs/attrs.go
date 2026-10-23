@@ -756,7 +756,10 @@ const (
 
 	// CacheResultIDAttr is the decimal-string engine-local result number of
 	// the call's cache-backed result, stamped for any stamped outcome that
-	// returned one. Together with the cache identity resource attribute
+	// returned one. A module function call that returned another call's
+	// result, and whose publication recorded the call as an entry of its own,
+	// names that entry instead, and the entry state stamped beside it is that
+	// entry's. Together with the cache identity resource attribute
 	// (EngineCacheAttr) it names one entry of one cache for the cache's
 	// lifetime.
 	CacheResultIDAttr = "dagger.io/cache.result.id"
