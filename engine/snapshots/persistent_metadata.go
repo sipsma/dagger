@@ -13,6 +13,8 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	pkgerrors "github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
+
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 const dagqlResultLeasePrefix = "dagql/result/"
@@ -200,6 +202,7 @@ func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID 
 	cm.ownerLeaseLocker.Lock(leaseID)
 	defer cm.ownerLeaseLocker.Unlock(leaseID)
 
+	_, statOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "lease.attach.stat", wcprof.OpOpts{})
 	snapshotIDs := []string{}
 	labeledBlobs := map[string]digest.Digest{}
 	for currentSnapshotID := snapshotID; currentSnapshotID != ""; {
@@ -216,8 +219,10 @@ func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID 
 			if _, createErr := cm.writeLease(ctx, func(ctx context.Context) error {
 				return cm.createOwnerLease(ctx, leaseID)
 			}); createErr != nil {
+				statOp.EndErr(createErr)
 				return createErr
 			}
+			statOp.EndErr(err)
 			return err
 		}
 		snapshotIDs = append(snapshotIDs, currentSnapshotID)
@@ -231,8 +236,10 @@ func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID 
 	// lease becomes an owner of a snapshot only after the transaction, once
 	// the snapshot's blobs are attached, rechecking for blobs recorded
 	// meanwhile; see addSnapshotOwner.
+	statOp.End(wcprof.OutcomeOK)
 	blobs := cm.snapshotBlobs(snapshotIDs, labeledBlobs)
 	attachedSnapshots := 0
+	_, writeOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "lease.attach.write", wcprof.OpOpts{})
 	committed, err := cm.writeLease(ctx, func(ctx context.Context) error {
 		if err := cm.createOwnerLease(ctx, leaseID); err != nil {
 			return err
@@ -259,6 +266,7 @@ func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID 
 		// does, and stays held once the transaction commits.
 		return cm.statOwnerSnapshot(ctx, leaseID, snapshotID)
 	})
+	writeOp.EndErr(err)
 	if !committed {
 		attachedSnapshots = 0
 	}

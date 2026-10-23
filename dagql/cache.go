@@ -1967,7 +1967,9 @@ func (c *Cache) syncResultSnapshotLeases(ctx context.Context, res *sharedResult)
 	wcprof.Lock(ctx, &res.leaseSyncMu, "dagql.sharedResult.leaseSyncMu")
 	defer res.leaseSyncMu.Unlock()
 
+	_, desiredOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "lease.desiredLinks", wcprof.OpOpts{})
 	links, err := desiredSnapshotLinksForResult(ctx, res, true)
+	desiredOp.EndErr(err)
 	if err != nil {
 		return err
 	}
@@ -2007,10 +2009,13 @@ func (c *Cache) syncResultSnapshotLeases(ctx context.Context, res *sharedResult)
 	for key, oldLink := range oldByKey {
 		newLink, ok := newByKey[key]
 		if !ok || newLink.RefKey != oldLink.RefKey {
-			if err := c.snapshotManager.RemoveLease(
+			_, removeOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "lease.remove", wcprof.OpOpts{})
+			err := c.snapshotManager.RemoveLease(
 				ctx,
 				resultSnapshotLeaseIDForKey(res.id, key),
-			); err != nil {
+			)
+			removeOp.EndErr(err)
+			if err != nil {
 				return err
 			}
 		}
@@ -2025,11 +2030,14 @@ func (c *Cache) syncResultSnapshotLeases(ctx context.Context, res *sharedResult)
 			}
 			res.snapshotLeaseCleanupRoles[key] = struct{}{}
 			res.payloadMu.Unlock()
-			if err := c.snapshotManager.AttachLease(
-				ctx,
+			attachCtx, attachOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "lease.attach", wcprof.OpOpts{})
+			err := c.snapshotManager.AttachLease(
+				attachCtx,
 				resultSnapshotLeaseIDForKey(res.id, key),
 				newLink.RefKey,
-			); err != nil {
+			)
+			attachOp.EndErr(err)
+			if err != nil {
 				return err
 			}
 		}
