@@ -17,11 +17,13 @@ set -- $G26_ARGS
 rounds=${1:-5}
 n=${2:-20}
 GO=docker.io/library/golang:1.26
-TOOL=/usr/local/go/pkg/tool/linux_amd64/compile
 base() { printf 'container | from %s | with-new-file /src/p.go "package p; func F(x int) int { return x * 2 }" | with-env-variable G26 %s' "$GO" "$1"; }
 # The image is resolved once by digest, so every session's execs start from the same rootfs.
 GO=$(dagger -s -c "container | from $GO | image-ref" | tail -1)
-echo "image $GO" >> /out/summary.txt
+# The compiler of the engine's platform, wherever the image keeps it.
+TOOL=$(dagger -s -c "container | from $GO | with-exec -- go env GOTOOLDIR | stdout" | tail -1)/compile
+echo "image $GO; compiler $TOOL" >> /out/summary.txt
+case $TOOL in /*/compile) ;; *) echo "no compiler: $TOOL" >> /out/summary.txt; exit 1 ;; esac
 step() { # $1 = way, $2 = round, $3 = execs
   name=$1-r$2
   : > /work/$name.dsh
