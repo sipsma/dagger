@@ -196,14 +196,51 @@ func (r *TlaCheck) Quick(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
+// TlaCheckSomeOpts contains options for TlaCheck.Some
+type TlaCheckSomeOpts struct {
+	// how many TLC JVMs run at once
+	//
+	// Default: 4
+	Parallel int
+	// each TLC JVM's maximum heap, as java's -Xmx takes it
+	//
+	// Default: "8g"
+	Heap string
+	// TLC's worker threads per JVM: a count, or "auto"
+	//
+	// Default: "auto"
+	Workers string
+	// stop TLC once its working directory passes this many MB, reported as
+	// that configuration's failure, never a pass; 0 is no limit
+	DiskLimitMb int
+}
+
 // Some model-checks the named configurations (without the CacheLifecycle_
 // prefix), with their expectations enforced - the middle ground between
 // the full check and One, which enforces nothing.
-func (r *TlaCheck) Some(ctx context.Context, configs []string) error {
+func (r *TlaCheck) Some(ctx context.Context, configs []string, opts ...TlaCheckSomeOpts) error {
 	if r.some != nil {
 		return nil
 	}
 	q := r.query.Select("some")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `parallel` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Parallel) {
+			q = q.Arg("parallel", opts[i].Parallel)
+		}
+		// `heap` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Heap) {
+			q = q.Arg("heap", opts[i].Heap)
+		}
+		// `workers` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Workers) {
+			q = q.Arg("workers", opts[i].Workers)
+		}
+		// `diskLimitMb` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DiskLimitMb) {
+			q = q.Arg("diskLimitMb", opts[i].DiskLimitMb)
+		}
+	}
 	q = q.Arg("configs", configs)
 
 	return q.Execute(ctx)

@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -255,7 +256,7 @@ func (m *TlaCheck) CacheLifecycle(ctx context.Context) error {
 	for name := range expectedOutcome {
 		names = append(names, name)
 	}
-	return m.runConfigs(ctx, names)
+	return m.runConfigs(ctx, names, defaultTLC)
 }
 
 // Quick model-checks only the cheap configurations (quickConfigs), with
@@ -264,7 +265,7 @@ func (m *TlaCheck) CacheLifecycle(ctx context.Context) error {
 // CacheLifecycle run before a push.
 // +check
 func (m *TlaCheck) Quick(ctx context.Context) error {
-	return m.runConfigs(ctx, quickConfigs)
+	return m.runConfigs(ctx, quickConfigs, defaultTLC)
 }
 
 // Some model-checks the named configurations (without the CacheLifecycle_
@@ -275,9 +276,30 @@ func (m *TlaCheck) Some(
 	// configuration names without the CacheLifecycle_ prefix, e.g.
 	// "resources,resources_latedep"
 	configs []string,
+	// +optional
+	// +default=4
+	// how many TLC JVMs run at once
+	parallel int,
+	// +optional
+	// +default="8g"
+	// each TLC JVM's maximum heap, as java's -Xmx takes it
+	heap string,
+	// +optional
+	// +default="auto"
+	// TLC's worker threads per JVM: a count, or "auto"
+	workers string,
+	// +optional
+	// +default=0
+	// stop TLC once its working directory passes this many MB, reported as
+	// that configuration's failure, never a pass; 0 is no limit
+	diskLimitMb int,
 ) error {
 	if len(configs) == 0 {
 		return fmt.Errorf("some: no configurations named")
+	}
+	opts := tlcOptions{parallel: parallel, heap: heap, workers: workers, diskLimitMB: diskLimitMb}
+	if err := opts.validate(); err != nil {
+		return fmt.Errorf("some: %w", err)
 	}
 	var unknown []string
 	for _, name := range configs {
@@ -289,10 +311,43 @@ func (m *TlaCheck) Some(
 		sort.Strings(unknown)
 		return fmt.Errorf("some: unknown configurations %s (see expectedOutcome in this module)", strings.Join(unknown, ", "))
 	}
-	return m.runConfigs(ctx, configs)
+	return m.runConfigs(ctx, configs, opts)
 }
 
-func (m *TlaCheck) runConfigs(ctx context.Context, names []string) error {
+// tlcOptions bound the TLC JVMs a check runs: how many at once, each one's
+// heap, its worker threads, and how much disk its working directory may
+// take. defaultTLC is what every check ran with before the options existed.
+type tlcOptions struct {
+	parallel    int
+	heap        string
+	workers     string
+	diskLimitMB int
+}
+
+var defaultTLC = tlcOptions{parallel: 4, heap: "8g", workers: "auto"}
+
+var (
+	heapPattern    = regexp.MustCompile(`^[0-9]+[kKmMgG]?$`)
+	workersPattern = regexp.MustCompile(`^(auto|[0-9]+)$`)
+)
+
+// validate refuses options that aren't plain numbers or sizes: they go into
+// a shell command line.
+func (o tlcOptions) validate() error {
+	switch {
+	case o.parallel < 1:
+		return fmt.Errorf("parallel %d: at least one JVM must run", o.parallel)
+	case !heapPattern.MatchString(o.heap):
+		return fmt.Errorf("heap %q: want a size such as 6g", o.heap)
+	case !workersPattern.MatchString(o.workers):
+		return fmt.Errorf("workers %q: want a count or auto", o.workers)
+	case o.diskLimitMB < 0:
+		return fmt.Errorf("disk limit %d MB: want 0 (none) or more", o.diskLimitMB)
+	}
+	return nil
+}
+
+func (m *TlaCheck) runConfigs(ctx context.Context, names []string, opts tlcOptions) error {
 	base := m.base(m.Source)
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
@@ -303,7 +358,7 @@ func (m *TlaCheck) runConfigs(ctx context.Context, names []string) error {
 		wg       sync.WaitGroup
 		// Each configuration is a TLC JVM of several GiB; unbounded fan-out
 		// over 30 configurations exhausted a 64 GiB host.
-		sem = make(chan struct{}, 4)
+		sem = make(chan struct{}, opts.parallel)
 	)
 	for _, name := range sorted {
 		wg.Add(1)
@@ -317,7 +372,7 @@ func (m *TlaCheck) runConfigs(ctx context.Context, names []string) error {
 			specName := strings.TrimSuffix(model, ".tla")
 			configPrefix := specName + "_"
 			cfgName := strings.TrimSuffix(strings.TrimPrefix(cfgPath, configPrefix), ".cfg")
-			if failure := runOne(ctx, base, specName, configPrefix, cfgName, expectedOutcome[name]); failure != nil {
+			if failure := runOne(ctx, base, specName, configPrefix, cfgName, expectedOutcome[name], opts); failure != nil {
 				failure.name = name
 				mu.Lock()
 				failures = append(failures, *failure)
@@ -350,7 +405,7 @@ func (m *TlaCheck) ClientLifecycle(ctx context.Context) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if failure := runOne(ctx, base, specName, configPrefix, name, expect); failure != nil {
+			if failure := runOne(ctx, base, specName, configPrefix, name, expect, defaultTLC); failure != nil {
 				failure.name = group + "/" + failure.name
 				mu.Lock()
 				failures = append(failures, *failure)
@@ -494,15 +549,18 @@ func runOne(
 	configPrefix,
 	name,
 	expect string,
+	opts tlcOptions,
 ) *runFailure {
-	// -Xmx8g: the JVM's default heap is a quarter of host memory, so four
-	// concurrent configurations could still overcommit a 64 GiB host.
-	cmd := fmt.Sprintf(
-		"java -Xmx8g -XX:+UseParallelGC -cp /tla2tools.jar tlc2.TLC -workers auto -deadlock -config %s%s.cfg %s.tla 2>&1; true",
-		configPrefix, name, specName)
-	out, err := base.WithExec([]string{"sh", "-c", cmd}).Stdout(ctx)
+	out, err := base.WithExec([]string{"sh", "-c", tlcCommand(opts, configPrefix, name, specName)}).Stdout(ctx)
 	if err != nil {
 		return &runFailure{name: name, summary: "could not run TLC", detail: err.Error()}
+	}
+	if strings.Contains(out, diskGuardMarker) {
+		return &runFailure{
+			name:    name,
+			summary: fmt.Sprintf("stopped by the disk guard: TLC's working directory passed %d MB, so the configuration is unchecked", opts.diskLimitMB),
+			detail:  out,
+		}
 	}
 
 	clean := strings.Contains(out, "No error has been found")
@@ -563,6 +621,66 @@ func runOne(
 			detail:  out,
 		}
 	}
+}
+
+// diskGuardMarker is what the guarded command prints when it stops TLC.
+const diskGuardMarker = "tla-check disk guard: TLC stopped"
+
+// tlcCommand is the shell command that runs one TLC configuration. The heap
+// bound matters: the JVM's default heap is a quarter of host memory, so four
+// concurrent configurations could still overcommit a 64 GiB host.
+// defaultTLC's -Xmx8g with -workers auto, and no disk limit, is the original
+// command line.
+//
+// With a disk limit, TLC keeps everything it writes in one known directory
+// (-metadir): the fingerprint set's spill, the on-disk state queue,
+// checkpoints, and the liveness checker's behaviour graph. That directory is
+// measured every five seconds; past the limit, TLC's whole process group is
+// killed, and the marker follows TLC's output. TLC's output is streamed while
+// it runs (tail --pid, which ends once TLC has, after the last line), so a
+// run cut short still shows its progress; a tail without --pid falls back to
+// printing the output at the end. The output file exists before TLC starts,
+// so the tail never opens a missing file. The output is complete after a
+// normal exit or a guard kill. An INT or TERM stops TLC's group and drains
+// the tail for at most five seconds, so its last lines may be lost. The
+// runtime's timeout may SIGKILL the exec instead, which skips this cleanup
+// and leaves it to the container's teardown.
+func tlcCommand(opts tlcOptions, configPrefix, name, specName string) string {
+	if opts.diskLimitMB == 0 {
+		return fmt.Sprintf(
+			"java -Xmx%s -XX:+UseParallelGC -cp /tla2tools.jar tlc2.TLC -workers %s -deadlock -config %s%s.cfg %s.tla 2>&1; true",
+			opts.heap, opts.workers, configPrefix, name, specName)
+	}
+	return fmt.Sprintf(`meta=/tmp/tlc-meta; mkdir -p $meta
+: > /tmp/tlc.out || { echo "tla-check: cannot create /tmp/tlc.out"; exit 1; }
+group=; command -v setsid >/dev/null 2>&1 && group=setsid
+$group java -Xmx%s -XX:+UseParallelGC -cp /tla2tools.jar tlc2.TLC -workers %s -deadlock -metadir $meta -config %s%s.cfg %s.tla >> /tmp/tlc.out 2>&1 &
+pid=$!; tripped=0; tailpid=
+stop() { if [ -n "$group" ]; then kill -s KILL -- "-$pid" 2>/dev/null; fi; kill -s KILL "$pid" 2>/dev/null; }
+drained=
+drain() {
+  [ -n "$drained" ] && return; drained=1
+  if [ -z "$tailpid" ]; then cat /tmp/tlc.out; return; fi
+  i=0; while kill -0 $tailpid 2>/dev/null && [ $i -lt 10 ]; do sleep 0.5; i=$((i+1)); done
+  kill $tailpid 2>/dev/null; wait $tailpid 2>/dev/null
+}
+trap 'stop; drain; exit 143' INT TERM
+if tail --help 2>&1 | grep -q -- --pid; then
+  tail -n +1 --pid=$pid -f /tmp/tlc.out & tailpid=$!
+fi
+while kill -0 $pid 2>/dev/null; do
+  used=$(du -sk $meta 2>/dev/null | cut -f1)
+  if [ "${used:-0}" -gt %d ]; then
+    stop; tripped=1; break
+  fi
+  sleep 5
+done
+wait $pid 2>/dev/null
+drain
+if [ $tripped = 1 ]; then echo "%s: its working directory passed %d MB"; fi
+true`,
+		opts.heap, opts.workers, configPrefix, name, specName,
+		opts.diskLimitMB*1024, diskGuardMarker, opts.diskLimitMB)
 }
 
 // modelFiles preserves the existing short names and adds the snapshot

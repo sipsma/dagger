@@ -10,3 +10,6 @@ type TlaCheck = core.TlaCheck
 
 // TlaCheckOneOpts contains options for TlaCheck.One
 type TlaCheckOneOpts = core.TlaCheckOneOpts
+
+// TlaCheckSomeOpts contains options for TlaCheck.Some
+type TlaCheckSomeOpts = core.TlaCheckSomeOpts

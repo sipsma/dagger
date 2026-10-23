@@ -264,7 +264,35 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg configs", err))
 				}
 			}
-			return nil, (*TlaCheck).Some(&parent, ctx, configs)
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			var heap string
+			if inputArgs["heap"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["heap"]), &heap)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg heap", err))
+				}
+			}
+			var workers string
+			if inputArgs["workers"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["workers"]), &workers)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg workers", err))
+				}
+			}
+			var diskLimitMb int
+			if inputArgs["diskLimitMb"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["diskLimitMb"]), &diskLimitMb)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg diskLimitMb", err))
+				}
+			}
+			return nil, (*TlaCheck).Some(&parent, ctx, configs, parallel, heap, workers, diskLimitMb)
 		case "":
 			var parent TlaCheck
 			err = json.Unmarshal(parentJSON, &parent)
@@ -286,46 +314,50 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		return dag.Module().
 			WithDescription("TLA+ model checking for the dagql cache spec (dagql/tla).\n\nRuns every TLC configuration of CacheLifecycle.tla. Green configurations\nare regression checks: any violation fails the check. A configuration may\nname an expected invariant only when it deliberately mutates behavior to\nprove that the check detects the bug, or tracks an accepted model finding.\n").
 			WithObject(
-				dag.TypeDef().WithObject("TlaCheck", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 161, 6)}).
+				dag.TypeDef().WithObject("TlaCheck", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 189, 6)}).
 					WithFunction(
 						dag.Function("CacheLifecycle",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("CacheLifecycle model-checks every configuration of the dagql cache spec\nand verifies each outcome against its expectation.\n\nWARNING: the full run is expensive - well over an hour wall with four\nTLC JVMs, and the largest configurations reach more than 110 million\ndistinct states each. Run it sparingly: it is required before pushing changes\nunder dagql/tla (it no longer runs in CI), but for iteration prefer\nQuick (seconds), Some (chosen configurations with their expectations\nenforced), or One (a single configuration, raw output, optional probe\ninjection).").
-							WithSourceMap(dag.SourceMap("main.go", 226, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 254, 1)).
 							WithCheck()).
 					WithFunction(
 						dag.Function("ClientLifecycle",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ClientLifecycle model-checks client runtime reclamation, typed leases,\nnested-client ownership, authoritative session teardown, and the final\ntelemetry barrier.").
-							WithSourceMap(dag.SourceMap("main.go", 310, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 392, 1)).
 							WithCheck()).
 					WithFunction(
 						dag.Function("One",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("One runs a single TLC configuration and returns the raw TLC output,\nusing the same pinned jar and invocation as the CacheLifecycle check.\nUnlike the check, it applies no expectation: violations come back in\nthe output for the caller to read.\n\nWith invariant set, the configuration's INVARIANTS line is replaced by\nthat single invariant, the specification is forced to the safety-only\nSpec, and PROPERTY lines are dropped, so one question runs in\nisolation. With define also set, the given TLA+ operator definition is\nappended to the spec first; that runs a scratch probe invariant (for\nexample a reachability probe expected to violate) without editing the\nrepository.").
-							WithSourceMap(dag.SourceMap("main.go", 361, 1)).
-							WithArg("config", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "configuration name without the CacheLifecycle_ prefix, e.g. \"lazy\"", SourceMap: dag.SourceMap("main.go", 364, 2)}).
-							WithArg("invariant", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "invariant to check instead of the configuration's INVARIANTS line", SourceMap: dag.SourceMap("main.go", 367, 2)}).
-							WithArg("define", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "TLA+ operator definition to append to the spec, e.g. \"ProbeX == ...\"", SourceMap: dag.SourceMap("main.go", 370, 2)})).
+							WithSourceMap(dag.SourceMap("main.go", 443, 1)).
+							WithArg("config", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "configuration name without the CacheLifecycle_ prefix, e.g. \"lazy\"", SourceMap: dag.SourceMap("main.go", 446, 2)}).
+							WithArg("invariant", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "invariant to check instead of the configuration's INVARIANTS line", SourceMap: dag.SourceMap("main.go", 449, 2)}).
+							WithArg("define", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "TLA+ operator definition to append to the spec, e.g. \"ProbeX == ...\"", SourceMap: dag.SourceMap("main.go", 452, 2)})).
 					WithFunction(
 						dag.Function("Quick",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Quick model-checks only the cheap configurations (quickConfigs), with\ntheir expectations enforced. It finishes in about a minute and is the\nright default while iterating; it does not replace the full\nCacheLifecycle run before a push.").
-							WithSourceMap(dag.SourceMap("main.go", 239, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 267, 1)).
 							WithCheck()).
 					WithFunction(
 						dag.Function("Some",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Some model-checks the named configurations (without the CacheLifecycle_\nprefix), with their expectations enforced - the middle ground between\nthe full check and One, which enforces nothing.").
-							WithSourceMap(dag.SourceMap("main.go", 246, 1)).
-							WithArg("configs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "configuration names without the CacheLifecycle_ prefix, e.g.\n\"resources,resources_latedep\"", SourceMap: dag.SourceMap("main.go", 250, 2)})).
-					WithField("Source", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "The dagql/tla spec directory.", SourceMap: dag.SourceMap("main.go", 163, 2)}).
-					WithField("ClientSource", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "The engine/server/tla spec directory.", SourceMap: dag.SourceMap("main.go", 166, 2)}).
+							WithSourceMap(dag.SourceMap("main.go", 274, 1)).
+							WithArg("configs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "configuration names without the CacheLifecycle_ prefix, e.g.\n\"resources,resources_latedep\"", SourceMap: dag.SourceMap("main.go", 278, 2)}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "how many TLC JVMs run at once", SourceMap: dag.SourceMap("main.go", 282, 2), DefaultValue: dagger.JSON("4")}).
+							WithArg("heap", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "each TLC JVM's maximum heap, as java's -Xmx takes it", SourceMap: dag.SourceMap("main.go", 286, 2), DefaultValue: dagger.JSON("\"8g\"")}).
+							WithArg("workers", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "TLC's worker threads per JVM: a count, or \"auto\"", SourceMap: dag.SourceMap("main.go", 290, 2), DefaultValue: dagger.JSON("\"auto\"")}).
+							WithArg("diskLimitMb", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "stop TLC once its working directory passes this many MB, reported as\nthat configuration's failure, never a pass; 0 is no limit", SourceMap: dag.SourceMap("main.go", 295, 2), DefaultValue: dagger.JSON("0")})).
+					WithField("Source", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "The dagql/tla spec directory.", SourceMap: dag.SourceMap("main.go", 191, 2)}).
+					WithField("ClientSource", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "The engine/server/tla spec directory.", SourceMap: dag.SourceMap("main.go", 194, 2)}).
 					WithConstructor(
 						dag.Function("New",
 							dag.TypeDef().WithObject("TlaCheck")).
-							WithSourceMap(dag.SourceMap("main.go", 169, 1)).
-							WithArg("ws", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 169, 10)}))), nil
+							WithSourceMap(dag.SourceMap("main.go", 197, 1)).
+							WithArg("ws", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 197, 10)}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}
