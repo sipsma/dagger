@@ -97,6 +97,8 @@ class Build:
             x.setdefault("lazy_s", x["exec_s"])
             x.setdefault("req_s", x["lazy_s"])
             x.setdefault("req_e", e["d"])
+            # When the exec's result was done: its lazy evaluation's end, else the exec's.
+            x["done_e"] = x.get("lazy_e") or x.get("exec_e") or e["d"]
             self.execs.append(x)
         self.pkgs = {}
         for x in self.execs:
@@ -109,8 +111,6 @@ class Build:
         for x in self.execs:
             if x["kind"] == "modunzip":
                 self.mods[x["key"].rsplit("@", 1)[0]] = x
-        self.occ = Occupancy([[x["req_s"], x["lazy_s"], x["exec_s"], x["proc_s"], x["proc_e"], x["req_e"]]
-                              for x in self.execs if x["kind"] in ("pkg", "link")])
         self.trace = {}  # tier package import path -> trace line, with "tier" index
         self.tier_runs = []
         self.walk = None
@@ -137,6 +137,9 @@ class Build:
                           "can't be named from their argv; they are left out", file=sys.stderr)
             if self.link_pkg not in self.pkgs:
                 raise SystemExit("no link exec found in the dump")
+        # After the link is named (above), so it counts.
+        self.occ = Occupancy([[x["req_s"], x["lazy_s"], x["exec_s"], x["proc_s"], x["proc_e"], x["req_e"]]
+                              for x in self.execs if x["kind"] in ("pkg", "link")])
         if self._walk_path:
             self._load_walk(self._walk_path)
 
@@ -173,7 +176,9 @@ class Build:
             x = self.pkgs.get(p)
             if not x or not t["Acquired"]:
                 continue
-            items.append([t["Acquired"], x["req_s"], x["lazy_s"], x["exec_s"], x["proc_s"], x["proc_e"], t["DirSynced"], t["Released"]])
+            # The slot is the package's from the gate's grant (or, in an older trace, from when
+            # acquire returned).
+            items.append([t["Granted"] or t["Acquired"], x["req_s"], x["lazy_s"], x["exec_s"], x["proc_s"], x["proc_e"], t["DirSynced"], t["Released"]])
         self.slot_occ = Occupancy(items, SLOT_PHASES)
 
     def slot_wait_note(self, pkg, a, b):
@@ -181,7 +186,8 @@ class Build:
         tot = self.slot_occ.integral(a, b)
         span = b - a
         h = self.walk[pkg]["Height"]
-        holders = [q for q, t in self.walk.items() if t["Acquired"] and t["Acquired"] <= a and (t["Released"] or 0) >= b]
+        holders = [q for q, t in self.walk.items()
+                   if (t["Granted"] or t["Acquired"]) and (t["Granted"] or t["Acquired"]) <= a and (t["Released"] or 0) >= b]
         lower = sum(1 for q in holders if self.walk[q]["Height"] < h)
         parts = ", ".join(f"{tot[k] / span:.1f} {SLOT_PHASES[k]}" for k in range(len(tot)) if tot[k] / span >= 0.3)
         return f"slots held (mean {sum(tot) / span:.1f}): {parts}; {len(holders)} held it throughout, {lower} of them lower priority"
@@ -219,6 +225,38 @@ class Build:
             return self.tier_runs[self.trace[pkg]["tier"]]["exec"]["req_e"]
         return None
 
+    def over_time(self, step_ms=100):
+        """Sampled every step_ms from the build's start: how many packages were compiling, and how
+        many held an exec slot (today's build) or an in-flight request (otherwise) without
+        compiling. In the old build's tiers every running script counts as compiling."""
+        comp, held = [], []
+        for x in self.execs:
+            if x["kind"] in ("pkg", "link"):
+                comp.append((x["proc_s"], x["proc_e"]))
+        for n in self.trace.values():
+            comp.append((n["start"] - self.epoch, n["end"] - self.epoch))
+        if self.walk:
+            for p, t in self.walk.items():
+                if t["Acquired"] and t["Released"]:
+                    held.append((t["Acquired"], t["Released"]))
+        else:
+            for x in self.execs:
+                if x["kind"] in ("pkg", "link"):
+                    held.append((x["req_s"], x["req_e"]))
+        n = int((self.tend - self.t0) / (step_ms * MS)) + 1
+        c, h = [0] * n, [0] * n
+        for arr, iv in ((c, comp), (h, held)):
+            for a, b in iv:
+                i0 = max(int((a - self.t0) / (step_ms * MS)), 0)
+                i1 = min(int((b - self.t0) / (step_ms * MS)), n - 1)
+                for i in range(i0, i1 + 1):
+                    # The share of sample i's interval the item covered.
+                    lo = self.t0 + i * step_ms * MS
+                    hi = lo + step_ms * MS
+                    arr[i] += max(0, min(b, hi) - max(a, lo)) / (step_ms * MS)
+        return {"step_ms": step_ms, "compiling": [round(v, 2) for v in c],
+                "held": [round(v, 2) for v in h], "held_kind": "exec slot" if self.walk else "request"}
+
     def mod_of(self, pkg):
         best = ""
         for m in self.mods:
@@ -243,12 +281,13 @@ class Build:
                 segs.append((cur, x["proc_s"], x["proc_e"], "compile (process)"))
                 segs.append((cur, x["exec_s"], x["proc_s"], "container start"))
                 mx = self.mod_of(cur)
-                if mx and mx["req_e"] > x["lazy_s"]:
-                    # The package's own module was still being extracted after its request
-                    # began: that part of its exec setup was the extraction's.
-                    m_end = min(mx["req_e"], x["exec_s"])
-                    segs.append((cur, x["lazy_s"], m_end, "exec setup: its module still extracting"))
+                if mx and mx["done_e"] > x["lazy_s"]:
+                    # The package's own module was still being extracted after its exec setup
+                    # began: that part of the setup overlapped the extraction. (Overlap, not
+                    # proof that the setup waited on it.) Built backwards: later part first.
+                    m_end = min(mx["done_e"], x["exec_s"])
                     segs.append((cur, m_end, x["exec_s"], "exec setup (mounts, inputs)"))
+                    segs.append((cur, x["lazy_s"], m_end, "exec setup: its module still extracting"))
                 else:
                     segs.append((cur, x["lazy_s"], x["exec_s"], "exec setup (mounts, inputs)"))
                 segs.append((cur, x["req_s"], x["lazy_s"], "request to exec"))
@@ -270,7 +309,9 @@ class Build:
                         segs.append((cur, wt["Enqueued"], wt["Granted"], "hand-off: waiting for an exec slot"))
                         segs.append((cur, wt["DepsDone"], wt["Enqueued"], "hand-off: helper builds the exec"))
                     else:
-                        segs.append((cur, wt["DepsDone"], wt["Acquired"], "hand-off: waiting for an exec slot"))
+                        # An older trace without Enqueued/Granted: the helper building the exec,
+                        # the gate wait and the wake-up, together.
+                        segs.append((cur, wt["DepsDone"], wt["Acquired"], "hand-off: building the exec + waiting for a slot"))
                     segs.append((cur, t, wt["DepsDone"], "hand-off: result to helper"))
                 else:
                     segs.append((cur, t, x["req_s"], self.handoff_cat(t, x["req_s"])))
@@ -314,6 +355,7 @@ class Build:
             segs.append(("(before first package)", self.t0, ex["req_s"], "before the first compile"))
             cur = None
         segs.reverse()
+        check_tiling(segs)
         return segs
 
     def summary(self):
@@ -324,7 +366,7 @@ class Build:
         for _, s, e, c in segs:
             bycat[c] += (e - s) / MS
         out["chain"] = [{"pkg": l, "s": self.rel(s), "e": self.rel(e), "ms": (e - s) / MS, "cat": c,
-                         "note": (self.slot_wait_note(l, s, e) if c == "hand-off: waiting for an exec slot"
+                         "note": (self.slot_wait_note(l, s, e) if c in ("hand-off: waiting for an exec slot", "hand-off: building the exec + waiting for a slot")
                                   else self.occ.describe(s, e) if c.startswith("hand-off") and not self.tier_runs and not self.walk else "")}
                         for l, s, e, c in segs]
         # How gobuild's exec slots were spent over the whole build, by phase (slot-seconds).
@@ -333,8 +375,8 @@ class Build:
         mw = []
         for p, x in self.pkgs.items():
             mx = self.mod_of(p)
-            if mx and mx["req_e"] > x["lazy_s"]:
-                mw.append((min(mx["req_e"], x["exec_s"]) - x["lazy_s"]) / MS)
+            if mx and mx["done_e"] > x["lazy_s"]:
+                mw.append((min(mx["done_e"], x["exec_s"]) - x["lazy_s"]) / MS)
         out["module_waits"] = {"packages": len(mw), "ms": sum(mw)}
         if self.walk:
             out["slot_seconds_helper"] = dict(zip(SLOT_PHASES, (v / 1e9 for v in self.slot_occ.integral(a, b))))
@@ -370,12 +412,23 @@ class Build:
                          "align_ms": t["align_ms"], "cpu_s": sum(n["user_us"] + n["sys_us"] for n in t["nodes"]) / 1e6,
                          "busy": busy_profile([(n["start"], n["end"]) for n in t["nodes"]])}
                         for t in self.tier_runs]
-        out["exec_busy"] = busy_profile([(x["proc_s"], x["proc_e"]) for x in self.execs if x["kind"] == "pkg"])
+        out["over_time"] = self.over_time()
+        out["exec_busy"] = busy_profile([(x["proc_s"], x["proc_e"]) for x in self.execs if x["kind"] in ("pkg", "link")])
         return out
 
 
 SLOT_PHASES = ("got slot, before request", "request to exec", "exec setup", "container start", "compile",
                "after compile", "archive request, release")
+
+def check_tiling(segs, tol_ns=1000):
+    """The chain's segments must follow one another: each starts where the last ended (within
+    tol_ns), none runs backwards."""
+    for i, (l, a, b, c) in enumerate(segs):
+        if b < a - tol_ns:
+            raise ValueError(f"chain segment {i} ({c}, {l}) runs backwards: {a}..{b}")
+        if i and abs(a - segs[i - 1][2]) > tol_ns:
+            raise ValueError(f"chain segment {i} ({c}, {l}) starts at {a}, not where segment {i - 1} ended ({segs[i - 1][2]})")
+
 
 PHASES = ("request to exec", "exec setup (mounts, inputs)", "container start", "compile (process)",
           "after compile (outputs, result)")
@@ -414,15 +467,16 @@ class Occupancy:
         out = [0.0] * n
         if b <= a or not self.ts:
             return out
-        i = max(self.bisect.bisect_right(self.ts, a) - 1, 0)
+        # counts[i] holds from ts[i] to ts[i+1]; before ts[0] nothing is in flight.
+        i = self.bisect.bisect_right(self.ts, a) - 1
         t = a
         while t < b:
             nxt = self.ts[i + 1] if i + 1 < len(self.ts) else b
-            seg_end = min(max(nxt, t), b)
-            c = self.counts[i] if self.ts[i] <= t else (0,) * n
-            for k in range(n):
-                out[k] += c[k] * (seg_end - t)
-            t = seg_end
+            seg_end = min(nxt, b)
+            if i >= 0 and seg_end > t:
+                for k in range(n):
+                    out[k] += self.counts[i][k] * (seg_end - t)
+            t = max(t, seg_end)
             i += 1
             if i >= len(self.ts):
                 break
