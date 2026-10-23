@@ -164,6 +164,15 @@ func returnedEnvelope(id, returned sharedResultID) *PersistedResultEnvelope {
 	}
 }
 
+// servedEntryLocked returns the entry a load of res serves: the returned
+// entry of a call's entry, res itself otherwise. Requires egraphMu.
+func (c *Cache) servedEntryLocked(res *sharedResult) *sharedResult {
+	if res != nil && res.returnedID != 0 {
+		return c.resultsByID[res.returnedID]
+	}
+	return res
+}
+
 // joinReturnedClassLocked puts res, an entry whose value is returned, in
 // returned's output classes: they are the same result. Requires egraphMu for
 // writing.

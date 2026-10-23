@@ -75,7 +75,7 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 	}
 	if sessionID == "" {
 		c.egraphMu.RLock()
-		res := c.resultsByID[resultID]
+		res := c.servedEntryLocked(c.resultsByID[resultID])
 		var (
 			requiredGenAtCheck uint64
 			noValue            bool
@@ -99,7 +99,7 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 	// cache operation in the engine.
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
-	res := c.resultsByID[resultID]
+	res := c.servedEntryLocked(c.resultsByID[resultID])
 	if res == nil {
 		return sharedResultLookup{}, fmt.Errorf("resolve result %d: missing shared result", resultID)
 	}
