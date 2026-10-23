@@ -7129,7 +7129,11 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		if cur == nil {
 			break
 		}
-		if !cur.noValueLocked() && !c.resultExpiredAtLocked(cur, now.Unix()) {
+		// An open attachment is a value still being installed: a merge's
+		// replacement holds it until the old value is released, however
+		// the entry's expiry stands meanwhile. It settles before the entry
+		// is adopted, replaced or retired.
+		if !cur.noValueLocked() {
 			if cur.attachmentState() == resultAttachmentOpen {
 				cur.attachDepsMu.Lock()
 				waitCh, holder := cur.attachDepsWaitCh, cur.attachHolder
@@ -7163,9 +7167,9 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 				break
 			}
 			// A call's own entry (cache_call_record.go) has no value of its
-			// own to adopt: once its attachment is settled, a value of the
-			// call takes it as it takes an expired one.
-			if cur.returnedID == 0 {
+			// own to adopt: a value of the call takes it as it takes an
+			// expired one.
+			if cur.returnedID == 0 && !c.resultExpiredAtLocked(cur, now.Unix()) {
 				// A late explicit dependency can raise the entry's
 				// requirements without changing its recipe. A session that
 				// does not cover them publishes its own value, not indexed,
