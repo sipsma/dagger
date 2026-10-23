@@ -37,6 +37,7 @@ W=$out/wcprof-report
 for d in "$out"/run/*.dump; do
   [ -f "$d" ] || continue
   echo "$(basename "$d") exec.processRun=$($W -view classes -kind exec_phase -class '^exec[.]processRun$' "$d" | awk '$NF ~ /^ok:/ && /exec.processRun/ {print $1}')" >> "$out/run/execcounts.txt"
+  { echo "### $(basename "$d")"; $W -view classes -kind internal -class '^lease\.' "$d"; } >> "$out/run/leases.txt" 2>&1
   r=${d%.dump}.reports.txt
   {
     echo "### $(basename "$d")"
