@@ -174,6 +174,31 @@ var expectedOutcome = map[string]string{
 	"persist_decline_adopt":    "DeclinedNeverPersisted",
 	"persist_decline_retire":   "DeclinedNeverPersisted",
 	"persist_decline_flush":    "DeclinedNeverPersisted",
+
+	// green: call entries (cache_call_record.go). A module function call
+	// that returns another call's result is recorded as an entry of its
+	// own whose value is the returned entry: lookup serves the returned
+	// entry, never the call entry; the call entry owns the returned entry,
+	// is merged and restored like any record, and is never decoded. Each
+	// mutation drops one rule; each probe must reach its witness. See the
+	// config headers.
+	"callrec_publish":            "",
+	"callrec_expiry":             "",
+	"callrec_merge":              "",
+	"callrec_restart":            "",
+	"callrec_serve":              "CallEntryNeverServed",
+	"callrec_nodep":              "CallEntryHoldsReturned",
+	"callrec_replace_link":       "CallEntryHoldsReturned",
+	"callrec_merge_link":         "CallEntryHoldsReturned",
+	"callrec_restore_decode":     "CallEntryNeverDecoded",
+	"callrec_owns_once":          "OwnershipExact",
+	"callrec_adopt":              "CallEntryNeverServed",
+	"probe_callrec_recorded":     "ProbeCallEntryRecorded",
+	"probe_callrec_serves":       "ProbeHitWithCallEntry",
+	"probe_callrec_merged":       "ProbeMergedCallEntry",
+	"probe_callrec_restored":     "ProbeCallEntryRestored",
+	"probe_callrec_replaced":     "ProbeCallEntryReplaced",
+	"probe_callrec_value_expiry": "ProbeValueExpiryReplace",
 }
 
 var clientExpectedOutcome = map[string]string{
