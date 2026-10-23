@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
@@ -265,4 +266,46 @@ func TestCallRecordReturningItsReceiverOwnsItOnce(t *testing.T) {
 	require.Equal(t, wolfi.cacheSharedResult().id, got.cacheSharedResult().id, "the function returns its receiver")
 	callRecordTestEntry(t, ctx, a, frame, wolfi)
 	require.NoError(t, cacheOwnershipError(a))
+}
+
+// After a call's entry and the result it returned expire, the call runs
+// again and its body computes a new result: the call's entry, its recipe's
+// current entry, takes the new result as its value, as any entry takes its
+// recipe's new value, and a fresh engine that merges it gets the new result.
+func TestCallRecordFollowsARecomputedResult(t *testing.T) {
+	t.Parallel()
+	content := digest.FromString("call-record-test-module-content")
+	ctx, a, srv := transferTestCache(t)
+	inner, frame := callRecordTestRun(t, ctx, a, srv, "module-a", content)
+	entry := callRecordTestEntry(t, ctx, a, frame, inner)
+	currentEntryTestExpire(a, entry)
+	currentEntryTestExpire(a, inner)
+
+	mod := callRecordTestModule(t, ctx, a, srv, "module-a", content)
+	wolfi, _, _ := callRecordTestCall(t, ctx, a, srv, "wolfi", nil, mod, callRecordTestValue("wolfi again"))
+	var recomputed AnyResult
+	got, ran, _ := callRecordTestCall(t, ctx, a, srv, "container", wolfi, mod, func(*ResultCall) (AnyResult, error) {
+		res, ran, _ := callRecordTestCall(t, ctx, a, srv, "withEnvVariable", nil, nil, callRecordTestValue("inner again"))
+		require.True(t, ran, "the expired inner result is computed again")
+		recomputed = res
+		return res, nil
+	})
+	require.True(t, ran, "the expired call runs again")
+	require.Equal(t, recomputed.cacheSharedResult().id, got.cacheSharedResult().id)
+	require.NotEqual(t, inner.cacheSharedResult().id, recomputed.cacheSharedResult().id)
+
+	current := callRecordTestEntry(t, ctx, a, frame, recomputed)
+	a.egraphMu.RLock()
+	returnedID := current.cacheSharedResult().returnedID
+	expired := a.resultExpiredAtLocked(current.cacheSharedResult(), time.Now().Unix())
+	a.egraphMu.RUnlock()
+	require.Equal(t, recomputed.cacheSharedResult().id, returnedID, "the call's entry names the recomputed result")
+	require.False(t, expired, "the call's entry is current again")
+	require.NoError(t, cacheOwnershipError(a))
+
+	bundle := callRecordTestCloud(t, ctx, a, current)
+	wolfiRan, containerRan, value := callRecordTestOnB(t, bundle, "module-b", content, nil)
+	require.False(t, wolfiRan, "B hits A's constructor")
+	require.False(t, containerRan, "B hits A's module function call")
+	require.Equal(t, "inner again", value.Text, "and gets the recomputed result")
 }
