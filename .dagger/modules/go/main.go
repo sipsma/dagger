@@ -395,64 +395,21 @@ func (p *Go) Build(
 		ldflags = append(ldflags, "-w")
 	}
 
-	// The directory of each package, relative to the source.
-	dirs := make([]string, len(mainPkgs))
-	for i, pkg := range mainPkgs {
+	// The binaries go into a fresh directory, so they depend on nothing but
+	// their builds.
+	out := dag.Directory()
+	for _, pkg := range mainPkgs {
 		dir, err := p.packageDir(ctx, pkg)
 		if err != nil {
 			return nil, err
 		}
-		dirs[i] = dir
-	}
-	fresh, err := p.freshOutput(ctx, output)
-	if err != nil {
-		return nil, err
-	}
-	if fresh {
-		// The source holds nothing at the output path, so the output is the
-		// binaries alone: assembled in a fresh directory, they depend on
-		// nothing but their builds.
-		out := dag.Directory()
-		for _, dir := range dirs {
-			bin, err := p.packageBinary(ctx, dir, platform, ldflags)
-			if err != nil {
-				return nil, err
-			}
-			out = out.WithFiles(output, []*dagger.File{bin})
-		}
-		return out, nil
-	}
-	// Otherwise binaries go into the build container in package order, as go
-	// build writes them, so the output keeps what the source holds at the
-	// output path.
-	env := p.Env(platform)
-	for _, dir := range dirs {
 		bin, err := p.packageBinary(ctx, dir, platform, ldflags)
 		if err != nil {
 			return nil, err
 		}
-		env = env.WithFiles(output, []*dagger.File{bin})
+		out = out.WithFiles(output, []*dagger.File{bin})
 	}
-	return dag.Directory().WithDirectory(output, env.Directory(output)), nil
-}
-
-// Whether a build's output can be assembled in a fresh directory: the output
-// path, relative to the source, holds nothing in it. go build writes into the
-// source mount, so an output path the source already has, or an absolute one,
-// keeps what is there.
-func (p *Go) freshOutput(ctx context.Context, output string) (bool, error) {
-	if path.IsAbs(output) {
-		return false, nil
-	}
-	rel := path.Clean(output)
-	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
-		return false, nil
-	}
-	exists, err := p.Source.Exists(ctx, rel)
-	if err != nil {
-		return false, err
-	}
-	return !exists, nil
+	return out, nil
 }
 
 // The directory of a main package, relative to the source: one named by a
