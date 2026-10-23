@@ -80,6 +80,31 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 				strings.ReplaceAll(string(cmdline), "\x00", " "), stack)
 		}
 	}))
+	// g26 measurement only (DO NOT MERGE): CPU used so far by the engine
+	// process, by its reaped children (runc, and through it the containers it
+	// ran), and by the engine's whole cgroup.
+	m.Handle("/debug/g26/cpu", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		var self, children unix.Rusage
+		if err := unix.Getrusage(unix.RUSAGE_SELF, &self); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := unix.Getrusage(unix.RUSAGE_CHILDREN, &children); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		us := func(tv unix.Timeval) int64 { return tv.Sec*1_000_000 + int64(tv.Usec) }
+		cgroupUsage := int64(-1)
+		if b, err := os.ReadFile("/sys/fs/cgroup/cpu.stat"); err == nil {
+			for _, line := range strings.Split(string(b), "\n") {
+				if v, ok := strings.CutPrefix(line, "usage_usec "); ok {
+					cgroupUsage, _ = strconv.ParseInt(v, 10, 64)
+				}
+			}
+		}
+		fmt.Fprintf(rw, "self_user_us %d\nself_sys_us %d\nchildren_user_us %d\nchildren_sys_us %d\ncgroup_usage_us %d\n",
+			us(self.Utime), us(self.Stime), us(children.Utime), us(children.Stime), cgroupUsage)
+	}))
 	m.Handle("/debug/gc", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		runtime.GC()
 		debug.FreeOSMemory()

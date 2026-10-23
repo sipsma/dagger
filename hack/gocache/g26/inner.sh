@@ -23,6 +23,14 @@ ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
 D=http://dagger-engine:6060/debug/wcprof/dump
 dump() { curl -sf "$D?flush=1" -o "/out/$1.dump" || echo "$1: dump failed" >> /out/summary.txt; }
 flush() { curl -sf "$D?flush=1" -o /dev/null || true; }
+# The engine's CPU counters (/debug/g26/cpu, a measurement-only endpoint): the engine process, its
+# reaped children (runc, and through it the containers it ran) and the engine's whole cgroup.
+C=http://dagger-engine:6060/debug/g26/cpu
+cpu() { curl -sf "$C" -o "/out/$1.cpu" || true; }
+cpudelta() { # $1 = step: CPU seconds used during it, by kind
+  [ -f /out/$1-0.cpu ] && [ -f /out/$1-1.cpu ] || return 0
+  awk -v s=$1 'NR==FNR{a[$1]=$2; next} {d[$1]=$2-a[$1]} END{printf "%s cpu_s engine=%.2f children=%.2f cgroup=%.2f\n", s, (d["self_user_us"]+d["self_sys_us"])/1e6, (d["children_user_us"]+d["children_sys_us"])/1e6, d["cgroup_usage_us"]/1e6}' /out/$1-0.cpu /out/$1-1.cpu >> /out/summary.txt
+}
 set -- $G26_ARGS
 order=${1:?G26_ARGS needs the order}
 REF_A=${2:?G26_ARGS needs the A ref}
@@ -76,7 +84,9 @@ build() {
     (sleep 2; curl -sf "http://dagger-engine:6060/debug/pprof/profile?seconds=20" -o "/out/$1-first.cpu") &
     (for i in 1 2 3 4; do sleep 5; curl -sf "http://dagger-engine:6060/debug/pprof/goroutine?debug=1" -o "/out/$1-first.g$i"; done) &
   fi
-  t $1 $2 /rm/$1/p -s -c "$(cmd $pkg)"; wait; dump $1-$2
+  cpu $1-$2-0
+  t $1 $2 /rm/$1/p -s -c "$(cmd $pkg)"; wait
+  cpu $1-$2-1; cpudelta $1-$2; dump $1-$2
 }
 warm() {
   d=/rm/$1/p/g26warm; mkdir -p $d
