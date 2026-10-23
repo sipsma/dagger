@@ -309,3 +309,22 @@ func TestCallRecordFollowsARecomputedResult(t *testing.T) {
 	require.False(t, containerRan, "B hits A's module function call")
 	require.Equal(t, "inner again", value.Text, "and gets the recomputed result")
 }
+
+// A load of a call's entry by its number serves the result the call
+// returned, as a lookup that selects the entry does: exactly, and for a
+// session.
+func TestCallRecordLoadsAsTheReturnedResult(t *testing.T) {
+	t.Parallel()
+	ctx, a, srv := transferTestCache(t)
+	inner, frame := callRecordTestRun(t, ctx, a, srv, "module-a", digest.FromString("call-record-test-module-content"))
+	entry := callRecordTestEntry(t, ctx, a, frame, inner)
+	for name, session := range map[string]string{"exact": "", "for a session": "test-session"} {
+		loaded, err := a.LoadResultByResultID(ctx, session, srv, uint64(entry.cacheSharedResult().id))
+		require.NoError(t, err, name)
+		require.Equal(t, inner.cacheSharedResult().id, loaded.cacheSharedResult().id, name)
+		value, ok := loaded.Unwrap().(*transferTestValue)
+		require.True(t, ok, name)
+		require.Equal(t, "inner", value.Text, name)
+	}
+	require.NoError(t, cacheOwnershipError(a))
+}
