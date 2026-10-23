@@ -185,6 +185,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				persistedEnvelope:     &env,
 				payloadBytes:          persistedEnvelopePayloadBytes(&env),
 			}
+			if env.Kind == persistedResultKindReturned {
+				res.returnedID = sharedResultID(env.ReturnedID)
+			}
 			res.storeResultCall(frame)
 			c.traceResultCallFrameUpdated(ctx, res, "import_persisted_result", nil, frame)
 			if row.CloudHoldingNumber != 0 {
@@ -212,7 +215,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				res.self = absent
 				res.hasValue = true
 				c.tracePersistedPayloadImportedEager(ctx, importRunID, resultID, "", "nil")
-			} else {
+			} else if env.Kind != persistedResultKindReturned {
+				// A call's own entry whose value is another call's result
+				// is never decoded: lookup serves the returned entry.
 				eagerDecodeResultIDs = append(eagerDecodeResultIDs, resultID)
 			}
 			c.putResultLocked(res)

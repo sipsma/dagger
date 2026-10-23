@@ -698,6 +698,17 @@ func visitPersistedEnvelope(env PersistedResultEnvelope, ownerCall *ResultCall, 
 			return PersistedResultEnvelope{}, err
 		}
 		return env, nil
+	case persistedResultKindReturned:
+		if !root {
+			return PersistedResultEnvelope{}, fmt.Errorf("visit persisted envelope at %q: a returned row reference is a row's root", path)
+		}
+		if env.ReturnedID == 0 || len(env.Items) != 0 || len(env.ObjectJSON) != 0 || len(env.ScalarJSON) != 0 {
+			return PersistedResultEnvelope{}, fmt.Errorf("visit persisted envelope: invalid returned row reference")
+		}
+		if _, err := VisitPersistedRow(visit, PersistedRefChild, path.Field("returnedID"), &env.ReturnedID); err != nil {
+			return PersistedResultEnvelope{}, err
+		}
+		return env, nil
 	case persistedResultKindObject:
 		return visitPersistedObjectEnvelope(env, ownerCall, scopes, path, visit)
 	case persistedResultKindList:
