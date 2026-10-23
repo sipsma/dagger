@@ -334,9 +334,9 @@ The rules, and where the engine applies them (`initCompletedResult`,
 - **Adoption.** `PubIndexFresh` registers and indexes a fresh value only when
   its call has no current entry. `PubAdoptSameCall` adopts the call's live
   entry, one whose attachment has settled clean, and takes the handoff hold
-  in the same step, as `PubAdopt` does. While that attachment is open, no
-  publication action is enabled, so publication waits, unless the publishing
-  session has been released: then `PubIndexFresh` registers the value beside
+  in the same step, as `PubAdopt` does. While the current entry's attachment
+  is open, whatever its expiry, no publication action is enabled, so
+  publication waits, unless the publishing session has been released: then `PubIndexFresh` registers the value beside
   the entry, not indexed (`ReleasedWhileCurrentOpen`), so the release doesn't
   wait on another session's attachment. Adoption keeps the
   existing session filter. When the publishing session does not cover the
@@ -346,7 +346,8 @@ The rules, and where the engine applies them (`initCompletedResult`,
 - **Expiry.** `Expire` (`AllowExpire`) marks a value expired: time with no
   clock.
   - `PubReplaceInPlace` installs the new value into an expired current entry
-    that nothing uses, under the same number, and counts the replacement.
+    whose attachment has settled and that nothing uses, under the same
+    number, and counts the replacement.
   - `PubRetire` takes an expired entry that something uses out of the index;
     the next `PubIndexFresh` registers the new value.
   - The guard, `UsedByOwnership`, is the engine's own check: ownership beyond
@@ -593,3 +594,148 @@ Scope limits:
   without holdings; the engine's Go tests cover entries with them.
 
 The TLC runs' outputs are not committed.
+
+## Call entries
+
+A module function call that returns another call's result, as a module's
+`Wolfi.container` returns the container its body built, is recorded as an
+entry of its own, a call entry (`dagql/cache_call_record.go`). Its value is
+a reference to the entry it returned: every entry has a `returned` link, 0
+for an ordinary entry. Lookup serves the returned entry, never the call
+entry, so an engine that holds or merges the call entry hits the call the
+way the engine that ran it does.
+
+The model follows the code:
+
+- **Recording.** A persisted publication whose value is an ordinary entry
+  of another call records the call entry in a last step of its Once
+  (`PubRecordCall`), before any waiter leaves and while the publication's
+  handoff hold on the returned entry is still active; the Once's release of
+  the shared work's leases follows it. The call entry
+  depends on its frame's inputs (the results the resolver loaded, which
+  include the returned entry), each owned once, and has its own retention
+  edge. The returned entry's own retention edge is still the last
+  waiter's. The call's recipe follows the current-entry rules: another
+  value stays and nothing is recorded; a live call entry stays, and takes
+  the retention edge if it names the same entry; an expired one is replaced
+  in place when nothing uses it and retired for a new entry otherwise.
+- **Expiry.** Wherever expiry decides (lookup, adoption, publication,
+  merge), a call entry is expired when its own expiry or its returned
+  entry's has passed, or the returned entry is gone (`ExpiredIn`).
+- **Serving.** Lookup and canonical adoption resolve a call entry to its
+  returned entry, following a chain (`ServedEntry`); a load by number
+  resolves one step (`LoadServed`). A fresh publication never adopts a call
+  entry as its recipe's value: once the entry's attachment has settled, it
+  replaces it in place when nothing uses it and retires it otherwise, as an
+  expired entry (`GivesWayToFresh`).
+- **Merge.** A merged bundle's root can be a call record over its
+  dependency record: stored, it is a call entry over the dependency's
+  target. Every other stored record clears the link.
+- **Restart.** `Flush` saves the link and `Restart` restores it; a call
+  entry is never decoded.
+
+Invariants: `CallEntryNeverServed` (no invocation returns a call entry, no
+publication holds one for its waiters, no evaluator or inner load works on
+one), `CallEntryHoldsReturned` (a live call entry depends on its returned
+entry, which is live and in its class) and `CallEntryNeverDecoded`.
+`OwnershipExact` covers the call entry's units.
+
+Two branches are stated but not reached by any configuration:
+
+- A call entry's attachment is never open in the model, since `MergeLive`
+  replaces a value in one step, so the wait on it is exercised by ordinary
+  entries only. The Go test of the wait covers the call entry.
+- In these two-call configurations recording never meets a used call
+  entry: only a dependent entry can use one, a merge creates that dependent
+  only after retiring the call entry's returned entry, which needs it
+  expired, and an expired returned entry expires the call entry, which
+  merge then replaces. A third call could merge a new dependent of a call
+  entry; no configuration has one. So the retirement branch of recording is
+  unchecked here, and no Go test drives it either: the ordinary
+  publication tests cover the shared retirement rule, not this branch.
+  Chains of call entries are likewise not exercised.
+
+The pass configurations:
+
+- `callrec_publish`: one session, three calls of `cA` or `cB` in one class,
+  release, no expiry.
+- `callrec_expiry`: the same with expiry and no release.
+- `callrec_merge`: `recipe_merge`'s scope with the two calls in one class,
+  so a merged root can be a call record.
+- `callrec_restart`: `cB`, then `cA`, then `cA` again, the `cA` calls
+  persistable (`CallOrderScenario`), at most two before the restart; the
+  constraint fixes the order, not that the restart follows them.
+
+Each mutation turns one rule off and must break the property named; each
+probe asserts the negation of a witness, so it must be violated.
+
+The finding these configurations made: before the code's fix, a fresh
+publication whose recipe had a live call entry adopted it under D1, and its
+waiters got the call entry, whose value is never decoded
+(`callrec_adopt` restores that).
+
+Run on the committed specification with the pinned TLC 1.7.4, one JVM per
+configuration (4 workers, 6 GB, Dagger Cloud) or, for the largest, two at a
+time (8 workers, 13 GB) on an arm64 spot machine, all behind the 10 GB
+disk guard. A mutation's or probe's count is where TLC stopped at the
+violation, which varies with worker order:
+
+| Configuration | Question | Expected | Distinct states | Depth | Wall |
+| --- | --- | --- | ---: | ---: | ---: |
+| `callrec_publish` | publication records, hits through, recomputes beside a call entry | clean | 15,406,744 | 57 | 4 min |
+| `callrec_expiry` | expired call entries, replaced in place or retained again | clean | 87,851,197 | 54 | 31 min |
+| `callrec_merge` | merged call records racing publication, release, expiry, attachment failure | clean | 4,047,643 | 46 | 9 min |
+| `callrec_restart` | a call entry across a restart | clean | 1,323,549 | 67 | 1 min |
+| `callrec_adopt` | D1 adopts a live call entry | violates `CallEntryNeverServed` | 3,045,437 | 26 | 2 min |
+| `callrec_serve` | lookup serves a call entry itself | violates `CallEntryNeverServed` | 890 | 7 | 2 s |
+| `callrec_nodep` | a call entry without its dependency unit | violates `CallEntryHoldsReturned` | 798,289 | 23 | 24 s |
+| `callrec_owns_once` | a returned frame input owned twice, one edge | violates `OwnershipExact` | 892,413 | 22 | 23 s |
+| `callrec_replace_link` | a replacement in place keeps the old link | violates `CallEntryHoldsReturned` | 6,727,269 | 26 | 4 min |
+| `callrec_merge_link` | a merged ordinary record keeps the old link | violates `CallEntryHoldsReturned` | 356 | 6 | 3 s |
+| `callrec_restore_decode` | restore decodes a call entry | violates `CallEntryNeverDecoded` | 855,849 | 41 | 55 s |
+| `probe_callrec_recorded` | a publication records a call entry | witness | 841,225 | 20 | 37 s |
+| `probe_callrec_serves` | a hit selects what a candidate call entry names | witness | 135 | 5 | 4 s |
+| `probe_callrec_merged` | a merge stores a call entry | witness | 21 | 3 | 2 s |
+| `probe_callrec_restored` | a saved call entry is restored with its link | witness | 602,234 | 38 | 26 s |
+| `probe_callrec_replaced` | recording replaces an expired call entry | witness | 2,297,119 | 33 | 1 min |
+| `probe_callrec_value_expiry` | ... because its returned entry expired | witness | 2,278,041 | 33 | 2 min |
+
+`callrec_serve` and `callrec_replace_link` each check only the property
+their rule protects. Each also breaks a second property - the served call
+entry is decoded at the read barrier, and the replaced entry is held for
+the publication's waiters - and with several workers TLC can report either
+first.
+
+What the probes show, under the model's static classes: `probe_callrec_serves`
+is an action property on the lookup step, so its witness is a hit for `cA`
+selecting the entry `cA`'s call entry names while that call entry is a
+candidate. The returned entry is a candidate of its own too, so this shows
+the two coexist at a hit, not that the hit followed the link; Go tests
+cover that routing. `probe_callrec_restored` requires the call entry to be
+one Flush saved and Restart restored with its link.
+
+Existing configurations the change reaches, on the same specification: the
+two-call, one-class configurations (call entries) and the expiry
+configurations (a publication now waits on a current entry's open
+attachment whatever its expiry). Every other existing configuration has
+neither a second call in a class nor expiry; its new fields are constant
+and the new actions are never enabled.
+
+| Configuration | Expected | Before | After |
+| --- | --- | ---: | ---: |
+| `attach_error_adoption` | clean | 17,010,279 | 17,197,391 |
+| `resources` | clean | 27,608,598 | 28,518,270 |
+| `release_prune` | clean | 48,956,036 | 51,314,736 |
+| `flush_closure` | clean | 148,890 | 149,118 |
+| `recipe_expiry` | clean | 8,131,336 | 9,083,464 |
+| `persist_decline_expiry` | clean | 11,434,888 | 11,370,088 |
+| `recipe_expiry_deps` | clean | 792,543 | 792,543 |
+| `recipe_expiry_restart` | clean | 119,236 | 119,236 |
+| `recipe_merge` | clean | 2,276,670 | 2,276,670 |
+| `orphaned_lease` | violates `SharedLeaseReleasedWhenRetired` | | 157 |
+| `persist_decline_hitguard`, `_adopt`, `_retire` | violate `DeclinedNeverPersisted` | | |
+
+The rest of the quick set, run as an anchor, kept every recorded count (`liveness`
+4,941; `attach_error` 6,095; `lazy_liveness` 6,977; `flush_roundtrip`
+55,370; `release_inflight` 85,670; and the rest).
+

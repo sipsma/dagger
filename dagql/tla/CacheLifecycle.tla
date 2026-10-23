@@ -76,6 +76,15 @@
 (*     AddExplicitDependency, WithSessionResourceHandle). Numeric result   *)
 (*     IDs are engine-lifetime unique, so those guards only refuse         *)
 (*     mutations for already-collected results; Go tests carry them.       *)
+(*   - Call entries (cache_call_record.go): a module function call that    *)
+(*     returns another call's result is recorded as an entry of its own,   *)
+(*     whose value is a reference to the returned entry (res.returned).    *)
+(*     The e-graph class join that puts it in the returned entry's class  *)
+(*     is static here: a call returns a result of its own class (FnComplete *)
+(*     reuse), so the call entry and its returned entry share ClassOf.     *)
+(*     The call frame's receiver, module and argument entries stand as    *)
+(*     the results the call's resolver loaded (oc.acq), which include the  *)
+(*     returned entry; the call entry depends on each of them once.       *)
 (*   - Every modeled cache operation has session metadata. The             *)
 (*     implementation also uses a cache-wide operation count when metadata *)
 (*     is absent; shutdown treats both counts identically.                 *)
@@ -309,6 +318,32 @@ AdoptHandoffGuard == TRUE
 DeclinedRetireGuard == TRUE
 FlushKeepsDecline == TRUE
 GuardOff == FALSE
+\* The rules that keep a call entry (an entry whose value is another entry,
+\* res.returned # 0) from being handed out or losing its link. Each mutation
+\* configuration overrides one with GuardOff:
+\*   - ServeReturnedGuard: lookup, canonical adoption and a resolver's inner
+\*     load serve a call entry's returned entry (servableCandidateLocked);
+\*   - CallEntryDepGuard: a recorded call entry owns a dependency unit on its
+\*     returned entry (recordCallLocked);
+\*   - CallEntryOwnsOnce: a call entry whose returned entry is also one of
+\*     its frame's inputs owns it once, as every entry owns each dependency
+\*     (recordCallLocked's deduplication);
+\*   - ReplaceSetsReturned: a replacement in place installs the new value's
+\*     link, none for a computed value (replaceResultValueInPlaceLocked);
+\*   - MergeSetsReturned: a merged record installs its own link, none for an
+\*     ordinary record (installMergedRecordLocked);
+\*   - RestoreSkipsCallEntry: restore never decodes a call entry
+\*     (importPersistedState);
+\*   - CallEntryGivesWay: a fresh publication never adopts a call entry as
+\*     its recipe's value; it replaces or retires it as an expired entry
+\*     (initCompletedResult's D1 branch requires returnedID 0).
+ServeReturnedGuard == TRUE
+CallEntryDepGuard == TRUE
+CallEntryOwnsOnce == TRUE
+ReplaceSetsReturned == TRUE
+MergeSetsReturned == TRUE
+RestoreSkipsCallEntry == TRUE
+CallEntryGivesWay == TRUE
 DistinctClasses == [c \in Calls |-> c]
 EquivalenceClasses == {ClassOf[c] : c \in Calls}
 
@@ -616,12 +651,65 @@ DataRequired(r) ==
 LiveInClass(k) ==
     {r \in ResultIds : res[r].registered /\ ClassOf[res[r].call] = k}
 
+\* Whether an entry is expired, wherever the code decides on expiry
+\* (resultExpiredAtLocked): its own flag, or, for a call entry, its value's -
+\* the returned entry is expired or gone - following the link. Expire sets
+\* the own flag; Flush saves it and Restart restores it.
+RECURSIVE ExpiredIn(_, _)
+ExpiredIn(rf, x) ==
+    \/ rf[x].expired
+    \/ /\ rf[x].returned # 0
+       /\ \/ ~rf[rf[x].returned].registered
+          \/ ExpiredIn(rf, rf[x].returned)
+
+Expired(x) == ExpiredIn(res, x)
+
+\* Whether a fresh publication can't take its recipe's current entry x,
+\* once x's attachment has settled, as the recipe's value: x is expired, or
+\* x is a call entry, whose value is another entry's. Such an entry is
+\* replaced in place when nothing uses it and retired otherwise (D9); only
+\* an entry with a live value of its own is adopted, or registered beside
+\* (D1). Whatever its expiry or kind, a current entry whose attachment is
+\* open - a value still being installed - is waited on first, and a
+\* released session registers beside it (ReleasedWhileCurrentOpen). In
+\* this model a call entry's attachment is never open - MergeLive replaces
+\* a value in one step - so the wait is exercised by ordinary entries only.
+GivesWayToFresh(x) == Expired(x) \/ (CallEntryGivesWay /\ res[x].returned # 0)
+
 \* Lookup and canonical selection exclude an entry after dependency
 \* attachment closes with an error. An open barrier remains eligible because
 \* a reader may wait for its eventual outcome. An expired entry is never a
 \* candidate (appendDigestResultsLocked, cache_egraph.go:628-633).
 LookupEligibleInClass(k) ==
-    {r \in LiveInClass(k) : res[r].barrier # "closedErr" /\ ~res[r].expired}
+    {r \in LiveInClass(k) : res[r].barrier # "closedErr" /\ ~Expired(r)}
+
+\* What a candidate serves (servableCandidateLocked, cache_egraph.go): an
+\* ordinary entry serves itself; a call entry serves its returned entry,
+\* following the link, which a merge can chain. ServeChainOk is the gate's
+\* check at every step: the entry is registered, its attachment didn't fail
+\* and it hasn't expired. ServedEntry is meaningful where ServeChainOk holds.
+\* Without ServeReturnedGuard (a mutation) a call entry serves itself.
+RECURSIVE ServeChainOk(_)
+ServeChainOk(x) ==
+    /\ res[x].registered
+    /\ res[x].barrier # "closedErr"
+    /\ ~Expired(x)
+    /\ (ServeReturnedGuard /\ res[x].returned # 0) => ServeChainOk(res[x].returned)
+
+RECURSIVE ServedEntry(_)
+ServedEntry(x) ==
+    IF ServeReturnedGuard /\ res[x].returned # 0
+    THEN ServedEntry(res[x].returned) ELSE x
+
+\* What a load by result number serves (servedEntryLocked): a call entry's
+\* returned entry, one step, or the entry itself.
+LoadServed(x) ==
+    IF ServeReturnedGuard /\ res[x].returned # 0 THEN res[x].returned ELSE x
+
+\* The results a lookup in class k can serve: each eligible candidate, as
+\* the gate resolves it. A call entry's returned entry is in its class.
+ServableInClass(k) ==
+    {ServedEntry(x) : x \in {y \in LookupEligibleInClass(k) : ServeChainOk(y)}}
 
 (***************************************************************************)
 (* ONE CURRENT ENTRY PER RECIPE (D1, D9).                                  *)
@@ -768,6 +856,8 @@ ImportedResult(c, persistedFlag, depsSet, ownVal, payloadVal, dirtyAtSnapshotFla
      \* a merged or initial imported value isn't declined; Restart restores
      \* a saved row's mark, and its truth, over these
      declined |-> FALSE, declinedTruth |-> FALSE,
+     \* an ordinary entry; a call entry's link is set by its creator
+     returned |-> 0,
      attachErrRefusal |-> FALSE,
      payload |-> payloadVal, decodePhase |-> "idle", decodeErr |-> "none",
      decodeGen |-> 0, persistSyncPending |-> FALSE,
@@ -804,6 +894,7 @@ DeadHusk ==
     [call |-> CHOOSE c \in Calls : TRUE, registered |-> FALSE,
      released |-> TRUE, own |-> 0, deps |-> {}, lateDeps |-> {},
      persisted |-> FALSE, declined |-> FALSE, declinedTruth |-> FALSE,
+     returned |-> 0,
      barrier |-> "none",
      attachErrRefusal |-> FALSE,
      payload |-> "decoded", decodePhase |-> "idle", decodeErr |-> "none",
@@ -1012,7 +1103,11 @@ NewInvocation(s, c, p, o, admitted) ==
      \* whether the served result's CURRENT stored required set was a
      \* subset of the session's bound handles at that instant. See
      \* ReturnedHitSatisfied.
-     retHitSatisfied |-> TRUE]
+     retHitSatisfied |-> TRUE,
+     \* Property-only ghost, captured at return (InvocationOperationExit):
+     \* whether the returned entry has a value of its own, not a call
+     \* entry's reference. See CallEntryNeverServed.
+     retValue |-> TRUE]
 
 Spawn ==
     /\ Len(invocations) < InvocationLimit
@@ -1060,7 +1155,9 @@ SpawnNested ==
 (***************************************************************************)
 LookupHit(i) ==
     /\ invocations[i].phase = "lookup"
-    /\ \E r \in LookupEligibleInClass(ClassOf[invocations[i].call]) :
+    \* a candidate is resolved by the serving gate: a call entry serves its
+    \* returned entry, never itself
+    /\ \E r \in ServableInClass(ClassOf[invocations[i].call]) :
         \* Session-resource filter (selectLookupCandidateForSessionLocked,
         \* cache_egraph.go:708 via sessionSatisfiesResourceRequirementsLocked,
         \* :671): a candidate is eligible only if its STORED required set is a
@@ -1278,6 +1375,10 @@ FnInnerLoadClaim(o) ==
         /\ res[r].registered
         /\ res[r].barrier \in {"none", "closedOk"}
         /\ r \notin ongoingCalls[o].acq
+        \* the inner load names a result by number (sharedResultByResultID):
+        \* a call entry resolves to its returned entry before the value,
+        \* attachment and session checks (servedEntryLocked, one step)
+        /\ r \in {LoadServed(x) : x \in ResultIds}
         /\ res[r].required \subseteq sessionRelease[ongoingCalls[o].sess].handles
         /\ LET s == ongoingCalls[o].sess
                haveEdge == <<s, r>> \in sessionEdges
@@ -1435,6 +1536,130 @@ FnWindDown(o) ==
     /\ UNCHANGED <<invocations, res, ongoingCallIndex, sessionEdges, countedEdges,
                    sessionRelease, evals, epoch, flushed>>
 
+\* Is target reachable from start by following dependency edges? Used by
+\* the NoCycle guard: adding parent -> d is allowed only if parent is not
+\* already reachable from d.
+DepReachable(rf, start, target) ==
+    LET RECURSIVE Reach(_, _)
+        Reach(frontier, seen) ==
+            IF target \in frontier THEN TRUE
+            ELSE LET next == UNION {rf[p].deps : p \in frontier} \ seen
+                 IN IF next = {} THEN FALSE
+                    ELSE Reach(next, seen \cup next)
+    IN Reach({start}, {start})
+
+\* The call entry a persisted publication records (recordCall, at the end
+\* of the publication's Once: PubRecordCall), when the call's value r is a
+\* registered ordinary entry of another call. Its
+\* dependencies are its frame's inputs - the results the resolver loaded,
+\* which include r - and r, each owned once; a frame naming a result the
+\* cache no longer has records nothing. The call's recipe follows the
+\* current-entry rules (D1, D9):
+\*   - another value is current: it stays, and nothing is recorded;
+\*   - a live call entry is current: it stays, and takes the retention edge
+\*     if it names r. Live is ExpiredIn's: its own expiry and its
+\*     returned entry's;
+\*   - an expired call entry is current: nothing uses it, so the new value
+\*     replaces it in place (its number, retention edge and index entry
+\*     stay; its old dependency units are released after the new ones are
+\*     taken, in the same section); or something uses it, so it is retired
+\*     and a new entry is created. In the two-call configurations nothing
+\*     can use a call entry here: only a dependent entry can, a merge
+\*     creates one only after retiring the call entry's returned entry,
+\*     which needs it expired, and that expires the call entry, which
+\*     merge then replaces. A third call could merge a new dependent; no
+\*     configuration has one, so the retirement branch is unchecked;
+\*   - nothing is current: a new entry - the call's recipe, indexed,
+\*     unexpired, a returned_ref envelope that is never decoded, and its own
+\*     retention edge.
+\* The model's MaxResults bound can leave no slot for a new entry; then
+\* nothing is recorded or retired, as for the code's own not-recorded paths.
+CallEntry(c, r, rf, deps) ==
+    [ImportedResult(c, TRUE, deps, 1, "envelope", FALSE, "none",
+                    UNION {rf[d].required : d \in deps}, {}, {}, {})
+        EXCEPT !.imported = FALSE, !.returned = r]
+
+\* The dependency units a call entry over r with these dependencies takes on
+\* d: one per dependency, and, without CallEntryOwnsOnce, a second on r
+\* when r is also a frame input (two units, one edge).
+CallEntryUnits(r, frame, deps, d) ==
+    (IF d \in deps THEN 1 ELSE 0)
+        + (IF ~CallEntryOwnsOnce /\ d = r /\ r \in frame /\ d \in deps THEN 1 ELSE 0)
+
+UsedByOwnershipIn(rf, x) ==
+    \/ \E s \in Sessions : <<s, x>> \in sessionEdges
+    \/ rf[x].own # (IF rf[x].persisted THEN 1 ELSE 0)
+
+CallRecorded(rf, o) ==
+    LET r == ongoingCalls[o].resId
+        c == ongoingCalls[o].call
+        frame == ongoingCalls[o].acq
+        deps == IF CallEntryDepGuard THEN frame \cup {r} ELSE frame \ {r}
+        cur == CurrentIn(rf, c)
+        x == CHOOSE y \in cur : TRUE
+        units(d) == CallEntryUnits(r, frame, deps, d)
+        \* a new call entry, after an optional retirement of the current one
+        create(rf2) ==
+            Append([y \in DOMAIN rf2 |-> [rf2[y] EXCEPT !.own = @ + units(y)]],
+                   CallEntry(c, r, rf2, deps))
+        \* the expired call entry x takes the new value in place
+        replaced ==
+            [y \in DOMAIN rf |->
+                IF y = x
+                THEN [CallEntry(c, r, rf, deps)
+                        EXCEPT !.own = rf[x].own + (IF rf[x].persisted THEN 0 ELSE 1),
+                               !.decodeGen = rf[x].decodeGen,
+                               !.replacements = rf[x].replacements + 1]
+                ELSE [rf[y] EXCEPT !.own = @ + units(y)
+                                         - (IF y \in rf[x].deps THEN 1 ELSE 0)]]
+    IN IF ~(/\ ongoingCalls[o].needsPersistedEdge
+            /\ rf[r].registered
+            /\ rf[r].returned = 0
+            /\ rf[r].call # c
+            /\ \A d \in frame : rf[d].registered)
+       THEN rf
+       ELSE IF cur # {} /\ rf[x].returned = 0 THEN rf
+       ELSE IF cur # {} /\ ~ExpiredIn(rf, x)
+       THEN IF rf[x].returned = r /\ ~rf[x].persisted
+            THEN [rf EXCEPT ![x].persisted = TRUE, ![x].own = @ + 1]
+            ELSE rf
+       \* the stated no-cycle assumption: a replaced entry's new
+       \* dependencies never reach it
+       ELSE IF /\ cur # {}
+               /\ ~UsedByOwnershipIn(rf, x)
+               /\ \A d \in deps : ~DepReachable(rf, d, x)
+       THEN replaced
+       ELSE IF Len(rf) >= MaxResults THEN rf
+       ELSE IF cur # {} THEN create([rf EXCEPT ![x].indexed = FALSE])
+       ELSE create(rf)
+
+\* Whether a publication's Once records its call (PubRecordCall): it will
+\* persist, and its value is an ordinary entry of another call. A value of
+\* the call itself, or a call entry, records nothing.
+CallRecordApplies(o) ==
+    LET r == ongoingCalls[o].resId
+    IN /\ res[r].call # ongoingCalls[o].call
+       /\ res[r].returned = 0
+
+(***************************************************************************)
+(* PubRecordCall: the last step of the publication's Once (wait, after     *)
+(* retireOngoingCallLocked), one egraphMu critical section: record the     *)
+(* call's entry (CallRecorded), with its own retention edge, and collect   *)
+(* what a replaced call entry's old dependencies leave unowned. The        *)
+(* publication's handoff hold on the returned entry is still active, and  *)
+(* no waiter leaves the Once before this step; the returned entry's own   *)
+(* retention edge is still the last waiter's (PersistThenDropHold). The    *)
+(* Once's deferred release of the shared work's leases runs after it.     *)
+(***************************************************************************)
+PubRecordCall(o) ==
+    /\ ongoingCalls[o].pubState = "recording"
+    /\ res' = Cascade(CallRecorded(res, o))
+    \* the Once ends: its deferred release of the shared work's leases runs
+    /\ ongoingCalls' = [ongoingCalls EXCEPT ![o].pubState = "done",
+                                            ![o].sharedLease = FALSE]
+    /\ UNCHANGED <<invocations, ongoingCallIndex, sessionEdges, countedEdges,
+                   sessionRelease, evals, epoch, flushed>>
+
 \* Commit aggregate persistence intent and release the publication handoff
 \* hold in one egraphMu critical section. The registration check prevents a
 \* stale result pointer from recreating an edge after collection.
@@ -1582,6 +1807,8 @@ FreshResult(o, lazyArm, handleChoice, deps) ==
      \* property-only: whether the value was declined, which no mutation of
      \* the mark's saving touches (DeclinedNeverPersisted reads it)
      declinedTruth |-> ongoingCalls[o].declined,
+     \* a computed value is an ordinary entry (sharedResult.returnedID 0)
+     returned |-> 0,
      barrier |-> "open",
      attachErrRefusal |-> FALSE,
      \* fresh results have their typed payload in memory;
@@ -1694,18 +1921,17 @@ FreshDepsFinal(lazyArm, deps) ==
 (***************************************************************************)
 SessionRejectsCurrent(o) ==
     \E r \in Current(ongoingCalls[o].call) :
-        /\ ~res[r].expired
+        /\ ~GivesWayToFresh(r)
         /\ res[r].barrier \in {"none", "closedOk"}
         /\ ~(res[r].required \subseteq sessionRelease[ongoingCalls[o].sess].handles)
 
-\* The publishing session was released while the call's current entry is
-\* live but its attachment is open: publication does not wait on it, since
+\* The publishing session was released while the call's current entry's
+\* attachment is open, whatever its expiry: publication does not wait on it, since
 \* the wait would hold the session's release open for as long as that
 \* attachment lasts. The new value registers beside it, not indexed.
 ReleasedWhileCurrentOpen(o) ==
     /\ sessionRelease[ongoingCalls[o].sess].phase # "live"
     /\ \E r \in Current(ongoingCalls[o].call) :
-        /\ ~res[r].expired
         /\ res[r].barrier = "open"
 
 PubIndexFresh(o) ==
@@ -1732,7 +1958,8 @@ PubIndexFresh(o) ==
 
 (***************************************************************************)
 (* PubAdoptSameCall: the call's current entry is live - unexpired, its     *)
-(* attachment settled clean - so publication adopts it and releases its    *)
+(* attachment settled clean, and a value of its own, not a call entry -    *)
+(* so publication adopts it and releases its                               *)
 (* own new value (D1). One egraphMu critical section takes the handoff     *)
 (* hold on the adopted entry, as PubAdopt does, so no concurrent release   *)
 (* can collect it; publication finishes through PubIndexReuse. The new     *)
@@ -1749,7 +1976,7 @@ PubAdoptSameCall(o) ==
     /\ ongoingCalls[o].pubState = "begun"
     /\ ongoingCalls[o].outcome = "fresh"
     /\ \E r \in Current(ongoingCalls[o].call) :
-        /\ ~res[r].expired
+        /\ ~GivesWayToFresh(r)
         /\ res[r].barrier \in {"none", "closedOk"}
         /\ res[r].required \subseteq sessionRelease[ongoingCalls[o].sess].handles
         /\ res' = [res EXCEPT ![r].own = @ + 1]
@@ -1774,7 +2001,9 @@ PubReplaceInPlace(o) ==
     /\ ongoingCalls[o].pubState = "begun"
     /\ ongoingCalls[o].outcome = "fresh"
     /\ \E r \in Current(ongoingCalls[o].call) :
-        /\ res[r].expired
+        /\ GivesWayToFresh(r)
+        \* the attachment settles first, whatever the expiry
+        /\ res[r].barrier \in {"none", "closedOk"}
         /\ ~UsedByOwnership(r)
         \* a declined value doesn't take over a retention edge; PubRetire
         /\ ~(DeclinedRetireGuard /\ ongoingCalls[o].declined /\ res[r].persisted)
@@ -1785,7 +2014,11 @@ PubReplaceInPlace(o) ==
                 replaced == [fresh EXCEPT !.own = res[r].own + 1,
                                           !.persisted = res[r].persisted,
                                           !.decodeGen = res[r].decodeGen,
-                                          !.replacements = res[r].replacements + 1]
+                                          !.replacements = res[r].replacements + 1,
+                                          \* the computed value's link: none
+                                          !.returned = IF ReplaceSetsReturned
+                                                       THEN fresh.returned
+                                                       ELSE res[r].returned]
                 rf == [x \in DOMAIN res |->
                         IF x = r THEN replaced
                         ELSE [res[x] EXCEPT !.own = @
@@ -1812,7 +2045,9 @@ PubRetire(o) ==
     /\ ongoingCalls[o].pubState = "begun"
     /\ ongoingCalls[o].outcome = "fresh"
     /\ \E r \in Current(ongoingCalls[o].call) :
-        /\ res[r].expired
+        /\ GivesWayToFresh(r)
+        \* the attachment settles first, whatever the expiry
+        /\ res[r].barrier \in {"none", "closedOk"}
         \* or a declined value meets an entry with a retention edge, which a
         \* replacement in place would hand it (initCompletedResult)
         /\ \/ UsedByOwnership(r)
@@ -1844,9 +2079,13 @@ CanonicalPick(o) ==
        \* canonicalEquivalentSharedResultLocked (cache.go:2400) gathers clean
        \* candidates, applies the session filter, and returns the lowest-ID
        \* survivor, else falls back to the returned result rf when none passes.
-       ELSE LET live == {r \in LiveInClass(ClassOf[res[rf].call]) :
+       \* the candidates come through the serving gate
+       \* (appendOutputEqClassResultsLocked), so a call entry contributes
+       \* its returned entry
+       ELSE LET live == {r \in {ServedEntry(x) : x \in {y \in LiveInClass(ClassOf[res[rf].call]) :
+                                                       ServeChainOk(y)}} :
                             /\ res[r].barrier \in {"none", "closedOk"}
-                            /\ ~res[r].expired
+                            /\ ~Expired(r)
                             /\ res[r].required \subseteq sessionRelease[s].handles}
             IN IF live = {} THEN rf
                ELSE CHOOSE r \in live : \A q \in live : r <= q
@@ -1920,18 +2159,6 @@ PubIndexReuse(o) ==
 (* producers never build, and those model-only cycles would falsely        *)
 (* defeat any "everything is eventually collected" check.                  *)
 (***************************************************************************)
-
-\* Is target reachable from start by following dependency edges? Used by
-\* the NoCycle guard: adding parent -> d is allowed only if parent is not
-\* already reachable from d.
-DepReachable(rf, start, target) ==
-    LET RECURSIVE Reach(_, _)
-        Reach(frontier, seen) ==
-            IF target \in frontier THEN TRUE
-            ELSE LET next == UNION {rf[p].deps : p \in frontier} \ seen
-                 IN IF next = {} THEN FALSE
-                    ELSE Reach(next, seen \cup next)
-    IN Reach({start}, {start})
 
 PubAttachAddDep(o) ==
     /\ ongoingCalls[o].pubState = "attaching"
@@ -2103,11 +2330,7 @@ PubUnregister(o) ==
     /\ ongoingCalls[o].pubState \in {"done", "failed"}
     /\ ongoingCalls[o].inIndex
     /\ ongoingCallIndex' = [ongoingCallIndex EXCEPT ![<<ongoingCalls[o].call, ongoingCalls[o].sess>>] = 0]
-    /\ ongoingCalls' = [ongoingCalls EXCEPT ![o].inIndex = FALSE,
-          \* the Once's deferred release runs whether publication succeeded
-          \* or failed
-          ![o].sharedLease = FALSE,
-          ![o].needsPersistedEdge =
+    /\ LET persist ==
               /\ ongoingCalls[o].pubState = "done"
               /\ ongoingCalls[o].resId # 0
               /\ ongoingCalls[o].isPersistable
@@ -2115,7 +2338,16 @@ PubUnregister(o) ==
               \* nor of a value another call declined, which this one
               \* adopted: the mark is read with the entry under egraphMu
               \* (initCompletedResult's resDeclined)
-              /\ ~(AdoptHandoffGuard /\ res[ongoingCalls[o].resId].declined)]
+              /\ ~(AdoptHandoffGuard /\ res[ongoingCalls[o].resId].declined)
+           record == persist /\ CallRecordApplies(o)
+       IN ongoingCalls' = [ongoingCalls EXCEPT ![o].inIndex = FALSE,
+          \* the Once's deferred release runs whether publication succeeded
+          \* or failed, at the end of the Once: after recording the call
+          \* when it does (PubRecordCall)
+          ![o].sharedLease = IF record THEN @ ELSE FALSE,
+          ![o].needsPersistedEdge = persist,
+          \* the Once goes on to record the call (PubRecordCall)
+          ![o].pubState = IF record THEN "recording" ELSE @]
     /\ UNCHANGED <<invocations, res, sessionEdges, countedEdges, sessionRelease,
                    evals, epoch, flushed>>
 
@@ -2700,6 +2932,7 @@ InvocationOperationExit(i) ==
                ![i].retBarrierOK = IF success
                     THEN res[r].barrier \in {"none", "closedOk"} ELSE @,
                ![i].retClean = IF success THEN ~res[r].dirtyAtSnapshot ELSE @,
+               ![i].retValue = IF success THEN res[r].returned = 0 ELSE @,
                \* the DATA-closure requirement of the returned result is a
                \* subset of the session's bound handles: the session was never
                \* handed a result whose payload-producing closure depends on
@@ -2941,12 +3174,17 @@ Expire(r) ==
 (* dependency on the dependency record's target; a kept root keeps its     *)
 (* own dependencies. Every root gets a retention edge. A created           *)
 (* dependency that no stored root depends on is collected at once.         *)
+(* A root with a dependency may be a call record (asCall): a returned_ref  *)
+(* envelope whose value is the dependency record. Stored, it is a call     *)
+(* entry naming the dependency's target (installMergedRecordLocked), in    *)
+(* its class (joinReturnedClassLocked; the call and the dependency share   *)
+(* a class). Every other stored record is ordinary and clears the link.    *)
 (***************************************************************************)
 MergeTarget(c) ==
     IF Current(c) = {} THEN [kind |-> "create", r |-> 0]
     ELSE LET r == CHOOSE x \in Current(c) : TRUE IN
          IF res[r].barrier = "open" THEN [kind |-> "wait", r |-> r]
-         ELSE IF ~res[r].expired THEN [kind |-> "keep", r |-> r]
+         ELSE IF ~Expired(r) THEN [kind |-> "keep", r |-> r]
          ELSE IF UsedByOwnership(r) THEN [kind |-> "retire", r |-> r]
          ELSE [kind |-> "replace", r |-> r]
 
@@ -2962,6 +3200,7 @@ MergeLive ==
     /\ ~flushed.closing
     /\ \E c \in Calls, withDep \in BOOLEAN :
        \E dc \in (IF withDep THEN Calls \ {c} ELSE {c}) :
+       \E asCall \in (IF withDep /\ ClassOf[dc] = ClassOf[c] THEN BOOLEAN ELSE {FALSE}) :
         LET tr == MergeTarget(c)
             td == MergeTarget(dc)
             depKind == IF withDep THEN td.kind ELSE "none"
@@ -2972,6 +3211,10 @@ MergeLive ==
                        [] depKind \in {"keep", "replace"} -> td.r
                        [] OTHER -> 0
             rootDeps == IF withDep THEN {depId} ELSE {}
+            \* a stored root's link: the dependency's target for a call
+            \* record, none for an ordinary record
+            rootReturned == IF asCall THEN depId ELSE 0
+            clearedLink(x) == IF MergeSetsReturned THEN 0 ELSE res[x].returned
             \* a created, retired-and-created or replaced root stores the
             \* incoming record; a kept root keeps its value
             rootStores == tr.kind # "keep"
@@ -2998,20 +3241,24 @@ MergeLive ==
                             EXCEPT !.persisted = res[x].persisted,
                                    !.own = res[x].own + delta(x),
                                    !.decodeGen = res[x].decodeGen,
-                                   !.replacements = res[x].replacements + 1]
+                                   !.replacements = res[x].replacements + 1,
+                                   !.returned = clearedLink(x)]
                   [] tr.kind = "replace" /\ x = tr.r ->
                          [MergedRecord(c, res[x].handle, rootDeps, rootRequired(res[x].handle))
                             EXCEPT !.persisted = TRUE,
                                    !.own = res[x].own + delta(x),
                                    !.decodeGen = res[x].decodeGen,
-                                   !.replacements = res[x].replacements + 1]
+                                   !.replacements = res[x].replacements + 1,
+                                   !.returned = IF asCall THEN rootReturned
+                                                ELSE clearedLink(x)]
                   [] tr.kind = "keep" /\ x = tr.r ->
                          [res[x] EXCEPT !.persisted = TRUE, !.own = @ + delta(x)]
                   [] OTHER -> [res[x] EXCEPT !.own = @ + delta(x)]]
             newDep == [MergedRecord(dc, "none", {}, {})
                          EXCEPT !.own = IF rootStores THEN 1 ELSE 0]
             newRoot == [MergedRecord(c, "none", rootDeps, rootRequired("none"))
-                          EXCEPT !.persisted = TRUE, !.own = 1]
+                          EXCEPT !.persisted = TRUE, !.own = 1,
+                                 !.returned = rootReturned]
             merged == existing
                         \o (IF depNew THEN <<newDep>> ELSE <<>>)
                         \o (IF rootNew THEN <<newRoot>> ELSE <<>>)
@@ -3125,6 +3372,8 @@ Flush ==
           \* property-only, saved whatever happens to the mark, as
           \* dirtyAtSnapshot carries a verdict the restarted engine lacks
           declinedTruth |-> res[r].declinedTruth,
+          \* a call entry's link is its saved returned_ref envelope
+          returned  |-> res[r].returned,
           dirty     |-> res[r].barrier \in {"open", "closedErr"},
           ownClean  |-> res[r].own =
               PersistedCount(r) + DepParentCount(r)]]]
@@ -3172,7 +3421,10 @@ Restart ==
                     (IF flushed.rows[x].persisted THEN 1 ELSE 0)
                       + Cardinality({y \in 1..Len(flushed.rows) :
                             flushed.rows[y].keep /\ x \in flushed.rows[y].deps}),
-                    pm[x],
+                    \* a call entry is never decoded: restore leaves its
+                    \* returned_ref envelope out of the eager decode
+                    IF RestoreSkipsCallEntry /\ flushed.rows[x].returned # 0
+                    THEN "envelope" ELSE pm[x],
                     flushed.rows[x].dirty,
                     flushed.rows[x].handle,
                     required[x], flushed.rows[x].parts, flushed.rows[x].absent,
@@ -3180,7 +3432,8 @@ Restart ==
                     flushed.rows[x].expired, flushed.rows[x].indexed,
                     flushed.rows[x].replacements)
                   EXCEPT !.declined = flushed.rows[x].declined,
-                         !.declinedTruth = flushed.rows[x].declinedTruth]
+                         !.declinedTruth = flushed.rows[x].declinedTruth,
+                         !.returned = flushed.rows[x].returned]
              ELSE DeadHusk]
     /\ invocations' = invocations
     /\ ongoingCalls' = [o \in OngoingCallIds |->
@@ -3959,7 +4212,7 @@ Next ==
          \/ PubAttachClaimRefused(o)
          \/ PubAttachAddDep(o) \/ PubFinishOk(o)
          \/ PubAttachFailDropHold(o) \/ PubAttachFailCloseBarrier(o)
-         \/ PubUnregister(o) \/ FnWindDown(o)
+         \/ PubUnregister(o) \/ PubRecordCall(o) \/ FnWindDown(o)
     \/ \E s \in Sessions :
          ReleaseSessionMark(s) \/ ReleaseSessionSnapshot(s)
            \/ ReleaseSessionCollect(s) \/ ReleaseSessionDelete(s)
@@ -4032,7 +4285,7 @@ SystemProgress(o) ==
     \/ PubAdoptSameCall(o) \/ PubReplaceInPlace(o) \/ PubRetire(o)
     \/ PubFinishOk(o) \/ PubAttachFailDropHold(o)
     \/ PubAttachFailCloseBarrier(o)
-    \/ PubUnregister(o)
+    \/ PubUnregister(o) \/ PubRecordCall(o)
 
 WaiterProgress(i) ==
     \/ LookupHit(i) \/ LookupMiss(i) \/ Join(i) \/ CreateOc(i)
@@ -4269,6 +4522,7 @@ TypeOK ==
          /\ res[r].persistSyncPending \in BOOLEAN
          /\ res[r].declined \in BOOLEAN
          /\ res[r].declinedTruth \in BOOLEAN
+         /\ res[r].returned \in 0..Len(res)
          \* the pending flag exists only for an installed payload: it is
          \* set by a post-install finish and the install never reverts
          /\ res[r].persistSyncPending => res[r].payload = "decoded"
@@ -4307,6 +4561,7 @@ TypeOK ==
          /\ invocations[i].retResourcesBound \in BOOLEAN
          /\ invocations[i].selRequired \subseteq Handles
          /\ invocations[i].retHitSatisfied \in BOOLEAN
+         /\ invocations[i].retValue \in BOOLEAN
     /\ \A s \in Sessions : sessionRelease[s].handles \subseteq Handles
 \* Ownership accounting is exact: for every registered result, the
 \* incrementally-maintained counter equals the recount of its edges
@@ -4378,6 +4633,93 @@ ReturnedHitSatisfied ==
 NoHalfAttachedRead ==
     \A i \in InvocationIds : invocations[i].phase = "done" => invocations[i].retBarrierOK
 
+\* CALL ENTRIES (cache_call_record.go). A call entry is never handed to a
+\* caller: no invocation returns one, no publication holds one for its
+\* waiters (an adopted entry under the handoff hold), and no evaluator
+\* works on one.
+CallEntryNeverServed ==
+    /\ \A i \in InvocationIds : invocations[i].phase = "done" => invocations[i].retValue
+    /\ \A o \in OngoingCallIds :
+         (ongoingCalls[o].hold /\ ongoingCalls[o].resId # 0)
+            => res[ongoingCalls[o].resId].returned = 0
+    /\ \A o \in OngoingCallIds :
+         ongoingCalls[o].acqPending # 0 => res[ongoingCalls[o].acqPending].returned = 0
+    /\ \A e \in EvalIds :
+         evals[e].phase \notin EvalTerminalPhases => res[evals[e].target].returned = 0
+
+\* A live call entry's returned entry is live, in its class, and owned by
+\* the call entry's dependency unit (OwnershipExact counts the unit).
+CallEntryHoldsReturned ==
+    \A r \in ResultIds :
+        (res[r].registered /\ res[r].returned # 0) =>
+            /\ res[r].returned \in res[r].deps
+            /\ res[res[r].returned].registered
+            /\ ClassOf[res[res[r].returned].call] = ClassOf[res[r].call]
+
+\* A call entry's value is its returned_ref envelope: it is never decoded.
+CallEntryNeverDecoded ==
+    \A r \in ResultIds :
+        (res[r].registered /\ res[r].returned # 0) =>
+            res[r].payload = "envelope" /\ res[r].decodePhase = "idle"
+
+\* Reachability probes for call entries: each asserts the negation of a
+\* witness, so a probe configuration expects it violated.
+\*   - a publication recorded a call entry;
+\*   - a lookup for a call selected the entry the call's own call entry
+\*     names while that call entry was a candidate (ProbeHitWithCallEntry,
+\*     an action property). With static classes the returned entry is a
+\*     candidate of its own too, so this shows the two coexist at a hit,
+\*     not that the hit was routed through the call entry's link;
+\*   - a merge stored a call entry;
+\*   - a call entry saved by Flush was restored by Restart, with its link;
+\*   - recording a call replaced an expired call entry.
+ProbeCallEntryRecorded ==
+    ~\E r \in ResultIds : res[r].registered /\ res[r].returned # 0 /\ ~res[r].imported
+ProbeHitWithCallEntry ==
+    [][\A i \in InvocationIds :
+         ~(/\ invocations[i].phase = "lookup"
+           /\ invocations'[i].phase = "readBarrier"
+           /\ invocations'[i].path = "hit"
+           /\ \E x \in ResultIds :
+                /\ res[x].registered
+                /\ res[x].call = invocations[i].call
+                /\ res[x].returned # 0
+                /\ ServeChainOk(x)
+                /\ ServedEntry(x) = invocations'[i].resId)]_vars
+ProbeMergedCallEntry ==
+    ~\E r \in ResultIds :
+        /\ epoch = 1 /\ res[r].registered /\ res[r].returned # 0 /\ res[r].imported
+ProbeCallEntryRestored ==
+    ~(/\ epoch = 2
+      /\ \E r \in ResultIds :
+           /\ res[r].registered /\ res[r].returned # 0
+           \* restored, not recorded after the restart (configurations of
+           \* this probe have no merge and no imported start)
+           /\ res[r].imported
+           /\ r \in DOMAIN flushed.rows
+           /\ flushed.rows[r].keep
+           /\ flushed.rows[r].returned = res[r].returned)
+\* Recording a call met an expired call entry of its recipe that nothing
+\* used, and replaced it in place (a merged call entry is imported, and a
+\* computed value's replacement leaves no link).
+ProbeCallEntryReplaced ==
+    ~\E r \in ResultIds :
+        /\ res[r].registered /\ res[r].returned # 0
+        /\ ~res[r].imported /\ res[r].replacements > 0
+\* Recording a call replaced a call entry whose own expiry hadn't passed,
+\* because its returned entry's had (the effective expiry); the witness may
+\* re-record the same expired entry rather than a recomputed one. An action
+\* property, so a probe configuration names it as a PROPERTY.
+ProbeValueExpiryReplace ==
+    [][\A o \in OngoingCallIds :
+         ~(/\ ongoingCalls[o].pubState = "recording"
+           /\ ongoingCalls'[o].pubState = "done"
+           /\ \E x \in Current(ongoingCalls[o].call) :
+                /\ res[x].returned # 0
+                /\ ~res[x].expired
+                /\ res[res[x].returned].expired
+                /\ res'[x].replacements > res[x].replacements)]_vars
+
 \* Persistence intent is never lost: once a successful call's admission has
 \* closed and its handoff hold has been released, an admitted persistable
 \* request implies the persisted edge exists. This includes a refused or
@@ -4437,6 +4779,19 @@ RestartDeclineScenario ==
     /\ \A o \in OngoingCallIds :
          ongoingCalls[o].declined => ongoingCalls[o].call = DeclineScenarioFirst
     /\ (\E s \in Sessions : sessionRelease[s].phase # "live") => Len(invocations) >= 2
+
+\* Call entries, in one order of calls: the invocations are, in order, a
+\* call of the returned call, then calls of the other (the caller), all of
+\* the caller's persistable; with InvocationLimit, the last comes after the
+\* restart. It leaves out other call orders, an unpersistable caller, and a
+\* second session.
+CallScenarioReturned == CHOOSE c \in Calls : TRUE
+CallScenarioCaller == CHOOSE c \in Calls : c # CallScenarioReturned
+CallOrderScenario ==
+    \A i \in InvocationIds :
+        /\ invocations[i].call =
+             (IF i = 1 THEN CallScenarioReturned ELSE CallScenarioCaller)
+        /\ i > 1 => invocations[i].persistable
 
 \* Expired entries: only the second ongoing call's fn may decline, so a
 \* declined value meets an entry an earlier, non-declining call published
