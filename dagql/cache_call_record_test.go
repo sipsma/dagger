@@ -572,10 +572,20 @@ func TestCallRecordGivesWayToTheCallsOwnValue(t *testing.T) {
 
 // A merge that replaces a recipe's value with a call's record holds the
 // entry's attachment open until the old value is released. A publication of
-// a value of the call waits for it, as it waits for any live entry's, before
-// it takes the call's entry.
+// a value of the call waits for it before it takes the call's entry, whether
+// the entry is live or has expired since, by its own expiry or by its
+// returned result's: expiry doesn't settle the replacement.
 func TestCallRecordWaitsForItsOpenAttachment(t *testing.T) {
 	t.Parallel()
+	for _, expire := range []string{"live", "its result expired", "it expired"} {
+		t.Run(expire, func(t *testing.T) {
+			t.Parallel()
+			callRecordTestWaitsForItsOpenAttachment(t, expire)
+		})
+	}
+}
+
+func callRecordTestWaitsForItsOpenAttachment(t *testing.T, expire string) {
 	ctx, a, srv := transferTestCache(t)
 	mod := callRecordTestModule(t, ctx, a, srv, "module-a", digest.FromString("call-record-test-module-content"))
 	wolfi, _, _ := callRecordTestCall(t, ctx, a, srv, "wolfi", nil, mod, callRecordTestValue("wolfi"))
@@ -606,8 +616,8 @@ func TestCallRecordWaitsForItsOpenAttachment(t *testing.T) {
 			return inner, nil
 		})
 		a.egraphMu.RLock()
-		defer a.egraphMu.RUnlock()
 		cur := a.currentEntryForRecipeLocked(recipe)
+		a.egraphMu.RUnlock()
 		if recordErr == nil && (cur == nil || cur.returnedID == 0) {
 			recordErr = fmt.Errorf("the call's entry is not its recipe's current entry")
 			return
@@ -616,6 +626,12 @@ func TestCallRecordWaitsForItsOpenAttachment(t *testing.T) {
 		cur.attachDepsWaitCh = open
 		cur.attachDepsErr = nil
 		cur.attachDepsMu.Unlock()
+		switch expire {
+		case "its result expired":
+			currentEntryTestExpire(a, inner)
+		case "it expired":
+			currentEntryTestExpire(a, Result[Typed]{shared: cur})
+		}
 	}
 	waited := make(chan *sharedResult, 1)
 	a.testPublicationWaitsOnAttachment = func(res *sharedResult) {
