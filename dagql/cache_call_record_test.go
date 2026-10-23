@@ -64,6 +64,7 @@ func callRecordTestRun(t *testing.T, ctx context.Context, a *Cache, srv *Server,
 	again, ran, _ := callRecordTestCall(t, ctx, a, srv, "container", wolfi, mod, callRecordTestValue("recomputed"))
 	require.False(t, ran, "a warm engine hits the function call")
 	require.Equal(t, inner.cacheSharedResult().id, again.cacheSharedResult().id, "A's hit returns the inner result")
+	require.NoError(t, cacheOwnershipError(a))
 	return inner, frame
 }
 
@@ -249,4 +250,19 @@ func TestCallRecordSurvivesARestart(t *testing.T) {
 	require.False(t, wolfiRan, "B hits A's constructor")
 	require.False(t, containerRan, "B hits A's module function call, from A's restarted cache")
 	require.Equal(t, "inner", value.Text)
+}
+
+// A module function that returns its receiver records a call whose
+// dependency on the receiver is one ownership unit, as every dependency is:
+// the call's entry owns each entry it names once, however many times.
+func TestCallRecordReturningItsReceiverOwnsItOnce(t *testing.T) {
+	t.Parallel()
+	ctx, a, srv := transferTestCache(t)
+	mod := callRecordTestModule(t, ctx, a, srv, "module-a", digest.FromString("call-record-test-module-content"))
+	wolfi, _, _ := callRecordTestCall(t, ctx, a, srv, "wolfi", nil, mod, callRecordTestValue("wolfi"))
+	got, ran, frame := callRecordTestCall(t, ctx, a, srv, "withPackage", wolfi, mod, func(*ResultCall) (AnyResult, error) { return wolfi, nil })
+	require.True(t, ran)
+	require.Equal(t, wolfi.cacheSharedResult().id, got.cacheSharedResult().id, "the function returns its receiver")
+	callRecordTestEntry(t, ctx, a, frame, wolfi)
+	require.NoError(t, cacheOwnershipError(a))
 }
