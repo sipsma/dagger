@@ -61,7 +61,11 @@ func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, ca
 		slog.WarnContext(ctx, "call not recorded", "field", frame.Field, "error", err)
 		return
 	}
-	deps = append(deps, resultCallDep{resultID: returned.id, path: "returned"})
+	// A function can return its receiver or an argument: the entry owns it
+	// once, as it does every entry it names.
+	if !slices.ContainsFunc(deps, func(dep resultCallDep) bool { return dep.resultID == returned.id }) {
+		deps = append(deps, resultCallDep{resultID: returned.id, path: "returned"})
+	}
 	for _, dep := range deps {
 		if c.resultsByID[dep.resultID] == nil {
 			slog.WarnContext(ctx, "call not recorded: it names a result the cache doesn't have", "field", frame.Field, "result", uint64(dep.resultID), "path", dep.path)
