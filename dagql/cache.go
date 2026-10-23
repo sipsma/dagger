@@ -496,6 +496,7 @@ func NewCache(
 		snapshotManager:   snapshotManager,
 		snapshotGC:        snapshotGC,
 		partContentSource: NewPartContentSource(nil),
+		partPrefetchRoom:  func(int64) bool { return true },
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -2467,6 +2468,15 @@ type Cache struct {
 	snapshotManager   bkcache.SnapshotManager
 	partContentSource *PartContentSource
 	snapshotGC        func(context.Context) error
+
+	// partPrefetcher, started on the first accepted offer, prefetches
+	// offered parts; partPrefetchMu orders its start and its close.
+	// partPrefetchConfig, when set before the first offer, replaces its
+	// bounds, for tests; partPrefetchRoom is WithPartPrefetchRoom's check.
+	partPrefetcher     atomic.Pointer[partPrefetcher]
+	partPrefetchMu     sync.Mutex
+	partPrefetchConfig *partPrefetchConfig
+	partPrefetchRoom   func(need int64) bool
 
 	// usageSnapshotChains carries the parent chains the last usage pass
 	// resolved into the next one; see snapshotChains.
@@ -5353,6 +5363,7 @@ func (c *Cache) CloseWithShutdownError(ctx context.Context, cause error) error {
 			"hasPersistDB", c.pdb != nil,
 		)
 		c.closeRemoteCacheBridge()
+		c.closePartPrefetch()
 		// After the bridge detach, which is what sets closing: an enqueue
 		// either finished its E section before this step, and is dropped
 		// here, or fails admission. Placed before it, an enqueue in between
@@ -5406,6 +5417,7 @@ func (c *Cache) CloseWithShutdownError(ctx context.Context, cause error) error {
 func (c *Cache) CloseDiscardingPersistence() error {
 	c.closeOnce.Do(func() {
 		c.closeRemoteCacheBridge()
+		c.closePartPrefetch()
 		// The discard path is the boot reset, before sharing is enabled:
 		// this closes admission and has nothing to drain.
 		c.closeSnapshotSharing()
