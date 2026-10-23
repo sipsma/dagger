@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -506,4 +507,65 @@ func TestCallRecordMergeReplacesOneWhoseResultExpired(t *testing.T) {
 	value, ok := got.Unwrap().(*transferTestValue)
 	require.True(t, ok)
 	require.Equal(t, "inner again", value.Text, "and gets the result computed again")
+}
+
+// A call's entry is its recipe's current entry with no value of its own. A
+// run of the call that computes a value of its own, rather than returning
+// another call's result, publishes it under the same recipe: the publication
+// takes the recipe's current entry as it takes an expired one, in place when
+// nothing uses it, and callers get the computed value.
+func TestCallRecordGivesWayToTheCallsOwnValue(t *testing.T) {
+	t.Parallel()
+	ctx, a, srv := transferTestCache(t)
+	mod := callRecordTestModule(t, ctx, a, srv, "module-a", digest.FromString("call-record-test-module-content"))
+	wolfi, _, _ := callRecordTestCall(t, ctx, a, srv, "wolfi", nil, mod, callRecordTestValue("wolfi"))
+	inner, _, _ := callRecordTestCall(t, ctx, a, srv, "withEnvVariable", nil, nil, callRecordTestValue("inner"))
+	newFrame := func() *ResultCall {
+		return &ResultCall{
+			Kind:     ResultCallKindField,
+			Field:    "container",
+			Type:     NewResultCallType((&transferTestValue{}).Type()),
+			Receiver: &ResultCallRef{ResultID: uint64(wolfi.cacheSharedResult().id)},
+			Module:   &ResultCallModule{ResultRef: &ResultCallRef{ResultID: uint64(mod.cacheSharedResult().id)}, Name: "call-record-test"},
+		}
+	}
+	frame := newFrame()
+	recipe, err := frame.deriveRecipeDigest(a)
+	require.NoError(t, err)
+
+	// Before the computed value's publication indexes it, another run of the
+	// call returns the inner result, and its publication records the call.
+	var armed atomic.Bool
+	var recordErr error
+	a.testBeforePublicationIndex = func(*ongoingCall) {
+		if !armed.CompareAndSwap(true, false) {
+			return
+		}
+		returned := newFrame()
+		_, recordErr = a.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: returned, IsPersistable: true, ConcurrencyKey: "returns-inner"}, func(context.Context) (AnyResult, error) {
+			return inner, nil
+		})
+		a.egraphMu.RLock()
+		defer a.egraphMu.RUnlock()
+		if cur := a.currentEntryForRecipeLocked(recipe); recordErr == nil && (cur == nil || cur.returnedID != inner.cacheSharedResult().id) {
+			recordErr = fmt.Errorf("the call's entry is not its recipe's current entry")
+		}
+	}
+	armed.Store(true)
+	got, err := a.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true, ConcurrencyKey: "computes"}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "own value"}, frame)
+	})
+	require.NoError(t, recordErr)
+	require.NoError(t, err)
+	value, ok := got.Unwrap().(*transferTestValue)
+	require.True(t, ok)
+	require.Equal(t, "own value", value.Text, "callers get the computed value")
+
+	a.egraphMu.RLock()
+	cur := a.currentEntryForRecipeLocked(recipe)
+	a.egraphMu.RUnlock()
+	require.NotNil(t, cur)
+	require.Equal(t, got.cacheSharedResult().id, cur.id, "the computed value is the recipe's current entry")
+	require.Zero(t, cur.returnedID)
+	require.NoError(t, cacheOwnershipError(a))
 }
