@@ -569,3 +569,93 @@ func TestCallRecordGivesWayToTheCallsOwnValue(t *testing.T) {
 	require.Zero(t, cur.returnedID)
 	require.NoError(t, cacheOwnershipError(a))
 }
+
+// A merge that replaces a recipe's value with a call's record holds the
+// entry's attachment open until the old value is released. A publication of
+// a value of the call waits for it, as it waits for any live entry's, before
+// it takes the call's entry.
+func TestCallRecordWaitsForItsOpenAttachment(t *testing.T) {
+	t.Parallel()
+	ctx, a, srv := transferTestCache(t)
+	mod := callRecordTestModule(t, ctx, a, srv, "module-a", digest.FromString("call-record-test-module-content"))
+	wolfi, _, _ := callRecordTestCall(t, ctx, a, srv, "wolfi", nil, mod, callRecordTestValue("wolfi"))
+	inner, _, _ := callRecordTestCall(t, ctx, a, srv, "withEnvVariable", nil, nil, callRecordTestValue("inner"))
+	newFrame := func() *ResultCall {
+		return &ResultCall{
+			Kind:     ResultCallKindField,
+			Field:    "container",
+			Type:     NewResultCallType((&transferTestValue{}).Type()),
+			Receiver: &ResultCallRef{ResultID: uint64(wolfi.cacheSharedResult().id)},
+			Module:   &ResultCallModule{ResultRef: &ResultCallRef{ResultID: uint64(mod.cacheSharedResult().id)}, Name: "call-record-test"},
+		}
+	}
+	frame := newFrame()
+	recipe, err := frame.deriveRecipeDigest(a)
+	require.NoError(t, err)
+
+	// Before the computed value's publication indexes it, the call's entry
+	// is recorded and its attachment opened.
+	open := make(chan struct{})
+	var armed atomic.Bool
+	var recordErr error
+	a.testBeforePublicationIndex = func(*ongoingCall) {
+		if !armed.CompareAndSwap(true, false) {
+			return
+		}
+		_, recordErr = a.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: newFrame(), IsPersistable: true, ConcurrencyKey: "returns-inner"}, func(context.Context) (AnyResult, error) {
+			return inner, nil
+		})
+		a.egraphMu.RLock()
+		defer a.egraphMu.RUnlock()
+		cur := a.currentEntryForRecipeLocked(recipe)
+		if recordErr == nil && (cur == nil || cur.returnedID == 0) {
+			recordErr = fmt.Errorf("the call's entry is not its recipe's current entry")
+			return
+		}
+		cur.attachDepsMu.Lock()
+		cur.attachDepsWaitCh = open
+		cur.attachDepsErr = nil
+		cur.attachDepsMu.Unlock()
+	}
+	waited := make(chan *sharedResult, 1)
+	a.testPublicationWaitsOnAttachment = func(res *sharedResult) {
+		select {
+		case waited <- res:
+		default:
+		}
+	}
+	type outcome struct {
+		res AnyResult
+		err error
+	}
+	done := make(chan outcome, 1)
+	armed.Store(true)
+	go func() {
+		res, err := a.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true, ConcurrencyKey: "computes"}, func(context.Context) (AnyResult, error) {
+			return NewResultForCall(&transferTestValue{Text: "own value"}, frame)
+		})
+		done <- outcome{res, err}
+	}()
+	select {
+	case res := <-waited:
+		require.NotZero(t, res.returnedID, "the publication waits on the call's entry")
+	case <-done:
+		t.Fatal("the publication took the call's entry without waiting for its open attachment")
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the publication")
+	}
+	close(open)
+	got := <-done
+	require.NoError(t, recordErr)
+	require.NoError(t, got.err)
+	value, ok := got.res.Unwrap().(*transferTestValue)
+	require.True(t, ok)
+	require.Equal(t, "own value", value.Text)
+	a.egraphMu.RLock()
+	cur := a.currentEntryForRecipeLocked(recipe)
+	a.egraphMu.RUnlock()
+	require.NotNil(t, cur)
+	require.Equal(t, got.res.cacheSharedResult().id, cur.id, "the computed value takes the call's entry once its attachment closes")
+	require.Zero(t, cur.returnedID)
+	require.NoError(t, cacheOwnershipError(a))
+}
