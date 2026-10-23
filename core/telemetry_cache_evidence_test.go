@@ -9,6 +9,7 @@ package core
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -733,4 +734,55 @@ func BenchmarkRecordCacheEvidence(b *testing.B) {
 	for b.Loop() {
 		recordCacheEvidence(ctx, span, ev, res)
 	}
+}
+
+// A module function call that returns another call's result is recorded as
+// an entry of its own, and its span names that entry: its number, its
+// recipe, the call's own, its dependencies, the returned entry among them,
+// and its retention.
+func TestRecordCacheEvidenceNamesTheCallRecord(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cache, err := dagql.NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, cache.CloseDiscardingPersistence()) })
+	run := func(req *dagql.CallRequest, value func() (dagql.AnyResult, error)) dagql.AnyResult {
+		t.Helper()
+		res, err := cache.GetOrInitCall(ctx, "evidence-session", evidenceTestTypeResolver{}, req, func(context.Context) (dagql.AnyResult, error) { return value() })
+		assert.NilError(t, err)
+		return res
+	}
+	value := func(frame *dagql.ResultCall, n int) func() (dagql.AnyResult, error) {
+		return func() (dagql.AnyResult, error) { return dagql.NewResultForCall(dagql.NewInt(n), frame) }
+	}
+	moduleFrame := evidenceTestFrame("callRecordModule")
+	module := run(&dagql.CallRequest{ResultCall: moduleFrame, IsPersistable: true}, value(moduleFrame, 1))
+	moduleNumber, ok := dagql.CacheResultNumber(module)
+	assert.Assert(t, ok)
+	innerFrame := evidenceTestFrame("callRecordInner")
+	inner := run(&dagql.CallRequest{ResultCall: innerFrame, IsPersistable: true}, value(innerFrame, 2))
+	innerNumber, ok := dagql.CacheResultNumber(inner)
+	assert.Assert(t, ok)
+
+	callFrame := evidenceTestFrame("callRecordFunction")
+	callFrame.Module = &dagql.ResultCallModule{ResultRef: &dagql.ResultCallRef{ResultID: moduleNumber}, Name: "evidence"}
+	req := &dagql.CallRequest{ResultCall: callFrame, CacheEvidence: dagql.NewCacheDecision(), IsPersistable: true}
+	res := run(req, func() (dagql.AnyResult, error) { return inner, nil })
+	returnedNumber, ok := dagql.CacheResultNumber(res)
+	assert.Assert(t, ok)
+	assert.Equal(t, innerNumber, returnedNumber, "the function returns the inner result")
+
+	sr, span := evidenceTestRecordingSpan(t)
+	recordCacheEvidence(ctx, span, req.CacheEvidence, res)
+	kvs := evidenceTestEndedAttrs(t, sr, span)
+	got := evidenceTestCacheAttrs(t, kvs)
+	recipe, err := callFrame.RecipeDigest(dagql.ContextWithCache(ctx, cache))
+	assert.NilError(t, err)
+	assert.Equal(t, recipe.String(), got["dagger.io/cache.recipe"], "the span names the call's own entry")
+	assert.Assert(t, got[telemetryattrs.CacheResultIDAttr] != strconv.FormatUint(innerNumber, 10), "not the returned entry")
+	deps, ok := evidenceTestStringSlice(kvs, telemetryattrs.CacheDepsAttr)
+	assert.Assert(t, ok)
+	assert.Assert(t, slices.Contains(deps, strconv.FormatUint(innerNumber, 10)), "the call's entry depends on the returned entry")
+	assert.Assert(t, slices.Contains(deps, strconv.FormatUint(moduleNumber, 10)), "and on its module")
+	assert.Equal(t, "true", got[telemetryattrs.CacheRetainedAttr])
 }
