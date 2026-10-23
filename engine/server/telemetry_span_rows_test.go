@@ -47,7 +47,7 @@ func TestSpanRowsEncodeEachSpansOwnResourceAndScope(t *testing.T) {
 		stub(6, resource.NewSchemaless(attribute.String("service.name", "a")), scopeA),
 	}
 
-	rows := spanRows(spans)
+	rows := encodeTestSpans(spans)
 	require.Len(t, rows, len(spans))
 	for i, span := range spans {
 		require.True(t, rows[i].ok)
@@ -65,10 +65,19 @@ func TestSpanRowsEncodeEachSpansOwnResourceAndScope(t *testing.T) {
 // span exporter does for each target on a span's route.
 func appendTestSpans(ctx context.Context, ps *PubSub, clientID string, spans []sdktrace.ReadOnlySpan) error {
 	var rows []clientdb.Span
-	for _, r := range spanRows(spans) {
+	for _, r := range encodeTestSpans(spans) {
 		if r.ok {
 			rows = append(rows, r.row)
 		}
 	}
 	return ps.appendSpans(ctx, clientID, rows)
+}
+
+func encodeTestSpans(spans []sdktrace.ReadOnlySpan) []encodedSpanRow {
+	enc := newSpanRowEncoder()
+	rows := make([]encodedSpanRow, len(spans))
+	for i, span := range spans {
+		rows[i] = enc.encode(span)
+	}
+	return rows
 }
