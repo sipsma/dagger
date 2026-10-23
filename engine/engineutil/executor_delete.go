@@ -18,7 +18,7 @@ import (
 )
 
 // cgroupOps are the cgroupfs operations removeExecCgroup uses; tests replace
-// them.
+// them with fakes.
 type cgroupOps struct {
 	remove    func(path string) error
 	readFile  func(path string) (string, error)
