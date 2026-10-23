@@ -13,6 +13,7 @@ type CleanupF = func() error
 
 type Cleanups struct {
 	funcs []CleanupF
+	names []string
 }
 
 type CleanupFunc struct {
@@ -33,6 +34,7 @@ func (c *Cleanups) Add(msg string, f CleanupF) CleanupFunc {
 		return err
 	})
 	c.funcs = append(c.funcs, fOnce)
+	c.names = append(c.names, msg)
 	return CleanupFunc{fOnce}
 }
 
@@ -43,7 +45,18 @@ func (c *Cleanups) Add(msg string, f CleanupF) CleanupFunc {
 // connection in all cases).
 func (c *Cleanups) ReAdd(f CleanupFunc) CleanupFunc {
 	c.funcs = append(c.funcs, f.fn)
+	c.names = append(c.names, "")
 	return f
+}
+
+// RunTimed is Run, with each cleanup wrapped by wrap, which gets its name
+// (measurement only).
+func (c *Cleanups) RunTimed(wrap func(name string, f CleanupF) error) error {
+	var rerr error
+	for i := len(c.funcs) - 1; i >= 0; i-- {
+		rerr = errors.Join(rerr, wrap(c.names[i], c.funcs[i]))
+	}
+	return rerr
 }
 
 func (c *Cleanups) Run() error {

@@ -286,7 +286,16 @@ func (c *Client) run(
 		c.runningMu.Unlock()
 
 		close(state.done)
-		if err := state.cleanups.Run(); err != nil {
+		if err := state.cleanups.RunTimed(func(name string, f cleanups.CleanupF) error {
+			class := name
+			if i := strings.Index(class, " /"); i >= 0 {
+				class = class[:i]
+			}
+			_, op := wcprof.BeginOp(ctx, wcprof.OpKindExecPhase, "cleanup."+class, wcprof.OpOpts{Ident: state.id})
+			err := f()
+			op.EndErr(err)
+			return err
+		}); err != nil {
 			bklog.G(ctx).Errorf("executor run failed to cleanup: %v", err)
 			rerr = errors.Join(rerr, &ExecCleanupError{Err: err})
 		}
