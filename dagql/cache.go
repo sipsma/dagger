@@ -6713,7 +6713,11 @@ func (c *Cache) releaseOngoingCallHandoff(ctx context.Context, oc *ongoingCall) 
 	}
 
 	c.egraphMu.Lock()
-	var shareDuplicates []*sharedResult
+	var (
+		shareDuplicates []*sharedResult
+		queue           collectionQueue
+		recordReleases  []OnReleaseFunc
+	)
 	if oc.needsPersistedEdge {
 		c.upsertPersistedEdgeLocked(ctx, oc.res, oc.persistedEdgeExpiresAtUnix, false)
 		oc.pendingEdge.created = true
@@ -6721,18 +6725,18 @@ func (c *Cache) releaseOngoingCallHandoff(ctx context.Context, oc *ongoingCall) 
 			// Recording the call can join classes, as identity teaching
 			// does: its notifications are flushed before the unlock.
 			notify, notifyOwner := c.beginShareNotificationsLocked()
-			c.recordCallLocked(ctx, oc.res, oc.callRecord, oc.persistedEdgeExpiresAtUnix)
+			queue, recordReleases = c.recordCallLocked(ctx, oc.res, oc.callRecord, oc.persistedEdgeExpiresAtUnix)
 			c.flushShareNotificationsLocked(ctx, notify, notifyOwner)
 			shareDuplicates = c.takeShareDuplicateHoldsLocked()
 		}
 	}
-	queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
+	queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, queue)
 	collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
 	c.egraphMu.Unlock()
 	c.releaseShareDuplicateHolds(ctx, shareDuplicates)
 	oc.handoffHoldActive = false
 
-	return errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
+	return errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), append(recordReleases, collectReleases...)))
 }
 
 // rollbackPartialPublicationLocked expunges a freshly indexed result whose
