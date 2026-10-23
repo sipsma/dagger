@@ -53,6 +53,10 @@ def classify(argv):
             return "modunzip", mm.group(1) if mm else "?"
     if len(argv) >= 2 and argv[0].endswith("/gohdr") and argv[1] == "run":
         return "tier", ""
+    if argv == ["sh", "/gobuild/run.sh"]:
+        # gobuild runs a script past 64 KiB from a file, so its argv names no package. The
+        # link's script, which names every archive, is one; at dagger's scale the only one.
+        return "script-file", ""
     return "other", " ".join(argv[:3])[:80]
 
 
@@ -100,8 +104,17 @@ class Build:
                 # One exec per package in a binary build; keep the first if a package repeats.
                 self.pkgs.setdefault(x["key"], x)
         self.tiers = [x for x in self.execs if x["kind"] == "tier"]
+        # Module extractions (today's build), by module path, and each package's module.
+        self.mods = {}
+        for x in self.execs:
+            if x["kind"] == "modunzip":
+                self.mods[x["key"].rsplit("@", 1)[0]] = x
+        self.occ = Occupancy([[x["req_s"], x["lazy_s"], x["exec_s"], x["proc_s"], x["proc_e"], x["req_e"]]
+                              for x in self.execs if x["kind"] in ("pkg", "link")])
         self.trace = {}  # tier package import path -> trace line, with "tier" index
         self.tier_runs = []
+        self.walk = None
+        self._walk_path = None
         if trace_dir:
             self._load_traces(trace_dir)
         self.graph = None
@@ -109,9 +122,31 @@ class Build:
             with open(graph) as f:
                 g = json.load(f)
             byname = {s["Name"]: s for s in g["steps"]}
-            self.graph = {s["Pkg"]: [byname[d]["Pkg"] for d in s["Deps"] if d in byname]
+            self.graph = {s["Pkg"]: [byname[d]["Pkg"] for d in (s["Deps"] or []) if d in byname]
                           for s in g["steps"] if not s.get("Profile")}
             self.link_pkg = next(s["Pkg"] for s in g["steps"] if s.get("Link"))
+            # The link is the last exec whose script was a file (see classify): the link waits
+            # for every other package, so it ends after any other such exec.
+            files = [x for x in self.execs if x["kind"] == "script-file"]
+            if files:
+                link = max(files, key=lambda x: x["proc_e"])
+                link["kind"], link["key"] = "link", self.link_pkg
+                self.pkgs[self.link_pkg] = link
+                if len(files) > 1:
+                    print(f"warning: {len(files) - 1} package execs ran their script from a file and "
+                          "can't be named from their argv; they are left out", file=sys.stderr)
+            if self.link_pkg not in self.pkgs:
+                raise SystemExit("no link exec found in the dump")
+        if self._walk_path:
+            self._load_walk(self._walk_path)
+
+    def handoff_cat(self, a, b):
+        """A wait between a dependency's result and a package's request: for slots when gobuild's
+        16 exec slots were (nearly) all held through it."""
+        if b - a <= 0 or not self.tier_runs == [] :
+            return "hand-off (module, slot)"
+        tot = self.occ.integral(a, b)
+        return "hand-off: all exec slots held" if sum(tot) / (b - a) >= 15.5 else "hand-off (module, slot)"
 
     def rel(self, ns_since_epoch):
         return (ns_since_epoch - self.t0) / MS
@@ -119,7 +154,41 @@ class Build:
     def unix_rel(self, unix_ns):
         return (unix_ns - self.epoch - self.t0) / MS
 
+    def _load_walk(self, path):
+        """Today's build's measurement trace: gobuild's own timeline per package (deps done, slot
+        acquired, results back, slot released) and per module fetch, in ns since the epoch."""
+        with open(path) as f:
+            w = json.load(f)
+        e0 = self.epoch
+        rel = lambda v: v - e0 if v else None
+        self.walk = {}
+        for t in w["pkgs"].values():
+            self.walk[t["Pkg"]] = {k: rel(t.get(k)) for k in ("DepsDone", "Enqueued", "Granted", "Acquired", "DirSynced", "FileSynced", "Released")}
+            self.walk[t["Pkg"]]["Height"] = t["Height"]
+        self.walk_mods = {m["Mod"]: {k: rel(m[k]) for k in ("Queued", "Started", "Done")} for m in w["mods"].values()}
+        self.slots = w["slots"]
+        # Slot holders by phase.
+        items = []
+        for p, t in self.walk.items():
+            x = self.pkgs.get(p)
+            if not x or not t["Acquired"]:
+                continue
+            items.append([t["Acquired"], x["req_s"], x["lazy_s"], x["exec_s"], x["proc_s"], x["proc_e"], t["DirSynced"], t["Released"]])
+        self.slot_occ = Occupancy(items, SLOT_PHASES)
+
+    def slot_wait_note(self, pkg, a, b):
+        """Who held the slots while pkg waited for one, from a to b."""
+        tot = self.slot_occ.integral(a, b)
+        span = b - a
+        h = self.walk[pkg]["Height"]
+        holders = [q for q, t in self.walk.items() if t["Acquired"] and t["Acquired"] <= a and (t["Released"] or 0) >= b]
+        lower = sum(1 for q in holders if self.walk[q]["Height"] < h)
+        parts = ", ".join(f"{tot[k] / span:.1f} {SLOT_PHASES[k]}" for k in range(len(tot)) if tot[k] / span >= 0.3)
+        return f"slots held (mean {sum(tot) / span:.1f}): {parts}; {len(holders)} held it throughout, {lower} of them lower priority"
+
     def _load_traces(self, d):
+        if os.path.exists(os.path.join(d, "walk.json")):
+            self._walk_path = os.path.join(d, "walk.json")
         files = sorted(f for f in os.listdir(d) if f.endswith(".jsonl"))
         runs = []
         for f in files:
@@ -142,11 +211,20 @@ class Build:
 
     # Each package's result time as its importers see it, and its own request start.
     def done(self, pkg):
+        if self.walk and pkg in self.walk and self.walk[pkg]["FileSynced"]:
+            return self.walk[pkg]["FileSynced"]
         if pkg in self.pkgs:
             return self.pkgs[pkg]["req_e"]
         if pkg in self.trace:
             return self.tier_runs[self.trace[pkg]["tier"]]["exec"]["req_e"]
         return None
+
+    def mod_of(self, pkg):
+        best = ""
+        for m in self.mods:
+            if (pkg == m or pkg.startswith(m + "/")) and len(m) > len(best):
+                best = m
+        return self.mods.get(best)
 
     def chain(self):
         """The critical chain, walked back from the link, as segments (label, start, end, cat),
@@ -158,10 +236,21 @@ class Build:
         while cur is not None:
             if cur in self.pkgs:
                 x = self.pkgs[cur]
+                wt = self.walk.get(cur) if self.walk else None
+                if wt and wt["FileSynced"]:
+                    segs.append((cur, x["req_e"], wt["FileSynced"], "after compile: archive request"))
                 segs.append((cur, x["proc_e"], x["req_e"], "after compile (outputs, result)"))
                 segs.append((cur, x["proc_s"], x["proc_e"], "compile (process)"))
                 segs.append((cur, x["exec_s"], x["proc_s"], "container start"))
-                segs.append((cur, x["lazy_s"], x["exec_s"], "exec setup (mounts, inputs)"))
+                mx = self.mod_of(cur)
+                if mx and mx["req_e"] > x["lazy_s"]:
+                    # The package's own module was still being extracted after its request
+                    # began: that part of its exec setup was the extraction's.
+                    m_end = min(mx["req_e"], x["exec_s"])
+                    segs.append((cur, x["lazy_s"], m_end, "exec setup: its module still extracting"))
+                    segs.append((cur, m_end, x["exec_s"], "exec setup (mounts, inputs)"))
+                else:
+                    segs.append((cur, x["lazy_s"], x["exec_s"], "exec setup (mounts, inputs)"))
                 segs.append((cur, x["req_s"], x["lazy_s"], "request to exec"))
                 deps = [(self.done(d), d) for d in self.graph.get(cur, []) if self.done(d) is not None]
                 if not deps:
@@ -174,7 +263,17 @@ class Build:
                     segs.append((cur, tr["exec"]["req_e"], x["req_s"], "hand-off (module, slot)"))
                     cur = ("tier", self.trace[d]["tier"])
                     continue
-                segs.append((cur, t, x["req_s"], "hand-off (module, slot)"))
+                if wt and wt["DepsDone"] and wt["Acquired"]:
+                    segs.append((cur, wt["Acquired"], x["req_s"], "hand-off: slot to request"))
+                    if wt["Enqueued"] and wt["Granted"]:
+                        segs.append((cur, wt["Granted"], wt["Acquired"], "hand-off: gate wake-up"))
+                        segs.append((cur, wt["Enqueued"], wt["Granted"], "hand-off: waiting for an exec slot"))
+                        segs.append((cur, wt["DepsDone"], wt["Enqueued"], "hand-off: helper builds the exec"))
+                    else:
+                        segs.append((cur, wt["DepsDone"], wt["Acquired"], "hand-off: waiting for an exec slot"))
+                    segs.append((cur, t, wt["DepsDone"], "hand-off: result to helper"))
+                else:
+                    segs.append((cur, t, x["req_s"], self.handoff_cat(t, x["req_s"])))
                 cur = d
                 continue
             # In a tier.
@@ -224,9 +323,35 @@ class Build:
         bycat = collections.defaultdict(float)
         for _, s, e, c in segs:
             bycat[c] += (e - s) / MS
-        out["chain"] = [{"pkg": l, "s": self.rel(s), "e": self.rel(e), "ms": (e - s) / MS, "cat": c} for l, s, e, c in segs]
+        out["chain"] = [{"pkg": l, "s": self.rel(s), "e": self.rel(e), "ms": (e - s) / MS, "cat": c,
+                         "note": (self.slot_wait_note(l, s, e) if c == "hand-off: waiting for an exec slot"
+                                  else self.occ.describe(s, e) if c.startswith("hand-off") and not self.tier_runs and not self.walk else "")}
+                        for l, s, e, c in segs]
+        # How gobuild's exec slots were spent over the whole build, by phase (slot-seconds).
+        a, b = self.t0, self.tend
+        out["slot_seconds"] = dict(zip(PHASES, (v / 1e9 for v in self.occ.integral(a, b))))
+        mw = []
+        for p, x in self.pkgs.items():
+            mx = self.mod_of(p)
+            if mx and mx["req_e"] > x["lazy_s"]:
+                mw.append((min(mx["req_e"], x["exec_s"]) - x["lazy_s"]) / MS)
+        out["module_waits"] = {"packages": len(mw), "ms": sum(mw)}
+        if self.walk:
+            out["slot_seconds_helper"] = dict(zip(SLOT_PHASES, (v / 1e9 for v in self.slot_occ.integral(a, b))))
         out["chain_by_cat"] = dict(sorted(bycat.items(), key=lambda kv: -kv[1]))
         out["chain_end_ms"] = self.rel(segs[-1][2]) if segs else None
+        # Before the first compile: the requests and execs that ran then, longest first.
+        first = min([x["req_s"] for x in self.execs if x["kind"] in ("pkg", "tier")], default=self.tend)
+        pro = []
+        for e in self.ops.values():
+            par = self.ops.get(e.get("p"))
+            if par and par["cls"] == "session.query" and e["s"] < first and e["d"] - e["s"] >= 100 * MS:
+                pro.append({"what": "request " + e["cls"], "s": self.rel(e["s"]), "e": self.rel(e["d"]), "ms": (e["d"] - e["s"]) / MS})
+        for x in self.execs:
+            if x["kind"] in ("other", "modunzip") and x["proc_s"] < first and x["proc_e"] - x["proc_s"] >= 100 * MS:
+                pro.append({"what": "exec " + (x["key"] or x["kind"]), "s": self.rel(x["proc_s"]), "e": self.rel(x["proc_e"]), "ms": (x["proc_e"] - x["proc_s"]) / MS})
+        out["prologue"] = sorted(pro, key=lambda r: r["s"])
+        out["first_compile_request_ms"] = self.rel(first)
         pk = {}
         for p, x in self.pkgs.items():
             pk[p] = {"compile_ms": (x["proc_e"] - x["proc_s"]) / MS, "req_ms": (x["req_e"] - x["req_s"]) / MS,
@@ -247,6 +372,69 @@ class Build:
                         for t in self.tier_runs]
         out["exec_busy"] = busy_profile([(x["proc_s"], x["proc_e"]) for x in self.execs if x["kind"] == "pkg"])
         return out
+
+
+SLOT_PHASES = ("got slot, before request", "request to exec", "exec setup", "container start", "compile",
+               "after compile", "archive request, release")
+
+PHASES = ("request to exec", "exec setup (mounts, inputs)", "container start", "compile (process)",
+          "after compile (outputs, result)")
+
+
+class Occupancy:
+    """How many packages were in each phase, over time. Each item is a list of phase boundaries
+    (ns), one more than there are phase names."""
+
+    def __init__(self, items, names=PHASES):
+        import bisect
+        self.bisect = bisect
+        self.names = names
+        n = len(names)
+        ev = []
+        for b in items:
+            for i in range(n):
+                if b[i] is not None and b[i + 1] is not None and b[i + 1] > b[i]:
+                    ev.append((b[i], i, 1))
+                    ev.append((b[i + 1], i, -1))
+        ev.sort()
+        self.ts, self.counts = [], []
+        cur = [0] * n
+        for t, i, d in ev:
+            cur[i] += d
+            if self.ts and self.ts[-1] == t:
+                self.counts[-1] = tuple(cur)
+            else:
+                self.ts.append(t)
+                self.counts.append(tuple(cur))
+
+    def integral(self, a, b):
+        """Per phase, the in-flight count integrated over [a, b] (ns), and the time with all of
+        them at least `full`."""
+        n = len(self.names)
+        out = [0.0] * n
+        if b <= a or not self.ts:
+            return out
+        i = max(self.bisect.bisect_right(self.ts, a) - 1, 0)
+        t = a
+        while t < b:
+            nxt = self.ts[i + 1] if i + 1 < len(self.ts) else b
+            seg_end = min(max(nxt, t), b)
+            c = self.counts[i] if self.ts[i] <= t else (0,) * n
+            for k in range(n):
+                out[k] += c[k] * (seg_end - t)
+            t = seg_end
+            i += 1
+            if i >= len(self.ts):
+                break
+        return out
+
+    def describe(self, a, b):
+        tot = self.integral(a, b)
+        span = b - a
+        if span <= 0:
+            return ""
+        parts = ", ".join(f"{tot[k] / span:.1f} {self.names[k].split(' (')[0]}" for k in range(len(tot)) if tot[k] / span >= 0.5)
+        return f"in flight (mean): {sum(tot) / span:.1f} [{parts}]"
 
 
 def busy_profile(intervals):
@@ -277,13 +465,21 @@ def print_build(s, top=60):
         print(f"package execs: processes at once mean {b['mean']:.1f} peak {b['peak']} over {b['span_ms']:.0f} ms")
     if not s["chain"]:
         return
+    print(f"\nbefore the first compile request ({s['first_compile_request_ms']:.0f} ms): requests and execs over 100 ms")
+    for r in s["prologue"]:
+        print(f"  {r['s']:7.0f}..{r['e']:7.0f} {r['ms']:7.0f} ms  {r['what']}")
     print(f"\ncritical chain, ends at {s['chain_end_ms']:.0f} ms:")
     for c, ms in s["chain_by_cat"].items():
         print(f"  {ms:8.0f} ms  {c}")
     print("\nchain, segments over 20 ms:")
     for c in s["chain"]:
         if c["ms"] >= 20:
-            print(f"  {c['s']:7.0f} {c['ms']:7.0f} ms  {c['cat']:<34} {c['pkg']}")
+            print(f"  {c['s']:7.0f} {c['ms']:7.0f} ms  {c['cat']:<40} {c['pkg']}  {c.get('note', '')}")
+    print("\nexec slot-seconds by phase: " + ", ".join(f"{k}: {v:.1f}" for k, v in s["slot_seconds"].items()))
+    if s.get("slot_seconds_helper"):
+        print("exec slot-seconds by phase, from gobuild's own timeline: " + ", ".join(f"{k}: {v:.1f}" for k, v in s["slot_seconds_helper"].items()))
+    print(f"packages whose request waited on their module's extraction: {s['module_waits']['packages']}, "
+          f"{s['module_waits']['ms']:.0f} ms summed")
 
 
 def compare(a, b):
@@ -296,14 +492,16 @@ def compare(a, b):
     onchain = {c["pkg"] for c in a["chain"] if c["cat"] == "compile (process)"} | {c["pkg"] for c in b["chain"] if c["cat"] == "compile (process)"}
     ca = {c["pkg"] for c in a["chain"] if c["cat"] == "compile (process)"}
     cb = {c["pkg"] for c in b["chain"] if c["cat"] == "compile (process)"}
-    print("\npackages compiled on either chain: compile ms old / new (old: CPU ms, -c); on chain old/new")
+    print("\npackages compiled on either chain: compile ms old / new / new-old; CPU ms old / new; "
+          "threads used (CPU/wall) old / new; -c old; on chain old/new")
     rows = []
     for p in onchain:
         pa, pb = a["packages"].get(p, {}), b["packages"].get(p, {})
         rows.append((pb.get("compile_ms", 0) - pa.get("compile_ms", 0), p, pa, pb))
     for d, p, pa, pb in sorted(rows, key=lambda r: -max(r[2].get("compile_ms", 0), r[3].get("compile_ms", 0))):
-        print(f"  {pa.get('compile_ms', 0):7.0f} {pb.get('compile_ms', 0):7.0f} {d:+7.0f}  cpu {pa.get('cpu_ms', 0):6.0f} c={pa.get('c', '-')}"
-              f"  {'O' if p in ca else '.'}{'N' if p in cb else '.'}  {p}")
+        par = lambda q: q.get("cpu_ms", 0) / q["compile_ms"] if q.get("compile_ms") else 0
+        print(f"  {pa.get('compile_ms', 0):7.0f} {pb.get('compile_ms', 0):7.0f} {d:+7.0f}  cpu {pa.get('cpu_ms', 0):6.0f} {pb.get('cpu_ms', 0):6.0f}"
+              f"  thr {par(pa):4.1f} {par(pb):4.1f}  c={pa.get('c', '-')}  {'O' if p in ca else '.'}{'N' if p in cb else '.'}  {p}")
 
 
 def main():
