@@ -63,7 +63,7 @@ func (c *Cache) recordCallLocked(ctx context.Context, returned *sharedResult, ca
 		if cur.returnedID == 0 {
 			return nil, nil, nil
 		}
-		if !c.resultExpiredAtLocked(cur, now.Unix()) {
+		if !c.callEntryExpiredLocked(cur, now.Unix()) {
 			if cur.returnedID == returned.id {
 				c.upsertPersistedEdgeLocked(ctx, cur, edgeExpiresAtUnix, false)
 				return cur, nil, nil
@@ -166,6 +166,18 @@ func returnedEnvelope(id, returned sharedResultID) *PersistedResultEnvelope {
 		ResultID:   uint64(id),
 		ReturnedID: uint64(returned),
 	}
+}
+
+// callEntryExpiredLocked reports whether the call's entry res is expired at
+// nowUnix: its own expiry or its value's, the returned entry's, has passed. A
+// lookup that selects it serves nothing then (servableCandidateLocked).
+// Requires egraphMu.
+func (c *Cache) callEntryExpiredLocked(res *sharedResult, nowUnix int64) bool {
+	if c.resultExpiredAtLocked(res, nowUnix) {
+		return true
+	}
+	returned := c.resultsByID[res.returnedID]
+	return returned == nil || c.resultExpiredAtLocked(returned, nowUnix)
 }
 
 // servedEntryLocked returns the entry a load of res serves: the returned
