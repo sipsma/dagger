@@ -154,6 +154,7 @@ func (c *Cache) replaceResultValueInPlaceLocked(ctx context.Context, cur, fresh 
 	cur.expiresAtUnix = 0
 	cur.recordType = fresh.recordType
 	cur.description = fresh.description
+	cur.returnedID = fresh.returnedID
 	cur.storeResultCall(fresh.loadResultCall())
 
 	cur.payloadMu.Lock()

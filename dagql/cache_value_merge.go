@@ -1492,6 +1492,13 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 		}
 		c.mergeSenderHoldingLocked(ctx, cloudState, commit, row, change)
 	}
+	// A call's own entry is in the class of the result it returned, once
+	// both have their identities.
+	for _, row := range commit.rows {
+		if returned := c.resultsByID[row.res.returnedID]; row.res.returnedID != 0 && returned != nil {
+			c.joinReturnedClassLocked(ctx, row.res, returned)
+		}
+	}
 	if joined != nil {
 		joined(change)
 	}
@@ -1520,6 +1527,10 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, comm
 	res.description = row.plan.row.description
 	res.recordType = row.plan.row.recordType
 	res.storeResultCall(rec.Call)
+	res.returnedID = 0
+	if rec.Envelope.Kind == persistedResultKindReturned {
+		res.returnedID = sharedResultID(rec.Envelope.ReturnedID)
+	}
 	res.payloadMu.Lock()
 	res.isObject = rec.Envelope.Kind == persistedResultKindObject
 	res.hasValue = false

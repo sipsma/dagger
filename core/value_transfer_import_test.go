@@ -27,10 +27,10 @@ func TestValueTransferForeignFormsImport(t *testing.T) {
 			for _, inline := range []bool{false, true} {
 				makeBundle := func(payload json.RawMessage) dagql.ValueBundle {
 					typ := &dagql.ResultCallType{NamedType: tc.family, NonNull: true}
-					envelope := dagql.PersistedResultEnvelope{Version: 5, ResultID: 1, Kind: "object_self", TypeName: tc.family, ObjectCodec: "core." + tc.family, ObjectJSON: payload}
+					envelope := dagql.PersistedResultEnvelope{Version: 6, ResultID: 1, Kind: "object_self", TypeName: tc.family, ObjectCodec: "core." + tc.family, ObjectJSON: payload}
 					if inline {
 						envelope.ResultID = 0
-						envelope = dagql.PersistedResultEnvelope{Version: 5, ResultID: 1, Kind: "list", Items: []dagql.PersistedResultEnvelope{envelope}}
+						envelope = dagql.PersistedResultEnvelope{Version: 6, ResultID: 1, Kind: "list", Items: []dagql.PersistedResultEnvelope{envelope}}
 						typ = &dagql.ResultCallType{Elem: typ, NonNull: true}
 					}
 					return dagql.ValueBundle{Version: 3, Roots: []dagql.TransferredRoot{{Ordinal: 1}}, Values: []dagql.TransferredValue{{Ordinal: 1, SenderNumber: 1, Record: dagql.PersistedRecord{ResultID: 1, Envelope: envelope, Call: &dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "foreignForm", Type: typ}}}}}

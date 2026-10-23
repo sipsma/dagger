@@ -19,6 +19,12 @@ const (
 	// list. It carries only the row identity; the row's own envelope holds
 	// its body.
 	persistedResultKindRef = "result_ref"
+	// persistedResultKindReturned is the root of a call's own row whose value
+	// is the row of another call's result: a module function returns the
+	// result its body built. It names that row (ReturnedID) and carries no
+	// body; the row is never decoded, and a lookup that selects it serves
+	// the returned row.
+	persistedResultKindReturned = "returned_ref"
 )
 
 // persistedResultEnvelopeVersion is the current interpretation of
@@ -31,7 +37,9 @@ const (
 // name their codec family; list items naming another row are result_ref
 // envelopes without a duplicated body.
 // 4: root origin and independent pending offer ownership.
-const persistedResultEnvelopeVersion = 5
+// 6: a call's own row whose value is another call's result is a
+// returned_ref root naming that row.
+const persistedResultEnvelopeVersion = 6
 
 // PersistedResultEnvelope is the shared on-disk payload envelope for persisted
 // result self values.
@@ -63,7 +71,10 @@ type PersistedResultEnvelope struct {
 	// ResultID is the attached row identity of the value. The root envelope
 	// of a row repeats that row's ID; a null root keeps the identity of an
 	// attached absent value; a result_ref item names another attached row.
-	ResultID              uint64                    `json:"resultID,omitempty"`
+	ResultID uint64 `json:"resultID,omitempty"`
+	// ReturnedID is, on a returned_ref root, the row of the result the call
+	// returned, which the row depends on.
+	ReturnedID            uint64                    `json:"returnedID,omitempty"`
 	SessionResourceHandle SessionResourceHandle     `json:"sessionResourceHandle,omitempty"`
 	ObjectJSON            json.RawMessage           `json:"objectJSON,omitempty"`
 	ScalarJSON            json.RawMessage           `json:"scalarJSON,omitempty"`
@@ -457,6 +468,8 @@ func decodePersistedResultEnvelope(ctx context.Context, dec *PersistDecodeContex
 			return nil, fmt.Errorf("decode result_ref envelope: zero result ID")
 		}
 		return dec.ResultRef(ctx, env.ResultID)
+	case persistedResultKindReturned:
+		return nil, fmt.Errorf("decode returned_ref envelope: a call's own row is served as the row it returned, never decoded")
 	case persistedResultKindObject:
 		res, err := decodePersistedObjectEnvelope(ctx, dec, env, call, dag)
 		if err != nil {

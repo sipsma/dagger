@@ -652,7 +652,8 @@ func (c *Cache) appendOutputEqClassResultsLocked(candidates *set.TreeSet[*shared
 }
 
 // servableCandidateLocked returns the result lookup may serve for resID, or
-// nil. expired is filled as in appendDigestResultsLocked.
+// nil: for a call's own entry whose value is another call's result, that
+// result. expired is filled as in appendDigestResultsLocked.
 func (c *Cache) servableCandidateLocked(resID sharedResultID, nowUnix int64, expired *expirySeen) *sharedResult {
 	res := c.resultsByID[resID]
 	if res == nil {
@@ -671,6 +672,11 @@ func (c *Cache) servableCandidateLocked(resID sharedResultID, nowUnix int64, exp
 			expired.remote = expired.remote || res.imported
 		}
 		return nil
+	}
+	// A call's own entry whose value is another call's result serves that
+	// result (cache_call_record.go).
+	if res.returnedID != 0 {
+		return c.servableCandidateLocked(res.returnedID, nowUnix, expired)
 	}
 	return res
 }

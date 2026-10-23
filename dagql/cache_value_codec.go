@@ -307,6 +307,10 @@ func validateTransferEnvelopeKind(env PersistedResultEnvelope, typ *ResultCallTy
 		if root || env.ResultID == 0 || env.TypeName != "" || env.ObjectCodec != "" || len(env.ObjectJSON) != 0 || len(env.ScalarJSON) != 0 || len(env.Items) != 0 {
 			return fmt.Errorf("invalid result reference envelope")
 		}
+	case persistedResultKindReturned:
+		if !root || env.ReturnedID == 0 || env.TypeName != "" || env.ObjectCodec != "" || len(env.ObjectJSON) != 0 || len(env.ScalarJSON) != 0 || len(env.Items) != 0 {
+			return fmt.Errorf("invalid returned row reference envelope")
+		}
 	case persistedResultKindList:
 		if typ.Elem == nil || len(env.ObjectJSON) != 0 || len(env.ScalarJSON) != 0 || env.ObjectCodec != "" {
 			return fmt.Errorf("invalid list envelope")
@@ -347,6 +351,10 @@ func validateTransferEnvelopeStructure(env PersistedResultEnvelope, root bool) e
 	case persistedResultKindRef:
 		if root {
 			return fmt.Errorf("root envelope cannot be a result reference")
+		}
+	case persistedResultKindReturned:
+		if !root {
+			return fmt.Errorf("a returned row reference is a row's root")
 		}
 	case persistedResultKindObject:
 	case persistedResultKindList:
