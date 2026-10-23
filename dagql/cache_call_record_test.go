@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -268,46 +269,55 @@ func TestCallRecordReturningItsReceiverOwnsItOnce(t *testing.T) {
 	require.NoError(t, cacheOwnershipError(a))
 }
 
-// After a call's entry and the result it returned expire, the call runs
-// again and its body computes a new result: the call's entry, its recipe's
-// current entry, takes the new result as its value, as any entry takes its
-// recipe's new value, and a fresh engine that merges it gets the new result.
+// After the result a call returned expires, with the call's entry or before
+// it, the call runs again and its body computes a new result: the call's
+// entry, its recipe's current entry, takes the new result as its value, as
+// any entry takes its recipe's new value, and a fresh engine that merges it
+// gets the new result. The entry is expired once its value is, as a lookup
+// that selects it finds.
 func TestCallRecordFollowsARecomputedResult(t *testing.T) {
 	t.Parallel()
-	content := digest.FromString("call-record-test-module-content")
-	ctx, a, srv := transferTestCache(t)
-	inner, frame := callRecordTestRun(t, ctx, a, srv, "module-a", content)
-	entry := callRecordTestEntry(t, ctx, a, frame, inner)
-	currentEntryTestExpire(a, entry)
-	currentEntryTestExpire(a, inner)
+	for name, expireEntry := range map[string]bool{"both expired": true, "the result expired first": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			content := digest.FromString("call-record-test-module-content")
+			ctx, a, srv := transferTestCache(t)
+			inner, frame := callRecordTestRun(t, ctx, a, srv, "module-a", content)
+			entry := callRecordTestEntry(t, ctx, a, frame, inner)
+			if expireEntry {
+				currentEntryTestExpire(a, entry)
+			}
+			currentEntryTestExpire(a, inner)
 
-	mod := callRecordTestModule(t, ctx, a, srv, "module-a", content)
-	wolfi, _, _ := callRecordTestCall(t, ctx, a, srv, "wolfi", nil, mod, callRecordTestValue("wolfi again"))
-	var recomputed AnyResult
-	got, ran, _ := callRecordTestCall(t, ctx, a, srv, "container", wolfi, mod, func(*ResultCall) (AnyResult, error) {
-		res, ran, _ := callRecordTestCall(t, ctx, a, srv, "withEnvVariable", nil, nil, callRecordTestValue("inner again"))
-		require.True(t, ran, "the expired inner result is computed again")
-		recomputed = res
-		return res, nil
-	})
-	require.True(t, ran, "the expired call runs again")
-	require.Equal(t, recomputed.cacheSharedResult().id, got.cacheSharedResult().id)
-	require.NotEqual(t, inner.cacheSharedResult().id, recomputed.cacheSharedResult().id)
+			mod := callRecordTestModule(t, ctx, a, srv, "module-a", content)
+			wolfi, _, _ := callRecordTestCall(t, ctx, a, srv, "wolfi", nil, mod, callRecordTestValue("wolfi again"))
+			var recomputed AnyResult
+			got, ran, _ := callRecordTestCall(t, ctx, a, srv, "container", wolfi, mod, func(*ResultCall) (AnyResult, error) {
+				res, ran, _ := callRecordTestCall(t, ctx, a, srv, "withEnvVariable", nil, nil, callRecordTestValue("inner again"))
+				require.True(t, ran, "the expired inner result is computed again")
+				recomputed = res
+				return res, nil
+			})
+			require.True(t, ran, "the expired call runs again")
+			require.Equal(t, recomputed.cacheSharedResult().id, got.cacheSharedResult().id)
+			require.NotEqual(t, inner.cacheSharedResult().id, recomputed.cacheSharedResult().id)
 
-	current := callRecordTestEntry(t, ctx, a, frame, recomputed)
-	a.egraphMu.RLock()
-	returnedID := current.cacheSharedResult().returnedID
-	expired := a.resultExpiredAtLocked(current.cacheSharedResult(), time.Now().Unix())
-	a.egraphMu.RUnlock()
-	require.Equal(t, recomputed.cacheSharedResult().id, returnedID, "the call's entry names the recomputed result")
-	require.False(t, expired, "the call's entry is current again")
-	require.NoError(t, cacheOwnershipError(a))
+			current := callRecordTestEntry(t, ctx, a, frame, recomputed)
+			a.egraphMu.RLock()
+			returnedID := current.cacheSharedResult().returnedID
+			expired := a.resultExpiredAtLocked(current.cacheSharedResult(), time.Now().Unix())
+			a.egraphMu.RUnlock()
+			require.Equal(t, recomputed.cacheSharedResult().id, returnedID, "the call's entry names the recomputed result")
+			require.False(t, expired, "the call's entry is current again")
+			require.NoError(t, cacheOwnershipError(a))
 
-	bundle := callRecordTestCloud(t, ctx, a, current)
-	wolfiRan, containerRan, value := callRecordTestOnB(t, bundle, "module-b", content, nil)
-	require.False(t, wolfiRan, "B hits A's constructor")
-	require.False(t, containerRan, "B hits A's module function call")
-	require.Equal(t, "inner again", value.Text, "and gets the recomputed result")
+			bundle := callRecordTestCloud(t, ctx, a, current)
+			wolfiRan, containerRan, value := callRecordTestOnB(t, bundle, "module-b", content, nil)
+			require.False(t, wolfiRan, "B hits A's constructor")
+			require.False(t, containerRan, "B hits A's module function call")
+			require.Equal(t, "inner again", value.Text, "and gets the recomputed result")
+		})
+	}
 }
 
 // A load of a call's entry by its number serves the result the call
@@ -326,5 +336,87 @@ func TestCallRecordLoadsAsTheReturnedResult(t *testing.T) {
 		require.True(t, ok, name)
 		require.Equal(t, "inner", value.Text, name)
 	}
+	require.NoError(t, cacheOwnershipError(a))
+}
+
+// Every waiter of a module function call's publication names the call's
+// entry on its span. Telemetry records one span for a call in a session, and
+// the waiter it belongs to can leave before the others do.
+func TestCallRecordNamedByAWaiterThatLeavesFirst(t *testing.T) {
+	t.Parallel()
+	ctx, a, srv := transferTestCache(t)
+	mod := callRecordTestModule(t, ctx, a, srv, "module-a", digest.FromString("call-record-test-module-content"))
+	inner, _, _ := callRecordTestCall(t, ctx, a, srv, "withEnvVariable", nil, nil, callRecordTestValue("inner"))
+	frame := &ResultCall{
+		Kind:   ResultCallKindField,
+		Field:  "container",
+		Type:   NewResultCallType((&transferTestValue{}).Type()),
+		Module: &ResultCallModule{ResultRef: &ResultCallRef{ResultID: uint64(mod.cacheSharedResult().id)}, Name: "call-record-test"},
+	}
+	recipe, err := frame.deriveRecipeDigest(a)
+	require.NoError(t, err)
+
+	release, started, hold := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var leaving atomic.Int32
+	a.testBeforeWaiterLeave = func() {
+		if leaving.Add(1) == 1 {
+			<-hold
+		}
+	}
+	type done struct {
+		req *CallRequest
+		res AnyResult
+		err error
+	}
+	finished := make(chan done, 2)
+	call := func(fn func(context.Context) (AnyResult, error)) {
+		req := &CallRequest{ResultCall: frame, IsPersistable: true, ConcurrencyKey: "call-record-joined", CacheEvidence: NewCacheDecision()}
+		go func() {
+			res, err := a.GetOrInitCall(ctx, "test-session", srv, req, fn)
+			finished <- done{req: req, res: res, err: err}
+		}()
+	}
+	call(func(context.Context) (AnyResult, error) {
+		close(started)
+		<-release
+		return inner, nil
+	})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the call to start")
+	}
+	call(func(context.Context) (AnyResult, error) {
+		t.Error("the joined call must not run")
+		return inner, nil
+	})
+	keys := callConcurrencyKeys{callKey: recipe.String(), concurrencyKey: "call-record-joined"}
+	require.Eventually(t, func() bool {
+		a.callsMu.Lock()
+		defer a.callsMu.Unlock()
+		oc := a.ongoingCalls[keys]
+		return oc != nil && oc.waiters >= 2
+	}, 5*time.Second, time.Millisecond, "the second call joins the first")
+	close(release)
+
+	// One waiter is held before it leaves; the other leaves first.
+	first := <-finished
+	require.NoError(t, first.err)
+	require.Equal(t, inner.cacheSharedResult().id, first.res.cacheSharedResult().id, "the call returns the inner result")
+	number, ok := first.req.CacheEvidence.ResultNumber(first.res)
+	require.True(t, ok)
+	require.NotEqual(t, uint64(inner.cacheSharedResult().id), number, "the first waiter's span names the call's entry")
+	state, ok := first.req.CacheEvidence.ResultState(ctx, first.res)
+	require.True(t, ok)
+	require.Equal(t, recipe, state.Recipe)
+	require.True(t, state.Retained)
+	require.Contains(t, state.Deps, uint64(inner.cacheSharedResult().id))
+
+	close(hold)
+	last := <-finished
+	require.NoError(t, last.err)
+	lastNumber, ok := last.req.CacheEvidence.ResultNumber(last.res)
+	require.True(t, ok)
+	require.Equal(t, number, lastNumber, "both waiters name the one entry")
 	require.NoError(t, cacheOwnershipError(a))
 }
