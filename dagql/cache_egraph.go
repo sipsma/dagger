@@ -589,10 +589,19 @@ func (c *Cache) hasUnexpiredResultForOutputEqClassLocked(
 }
 
 func (c *Cache) resultExpiredAtLocked(res *sharedResult, nowUnix int64) bool {
-	if res == nil || res.expiresAtUnix == 0 {
+	if res == nil {
 		return false
 	}
-	return nowUnix >= res.expiresAtUnix
+	if res.expiresAtUnix != 0 && nowUnix >= res.expiresAtUnix {
+		return true
+	}
+	// A call's own entry expires with its value, the result it returned
+	// (cache_call_record.go).
+	if res.returnedID != 0 {
+		returned := c.resultsByID[res.returnedID]
+		return returned == nil || c.resultExpiredAtLocked(returned, nowUnix)
+	}
+	return false
 }
 
 type lookupMatch struct {
