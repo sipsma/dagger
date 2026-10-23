@@ -28,6 +28,9 @@ order=${1:?G26_ARGS needs the order}
 REF_A=${2:?G26_ARGS needs the A ref}
 REF_B=${3:?G26_ARGS needs the B ref}
 project=${4:?G26_ARGS needs the project}
+# A fifth word, "prof", takes the engine's CPU profile and goroutine stacks through each first
+# build: first.cpu, from 2 s in, for 20 s, and first.g1..first.g4, 5 s apart.
+prof=${5:-}
 STAMP=-ldflags=-X=github.com/dagger/dagger/internal/version/buildinfo.InjectedVCSRevision=g26
 WOLFI='container | from cgr.dev/chainguard/wolfi-base | with-exec -- apk add --no-cache go-1.26 build-base git ca-certificates | with-env-variable GOPATH /go | with-env-variable CGO_ENABLED 1'
 case $project in
@@ -67,7 +70,14 @@ for arm in A B; do
 done
 t() { arm=$1; n=$2; dir=$3; shift 3; s=$(ms); (cd $dir && timeout 3600 dagger "$@") > /out/$arm-$n.txt 2>&1 || echo "FAILED rc=$?" >> /out/$arm-$n.txt; e=$(ms); echo "$arm-$n wall_ms=$((e-s)) :: $(tail -1 /out/$arm-$n.txt | tr '\n' ' ' | cut -c1-100)" >> /out/summary.txt; }
 cmd() { printf '%s | packages | get %s | %s | size' "$GO" "$1" "$KIND"; }
-build() { flush; t $1 $2 /rm/$1/p -s -c "$(cmd $pkg)"; dump $1-$2; }
+build() {
+  flush
+  if [ "$prof" = prof ] && [ "$2" = first ]; then
+    (sleep 2; curl -sf "http://dagger-engine:6060/debug/pprof/profile?seconds=20" -o "/out/$1-first.cpu") &
+    (for i in 1 2 3 4; do sleep 5; curl -sf "http://dagger-engine:6060/debug/pprof/goroutine?debug=1" -o "/out/$1-first.g$i"; done) &
+  fi
+  t $1 $2 /rm/$1/p -s -c "$(cmd $pkg)"; wait; dump $1-$2
+}
 warm() {
   d=/rm/$1/p/g26warm; mkdir -p $d
   if [ $KIND = binary ]; then printf 'package main\n\nfunc main() {}\n' > $d/main.go
