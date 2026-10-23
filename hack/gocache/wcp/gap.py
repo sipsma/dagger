@@ -237,8 +237,9 @@ class Build:
             comp.append((n["start"] - self.epoch, n["end"] - self.epoch))
         if self.walk:
             for p, t in self.walk.items():
-                if t["Acquired"] and t["Released"]:
-                    held.append((t["Acquired"], t["Released"]))
+                if (t["Granted"] or t["Acquired"]) and t["Released"]:
+                    # The slot is the package's from the gate's grant (Acquired in an older trace).
+                    held.append((t["Granted"] or t["Acquired"], t["Released"]))
         else:
             for x in self.execs:
                 if x["kind"] in ("pkg", "link"):
@@ -532,7 +533,7 @@ def print_build(s, top=60):
     print("\nexec slot-seconds by phase: " + ", ".join(f"{k}: {v:.1f}" for k, v in s["slot_seconds"].items()))
     if s.get("slot_seconds_helper"):
         print("exec slot-seconds by phase, from gobuild's own timeline: " + ", ".join(f"{k}: {v:.1f}" for k, v in s["slot_seconds_helper"].items()))
-    print(f"packages whose request waited on their module's extraction: {s['module_waits']['packages']}, "
+    print(f"packages whose exec setup overlapped their module's still-running extraction (overlap, not proven waiting): {s['module_waits']['packages']}, "
           f"{s['module_waits']['ms']:.0f} ms summed")
 
 
