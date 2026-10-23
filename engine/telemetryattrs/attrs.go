@@ -767,6 +767,14 @@ const (
 	// CacheDepsAttr, CachePartsAttr and CacheOutputContentDigestAttr for the
 	// entry it evaluated, and no CacheOutcomeAttr.
 
+	// CacheRecipeAttr (call spans) is the recipe digest of the entry
+	// CacheResultIDAttr names: the recipe of its stored call frame, the
+	// recipe the entry is a record of. It is the entry's identity in its
+	// cache, where telemetry.DagOutputAttr is the returned object's digest,
+	// which the UI links spans to objects by, and which a node(id:) loader
+	// doesn't stamp.
+	CacheRecipeAttr = "dagger.io/cache.recipe"
+
 	// CacheDepsAttr lists the result numbers of the entry's dependencies, of
 	// every kind, as decimal strings (native string array). An empty list
 	// records that the entry has none.

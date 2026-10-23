@@ -70,7 +70,8 @@ type RemoteTerm struct {
 // reports it.
 type RemoteHolding struct {
 	// Recipe is the recipe digest of the entry's stored call frame
-	// (dag.output); the holding sits on the entry of that recipe.
+	// (dagger.io/cache.recipe); the holding sits on the entry of that
+	// recipe.
 	Recipe digest.Digest
 	// Request is the digest of the call that returned the entry (dag.digest),
 	// taught onto the entry as an equivalence when it differs from Recipe.

@@ -141,6 +141,9 @@ type CacheDecision struct {
 // CacheResultState is the state of a cache entry in its cache, as a span
 // reports it when it ends.
 type CacheResultState struct {
+	// Recipe is the recipe digest of the entry's stored call frame: the
+	// recipe the entry is a record of.
+	Recipe digest.Digest
 	// Deps are the result numbers of the entry's dependencies, sorted.
 	Deps []uint64
 	// Retained reports a retention edge, or one the call's publication adds,

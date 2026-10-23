@@ -421,6 +421,9 @@ func cacheStateAttrs(state dagql.CacheResultState) []attribute.KeyValue {
 		deps[i] = strconv.FormatUint(dep, 10)
 	}
 	attrs := []attribute.KeyValue{attribute.StringSlice(telemetryattrs.CacheDepsAttr, deps)}
+	if state.Recipe != "" {
+		attrs = append(attrs, attribute.String(telemetryattrs.CacheRecipeAttr, state.Recipe.String()))
+	}
 	if state.Retained {
 		attrs = append(attrs, attribute.String(telemetryattrs.CacheRetainedAttr, "true"))
 		if state.RetentionExpiresAtUnix != 0 {
