@@ -13,10 +13,10 @@ import (
 const (
 	// DefaultSharedMountLinger is how long a shared read-only mount nobody is
 	// using is kept for its next reader.
-	DefaultSharedMountLinger = 30 * time.Second
+	DefaultSharedMountLinger = 5 * time.Minute
 	// DefaultMaxIdleSharedMounts bounds the shared read-only mounts nobody is
 	// using that are kept; beyond it, the least recently used are released.
-	DefaultMaxIdleSharedMounts = 512
+	DefaultMaxIdleSharedMounts = 8192
 )
 
 // SharedMounter is a ref whose read-only mounts are shared across the engine:
