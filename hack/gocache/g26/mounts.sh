@@ -3,7 +3,10 @@
 # builds a container with K such file mounts, then M directory mounts after them, then runs one
 # exec; it is timed and gets a wcprof dump. If the cost per step grows with K times M, inherited
 # mounts are paid again by every later link. Untimed first: the 100 source files, so the timed
-# steps only mount them. G26_ARGS: "<K list> <M list>", e.g. "1,10,50,100 0,5" (empty: those).
+# steps only mount them: the image is pinned by digest, as a tag is resolved again in each session,
+# which would make the source files new results there. G26_ARGS: "<K list> <M list> [<step>]", e.g. "1,10,50,100 0,5" (empty: those);
+# a step named kK-mM gets an engine CPU profile, kK-mM.cpu, and goroutine stacks, kK-mM.gN, taken
+# while it runs.
 export DAGGER_LEAVE_OLD_ENGINE=true  # every dagger call here must leave other engines alone (Erik, 2026-10-13)
 set -e
 ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
@@ -13,20 +16,27 @@ flush() { curl -sf "$D?flush=1" -o /dev/null || true; }
 set -- $G26_ARGS
 ks=$(echo "${1:-1,10,50,100}" | tr , ' ')
 mss=$(echo "${2:-0,5}" | tr , ' ')
+prof=${3:-}
 max=0; for k in $ks; do [ "$k" -gt "$max" ] && max=$k; done
-src() { printf "container | from alpine:3.20 | with-exec -- sh -c 'echo g26-%s-%s > /f' | file /f" "$NONCE" "$1"; }
+src() { printf "container | from docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc | with-exec -- sh -c 'echo g26-%s-%s > /f' | file /f" "$NONCE" "$1"; }
 : > /work/warm.dsh
 for i in $(seq 1 "$max"); do echo "$(src "$i") | size" >> /work/warm.dsh; done
 s=$(ms); dagger -s -c "$(cat /work/warm.dsh)" > /out/warm.txt 2>&1 || echo "FAILED rc=$?" >> /out/warm.txt
 echo "warm wall_ms=$(( $(ms) - s )) :: $(tail -1 /out/warm.txt)" >> /out/summary.txt
 step() { # $1 = K, $2 = M
   name=k$1-m$2
-  c="container | from alpine:3.20 | with-env-variable G26 $NONCE-$name"
+  c="container | from docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc | with-env-variable G26 $NONCE-$name"
   for i in $(seq 1 "$1"); do c="$c | with-mounted-file /m/$i \$($(src "$i")) --read-only"; done
   for j in $(seq 1 "$2"); do c="$c | with-mounted-directory /d/$j \$(directory | with-new-file x $NONCE-$name-$j)"; done
   c="$c | with-exec -- true | exit-code"
   flush; s=$(ms)
+  if [ "$name" = "$prof" ]; then
+    curl -sf "http://dagger-engine:6060/debug/pprof/profile?seconds=3" -o "/out/$name.cpu" &
+    # Goroutine stacks through the step: where it waits, which a CPU profile doesn't show.
+    (for i in 1 2 3 4 5 6 7 8; do sleep 0.4; curl -sf "http://dagger-engine:6060/debug/pprof/goroutine?debug=1" -o "/out/$name.g$i"; done) &
+  fi
   dagger -s -c "$c" > "/out/$name.txt" 2>&1 || echo "FAILED rc=$?" >> "/out/$name.txt"
+  wait
   echo "$name wall_ms=$(( $(ms) - s )) :: $(tail -1 "/out/$name.txt")" >> /out/summary.txt
   dump "$name"
 }
