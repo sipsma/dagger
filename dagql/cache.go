@@ -6991,9 +6991,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		if cur == nil {
 			break
 		}
-		// A call's own entry (cache_call_record.go) has no value of its own
-		// to adopt: a value of the call takes it as it takes an expired one.
-		if !cur.noValueLocked() && cur.returnedID == 0 && !c.resultExpiredAtLocked(cur, now.Unix()) {
+		if !cur.noValueLocked() && !c.resultExpiredAtLocked(cur, now.Unix()) {
 			if cur.attachmentState() == resultAttachmentOpen {
 				cur.attachDepsMu.Lock()
 				waitCh, holder := cur.attachDepsWaitCh, cur.attachHolder
@@ -7026,30 +7024,35 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 				unindexed = true
 				break
 			}
-			// A late explicit dependency can raise the entry's requirements
-			// without changing its recipe. A session that does not cover
-			// them publishes its own value, not indexed, as it would without
-			// D1, and hits it from then on.
-			if !c.sessionSatisfiesResourceRequirementsLocked(sessionID, cur) {
-				unindexed = true
+			// A call's own entry (cache_call_record.go) has no value of its
+			// own to adopt: once its attachment is settled, a value of the
+			// call takes it as it takes an expired one.
+			if cur.returnedID == 0 {
+				// A late explicit dependency can raise the entry's
+				// requirements without changing its recipe. A session that
+				// does not cover them publishes its own value, not indexed,
+				// as it would without D1, and hits it from then on.
+				if !c.sessionSatisfiesResourceRequirementsLocked(sessionID, cur) {
+					unindexed = true
+					break
+				}
+				// The adopted entry's handoff hold is taken in this critical
+				// section, as the cache-backed adoption above does.
+				discardedValue = oc.res.onRelease
+				resultCallDeps = nil
+				oc.res = cur
+				c.incrementIncomingOwnershipLocked(ctx, oc.res)
+				oc.handoffHoldActive = true
+				if c.testAfterHandoffHoldAcquired != nil {
+					c.testAfterHandoffHoldAcquired(oc)
+				}
+				resWasCacheBacked = true
+				adoptedCurrent = true
+				oc.adopted = true
+				oc.adoptedRemote = cur.imported
+				oc.adoptedMergedAt = cur.mergedAtUnixNano
 				break
 			}
-			// The adopted entry's handoff hold is taken in this critical
-			// section, as the cache-backed adoption above does.
-			discardedValue = oc.res.onRelease
-			resultCallDeps = nil
-			oc.res = cur
-			c.incrementIncomingOwnershipLocked(ctx, oc.res)
-			oc.handoffHoldActive = true
-			if c.testAfterHandoffHoldAcquired != nil {
-				c.testAfterHandoffHoldAcquired(oc)
-			}
-			resWasCacheBacked = true
-			adoptedCurrent = true
-			oc.adopted = true
-			oc.adoptedRemote = cur.imported
-			oc.adoptedMergedAt = cur.mergedAtUnixNano
-			break
 		}
 		// A declined value doesn't take over the entry's retention edge, as
 		// a replacement in place would: it registers beside the entry, as a
