@@ -104,6 +104,25 @@ func callRecordTestCloud(t *testing.T, ctx context.Context, a *Cache, roots ...A
 	return stored.Bundle
 }
 
+// callRecordTestCloudRoot exports root from engine A's cache to a Cloud cache
+// and returns the Cloud's stored bundle of root alone: its closure, with root
+// its only root.
+func callRecordTestCloudRoot(t *testing.T, ctx context.Context, a *Cache, root AnyResult) ValueBundle {
+	t.Helper()
+	bundle := exportTestBundle(t, ctx, a, root)
+	cctx, cloud := storedPartTestCache(t, WithBlobStore())
+	reply, err := cloud.MergeValues(cctx, "cache-a", bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Committed)
+	require.Len(t, reply.Roots, 1)
+	stored, err := cloud.StoredBundle(cctx, []uint64{reply.Roots[0].Number}, nil)
+	require.NoError(t, err)
+	require.Empty(t, stored.Gone)
+	require.Empty(t, stored.NoValue)
+	require.Len(t, stored.Bundle.Roots, 1)
+	return stored.Bundle
+}
+
 // callRecordTestSeed is A's run, exported to the Cloud as the call's record
 // alone, and the Cloud's stored bundle of it.
 func callRecordTestSeed(t *testing.T, moduleField string, content digest.Digest) ValueBundle {
@@ -419,4 +438,72 @@ func TestCallRecordNamedByAWaiterThatLeavesFirst(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, number, lastNumber, "both waiters name the one entry")
 	require.NoError(t, cacheOwnershipError(a))
+}
+
+// An engine holds a call's entry whose returned result expired, before the
+// entry did, and merges a newer record of the call, alone as the bundle's
+// root, whose value is a result computed again. The merge decides on the
+// entry as expired, as a lookup that selects it finds, and the entry takes
+// the newer record's value: the engine hits the call and gets the new result.
+func TestCallRecordMergeReplacesOneWhoseResultExpired(t *testing.T) {
+	t.Parallel()
+	content := digest.FromString("call-record-test-module-content")
+	actx, a, asrv := transferTestCache(t)
+	inner, frame := callRecordTestRun(t, actx, a, asrv, "module-a", content)
+	recipe, err := frame.deriveRecipeDigest(a)
+	require.NoError(t, err)
+	bundle := callRecordTestCloud(t, actx, a, callRecordTestEntry(t, actx, a, frame, inner))
+
+	bctx, b, bsrv := transferTestCache(t)
+	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Committed)
+	b.egraphMu.RLock()
+	bEntry := b.currentEntryForRecipeLocked(recipe)
+	var bReturned *sharedResult
+	if bEntry != nil {
+		bReturned = b.resultsByID[bEntry.returnedID]
+	}
+	b.egraphMu.RUnlock()
+	require.NotNil(t, bEntry, "B holds the call's entry")
+	require.NotNil(t, bReturned, "and the result it returned")
+	currentEntryTestExpire(b, Result[Typed]{shared: bReturned})
+
+	currentEntryTestExpire(a, inner)
+	mod := callRecordTestModule(t, actx, a, asrv, "module-a", content)
+	wolfi, _, _ := callRecordTestCall(t, actx, a, asrv, "wolfi", nil, mod, callRecordTestValue("wolfi again"))
+	var recomputed AnyResult
+	_, ran, _ := callRecordTestCall(t, actx, a, asrv, "container", wolfi, mod, func(*ResultCall) (AnyResult, error) {
+		res, _, _ := callRecordTestCall(t, actx, a, asrv, "withEnvVariable", nil, nil, callRecordTestValue("inner again"))
+		recomputed = res
+		return res, nil
+	})
+	require.True(t, ran, "A runs the call again")
+	refreshed := callRecordTestCloudRoot(t, actx, a, callRecordTestEntry(t, actx, a, frame, recomputed))
+
+	reply, err = b.MergeValues(bctx, cloudCacheID, refreshed)
+	require.NoError(t, err)
+	require.True(t, reply.Committed)
+	b.egraphMu.RLock()
+	cur := b.currentEntryForRecipeLocked(recipe)
+	var returned *sharedResult
+	expired := true
+	if cur != nil {
+		returned = b.resultsByID[cur.returnedID]
+		expired = b.resultExpiredAtLocked(cur, time.Now().Unix())
+	}
+	b.egraphMu.RUnlock()
+	require.NotNil(t, returned, "B's entry of the call names a result B holds")
+	require.NotEqual(t, bReturned.id, returned.id, "the newer record's")
+	require.False(t, expired, "B's entry of the call is current again")
+	require.NoError(t, cacheOwnershipError(b))
+
+	bmod := callRecordTestModule(t, bctx, b, bsrv, "module-a", content)
+	bwolfi, wolfiRan, _ := callRecordTestCall(t, bctx, b, bsrv, "wolfi", nil, bmod, callRecordTestValue("wolfi on B"))
+	require.False(t, wolfiRan, "B hits A's constructor")
+	got, containerRan, _ := callRecordTestCall(t, bctx, b, bsrv, "container", bwolfi, bmod, callRecordTestValue("container on B"))
+	require.False(t, containerRan, "B hits the call")
+	value, ok := got.Unwrap().(*transferTestValue)
+	require.True(t, ok)
+	require.Equal(t, "inner again", value.Text, "and gets the result computed again")
 }
