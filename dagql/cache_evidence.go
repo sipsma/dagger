@@ -140,7 +140,6 @@ type CacheDecision struct {
 	// callEntry is the call's own entry, when the publication this call
 	// executed or joined recorded the call as one (cache_call_record.go):
 	// the entry the call's span names in place of the result it returned.
-	// Set by the last of the publication's waiters, which records it.
 	callEntry *sharedResult
 }
 
