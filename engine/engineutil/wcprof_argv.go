@@ -79,15 +79,18 @@ func boundProfArgv(argv []string) []string {
 	return out
 }
 
-// execCgroupCPU reads the CPU counters of an exec's resource cgroup (the parent
-// of its container's cgroup, so it still holds the container's usage after runc
-// removed the container) as `{"usage_usec":N,"user_usec":N,"system_usec":N}`, or
-// "" when there is no such cgroup or it can't be read. For wcprof only.
+// execCgroupCPU reads the CPU counters of an exec's container cgroup, the
+// "container" child of its resource cgroup (see setupResourceCgroup), as
+// `{"usage_usec":N,"user_usec":N,"system_usec":N}`: the workload's processes
+// alone, not the mount helpers kept in the resource cgroup's other children. The
+// container is run with --keep and deleted later, so its cgroup is still there
+// once its processes have exited. "" when there is no such cgroup or it can't be
+// read. For wcprof only.
 func execCgroupCPU(cgroupPath string) string {
 	if cgroupPath == "" || !filepath.IsAbs(cgroupPath) || strings.Contains(cgroupPath, ":") {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(cgroupMountpoint, cgroupPath, "cpu.stat"))
+	data, err := os.ReadFile(filepath.Join(cgroupMountpoint, cgroupPath, "container", "cpu.stat"))
 	if err != nil {
 		return ""
 	}
