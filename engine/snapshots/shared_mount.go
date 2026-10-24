@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/v2/core/mount"
+
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 const (
@@ -255,7 +257,11 @@ func (s *sharedMounts) close() error {
 func (sr *immutableRef) MountShared(ctx context.Context) (string, mount.Mount, func(), error) {
 	// The mount outlives this reader, so it must not end with its context.
 	ctx = context.WithoutCancel(ctx)
-	return sr.cm.sharedMounts.acquire(sr.SnapshotID(), func() (string, mount.Mount, func() error, error) {
+	_, acquireOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "sharedMount.acquire", wcprof.OpOpts{})
+	defer acquireOp.EndErr(nil)
+	return sr.cm.sharedMounts.acquire(sr.SnapshotID(), func() (_ string, _ mount.Mount, _ func() error, rerr error) {
+		_, missOp := wcprof.BeginOp(ctx, wcprof.OpKindInternal, "sharedMount.miss", wcprof.OpOpts{})
+		defer func() { missOp.EndErr(rerr) }()
 		mountable, err := sr.Mount(ctx, true)
 		if err != nil {
 			return "", mount.Mount{}, nil, err
