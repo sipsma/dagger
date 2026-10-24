@@ -13,6 +13,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/oci"
 	cdseccomp "github.com/containerd/containerd/v2/pkg/seccomp"
 	"github.com/containerd/continuity/fs"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/internal/buildkit/snapshot"
 	"github.com/dagger/dagger/internal/buildkit/solver/pb"
 	"github.com/dagger/dagger/internal/buildkit/util/entitlements/security"
@@ -145,9 +146,11 @@ func generateRlimitOpts(ulimits []*pb.Ulimit) ([]oci.SpecOpts, error) {
 // withDefaultProfile sets the default seccomp profile to the spec.
 // Note: must follow the setting of process capabilities
 func withDefaultProfile() oci.SpecOpts {
-	return func(_ context.Context, _ oci.Client, _ *containers.Container, s *specs.Spec) error {
+	return func(ctx context.Context, _ oci.Client, _ *containers.Container, s *specs.Spec) error {
+		_, op := wcprof.BeginOp(ctx, wcprof.OpKindExecPhase, "exec.seccompProfile", wcprof.OpOpts{})
 		var err error
 		s.Linux.Seccomp, err = seccomp.GetDefaultProfile(s)
+		op.EndErr(err)
 		return err
 	}
 }

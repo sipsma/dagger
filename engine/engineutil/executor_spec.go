@@ -1654,6 +1654,13 @@ func (c *Client) installCACerts(ctx context.Context, state *execState) error {
 
 //nolint:gocyclo
 func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error) {
+	_, bundleOp := wcprof.BeginOp(ctx, wcprof.OpKindExecPhase, "exec.writeBundle", wcprof.OpOpts{Ident: state.id})
+	bundleDone := false
+	defer func() {
+		if !bundleDone {
+			bundleOp.EndErr(rerr)
+		}
+	}()
 	bundle := filepath.Join(c.ExecutorRoot, state.id)
 	if err := os.Mkdir(bundle, 0o711); err != nil {
 		return err
@@ -1693,6 +1700,8 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 		return fmt.Errorf("failed to encode spec: %w", err)
 	}
 	f.Close()
+	bundleOp.EndErr(nil)
+	bundleDone = true
 
 	lg := bklog.G(ctx).
 		WithField("id", state.id).
