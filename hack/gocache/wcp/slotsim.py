@@ -60,9 +60,10 @@ def asks(t):
     return t.get("Enqueued") or t["DepsDone"]
 
 
-def simulate(deps, pk, prio, slots):
-    """Returns the last release (ns after the first ask) and each package's replayed grant."""
-    hold = {p: t["Released"] - granted(t) for p, t in pk.items()}
+def simulate(deps, pk, prio, slots, shrink=None):
+    """Returns the last release (ns after the first ask) and each package's replayed grant.
+    shrink, if given, is ns to take off each package's slot-hold time (see main)."""
+    hold = {p: t["Released"] - granted(t) - (shrink or {}).get(p, 0) for p, t in pk.items()}
     lag = {}
     for p, t in pk.items():
         last = max((pk[d]["Released"] for d in deps.get(p, []) if d in pk), default=None)
@@ -115,6 +116,32 @@ def simulate(deps, pk, prio, slots):
     return max(end.values()), {p: v + t0 for p, v in start.items()}
 
 
+def shrink_amounts(hold, compile_ns, x_ns):
+    """How much to take off each package's slot hold: x_ns, but never more than its time in the
+    slot outside its compile process. A package without a measured compile time is left as it
+    is, and listed, so a missing measurement can't erase its process time."""
+    out, missing = {}, []
+    for p, h in hold.items():
+        c = compile_ns.get(p)
+        if c is None:
+            missing.append(p)
+            out[p] = 0
+            continue
+        out[p] = min(x_ns, max(h - c, 0))
+    return out, sorted(missing)
+
+
+def validation(deps, pk, prio, slots):
+    """The baseline replay's per-package grant-time error against the measured grants."""
+    _, start = simulate(deps, pk, prio, slots)
+    err = sorted(abs(start[p] - granted(t)) / 1e6 for p, t in pk.items() if p in start)
+    order_m = sorted(pk, key=lambda p: granted(pk[p]))
+    pos_r = {p: i for i, p in enumerate(sorted(start, key=lambda p: start[p]))}
+    moved = sum(1 for i, p in enumerate(order_m) if pos_r.get(p) != i)
+    return (f"grant time error median {statistics.median(err):.1f} ms, 90th pct {err[int(len(err) * 0.9)]:.1f} ms, "
+            f"max {err[-1]:.0f} ms; {moved} packages change grant position")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("walk")
@@ -124,6 +151,8 @@ def main():
     ap.add_argument("--goos", default="linux")
     ap.add_argument("--goarch", default="arm64")
     ap.add_argument("--slots", type=int, nargs="*", default=[16])
+    ap.add_argument("--gap-json", help="gap.py's JSON for the same build: each package's compile time, so --shrink-ms only takes off time that isn't compiling")
+    ap.add_argument("--shrink-ms", type=float, nargs="*", default=[], help="take this much engine and helper time off every package's slot hold, at most its own non-compile time in the slot")
     a = ap.parse_args()
     w, deps, steps, pk = load(a.walk, a.graph)
     t0 = min(asks(t) for t in pk.values())
@@ -158,18 +187,35 @@ def main():
         prios["heights with workspace packages weighed by their Go source (approximate)"] = heights(deps, real_weight)
     hold = {p: t["Released"] - granted(t) for p, t in pk.items()}
     prios["heights from measured slot-hold times (a heuristic)"] = heights(deps, lambda p: hold.get(p, 0))
+    if a.shrink_ms:
+        if not a.gap_json:
+            raise SystemExit("--shrink-ms needs --gap-json for each package's compile time")
+        comp = {p: v["compile_ms"] * 1e6 for p, v in json.load(open(a.gap_json))["packages"].items()
+                if v.get("compile_ms") is not None}
+        spare, missing = shrink_amounts(hold, comp, float("inf"))
+        if len(missing) == len(pk):
+            raise SystemExit("--gap-json has no compile time for any package in the walk trace: is it the same build?")
+        print(f"  non-compile slot time per package: median {statistics.median([v for p, v in spare.items() if p not in missing]) / 1e6:.0f} ms, "
+              f"total {sum(spare.values()) / 1e9:.1f} slot-s; packages without a measured compile, left uncut: {len(missing)}"
+              + (f" ({', '.join(missing[:5])}{'...' if len(missing) > 5 else ''})" if missing else ""))
+        print(f"  [validation, no cut, gobuild's heights: {validation(deps, pk, prios[next(iter(prios))], 16)}]")
+        for x in [0.0] + a.shrink_ms:
+            sh, _ = shrink_amounts(hold, comp, x * 1e6)
+            row = []
+            for name, pr in prios.items():
+                if name.startswith("heights from measured"):
+                    continue
+                e, _ = simulate(deps, pk, pr, 16, sh)
+                row.append(f"{name.split(' (')[0]}: {e / 1e6:.0f} ms")
+            print(f"  16 slots, {x:4.0f} ms less per package (taken {sum(sh.values()) / 1e9:.1f} slot-s): " + "; ".join(row))
+        return
     for n in a.slots:
         for name, pr in prios.items():
             e, start = simulate(deps, pk, pr, n)
             line = f"  {n:3d} slots, {name}: {e / 1e6:7.0f} ms"
             if n == 16 and name.startswith("gobuild's"):
                 # Validation: does the replay grant each package its slot when it was granted?
-                err = sorted(abs(start[p] - granted(t)) / 1e6 for p, t in pk.items() if p in start)
-                order_m = sorted(pk, key=lambda p: granted(pk[p]))
-                order_r = sorted(start, key=lambda p: start[p])
-                moved = sum(1 for i, p in enumerate(order_m) if order_r.index(p) != i) if len(order_m) == len(order_r) else None
-                line += (f"  [validation: grant time error median {statistics.median(err):.1f} ms, 90th pct "
-                         f"{err[int(len(err) * 0.9)]:.1f} ms, max {err[-1]:.0f} ms; {moved} packages change grant position]")
+                line += f"  [validation: {validation(deps, pk, pr, n)}]"
             print(line)
 
 

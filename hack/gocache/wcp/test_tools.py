@@ -70,5 +70,23 @@ class SlotSimTest(unittest.TestCase):
         self.assertEqual(h, {"a": 111, "b": 110, "c": 100})
 
 
+class ShrinkTest(unittest.TestCase):
+    def test_cut_is_capped_at_the_non_compile_time(self):
+        cut, missing = slotsim.shrink_amounts({"a": 100, "b": 30}, {"a": 40, "b": 25}, 50)
+        self.assertEqual(cut, {"a": 50, "b": 5})
+        self.assertEqual(missing, [])
+
+    def test_missing_compile_time_leaves_the_hold_alone(self):
+        cut, missing = slotsim.shrink_amounts({"a": 100, "b": 30}, {"a": 40}, 50)
+        self.assertEqual(cut, {"a": 50, "b": 0})
+        self.assertEqual(missing, ["b"])
+
+    def test_shorter_holds_free_the_slot_for_a_waiter(self):
+        # One slot. A holds it 0..10, B waits from 5. Cutting A by 4 grants B at 6.
+        pk = {"A": pkg("A", 0, 0, 10), "B": pkg("B", 5, 10, 20)}
+        _, start = slotsim.simulate({"A": [], "B": []}, pk, {"A": 0, "B": 1}, 1, {"A": 4, "B": 0})
+        self.assertEqual(start["B"], 6)
+
+
 if __name__ == "__main__":
     unittest.main()
