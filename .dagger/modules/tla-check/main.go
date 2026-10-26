@@ -199,6 +199,24 @@ var expectedOutcome = map[string]string{
 	"probe_callrec_restored":     "ProbeCallEntryRestored",
 	"probe_callrec_replaced":     "ProbeCallEntryReplaced",
 	"probe_callrec_value_expiry": "ProbeValueExpiryReplace",
+
+	// green: part sources (E1). A merged row with no download address
+	// decodes armed and evaluates natively, as a restored row does; a row
+	// with an offer, or a shell, goes managed at a demand unless a native
+	// attempt is in flight, and stays managed. One writer per part. Each
+	// mutation drops one rule; each probe must reach its witness. See the
+	// config headers.
+	"e1_merge":                     "",
+	"e1_import":                    "",
+	"e1_late_offer_over_native":    "OnePartWriter",
+	"e1_not_sticky":                "OnePartWriter",
+	"e1_imported_predicate":        "ManagedOnlyWithSource",
+	"probe_e1_armed_native":        "ProbeArmedCloudNative",
+	"probe_e1_late_offer":          "ProbeLateOfferInstalled",
+	"probe_e1_shell":               "ProbeShellAcquired",
+	"probe_e1_armed_managed":       "ProbeArmedWithOfferManaged",
+	"e1_running_guard_off":         "NativeRunStaysNative",
+	"e1_tryacquire_guard_only_off": "OnePartWriter",
 }
 
 var clientExpectedOutcome = map[string]string{
