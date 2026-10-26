@@ -1,4 +1,5 @@
 #!/bin/bash
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Cold-build per-exec overhead series for the gcexp replay (yq v4.49.2, 263 packages).
 # Run from the root of a dagger/dagger checkout:  hack/gocache/cold-series/run.sh [outdir]
 # Needs: dagger CLI on PATH; ~/gocache-bench/expmod (sipsma/dagger branch gocache-bench-gcexp, with .git)

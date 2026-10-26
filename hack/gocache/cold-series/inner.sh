@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Runs inside the client container (from-source CLI, bound to the dev engine as dagger-engine).
 # /work = gcexp workspace with yq at ./yq. Outputs in /out.
 set -e

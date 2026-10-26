@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # North Star capture (runs in the client container; /work = gcexp workspace with yq at ./yq).
 # Plain references (one go build exec, GOCACHE in a fresh cache volume): cold, then no change with the
 # warm volume (forced re-run), then edit A with the warm volume (incremental).

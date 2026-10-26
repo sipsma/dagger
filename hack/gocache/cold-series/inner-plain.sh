@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Runs inside the client container. Plain cold `go build` (gcexp plain, no cache volume) vs the cold
 # per-package replay (concurrency 16), alternating in ABBA order, each with a fresh salt.
 set -e
