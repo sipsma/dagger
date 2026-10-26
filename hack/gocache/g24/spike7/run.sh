@@ -64,8 +64,9 @@ DSH
 printf '%s\n' "$script" > "$out/invocation.dsh"
 # Keep any CLI-generated lockfile with the artifacts, outside the checkout.
 cd "$out"
-# Enforce the shared-host load rule even for this functional check. The optional
-# wrapper is supplied by the caller, not required by the linux-vm harness.
+# Enforce the shared-host load rule even for this functional check. Above it,
+# SPIKE7_CLOUD=1 runs a functional check directly on a Dagger Cloud engine, with
+# no local fallback. The linux-vm harness doesn't need it.
 uptime
 load1=$(awk '{print $1}' /proc/loadavg)
 if awk -v n="$load1" 'BEGIN {exit !(n <= 16)}'; then
@@ -73,15 +74,10 @@ if awk -v n="$load1" 'BEGIN {exit !(n <= 16)}'; then
   export DAGGER_LEAVE_OLD_ENGINE=true; "$dagger_bin" version >> "$out/host-meta.txt" 2>&1
   export DAGGER_LEAVE_OLD_ENGINE=true; "$dagger_bin" -m core -c "$script" > "$out/dagger.log" 2>&1
 else
-  [[ "$mode" == functional && -n "${SPIKE7_CLOUD_WRAPPER:-}" ]] || { echo "load1=$load1 > 16; reschedule" >&2; exit 3; }
-  # The explicit cloud flag remains even if the wrapper attempts its local
-  # fallback. The shim also honors overrides whose filename is not "dagger".
-  mkdir -p "$out/cli-bin"
-  ln -s "$dagger_bin" "$out/cli-bin/dagger"
-  export PATH="$out/cli-bin:$PATH"
+  [[ "$mode" == functional && -n "${SPIKE7_CLOUD:-}" ]] || { echo "load1=$load1 > 16; reschedule" >&2; exit 3; }
   echo "engine=cloud" >> "$out/host-meta.txt"
-  export DAGGER_LEAVE_OLD_ENGINE=true; "$SPIKE7_CLOUD_WRAPPER" g24-spike7-version --engine=cloud version >> "$out/host-meta.txt" 2>&1
-  export DAGGER_LEAVE_OLD_ENGINE=true; "$SPIKE7_CLOUD_WRAPPER" g24-spike7 --engine=cloud -m core -c "$script" > "$out/dagger.log" 2>&1
+  export DAGGER_LEAVE_OLD_ENGINE=true; "$dagger_bin" --engine=cloud version >> "$out/host-meta.txt" 2>&1
+  export DAGGER_LEAVE_OLD_ENGINE=true; "$dagger_bin" --engine=cloud -m core -c "$script" > "$out/dagger.log" 2>&1
 fi
 cat "$out/run/summary.txt"
 [[ $(cat "$out/run/exitcode") == 0 && -f "$out/run/PASS" ]]

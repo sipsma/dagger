@@ -84,9 +84,9 @@ YQ=/path/to/yq-v4.49.2 bash hack/gocache/g24/spike7/run.sh "$HOME/g24-spike7-fun
 Functional mode runs one plain/helper1 sequence, suppresses build wall times,
 checks hits/puts/materialization and request correlation, and starts yq with
 `--version`. It does not execute the compiled dagger CLI. On the shared
-development host, set SPIKE7_CLOUD_WRAPPER to the approved cloud.sh if load is
-high; the script forces cloud even through the wrapper's fallback. This optional
-host policy wrapper is not required on linux-vm.
+development host, set SPIKE7_CLOUD=1 if load is high: the functional check then
+runs directly on a Dagger Cloud engine, with no local fallback. linux-vm doesn't
+need it.
 
 ## What is held constant
 
