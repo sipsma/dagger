@@ -1,8 +1,7 @@
 #!/bin/bash
 # Functional check of the g24 hybrid spike: builds the tool, then runs bench.sh for one round.
-# Correctness only; no timing conclusions. Locally it waits for load1 <= 16; with CLOUD=1 it runs on
-# --engine=cloud through the tree's cloud wrapper instead (CLOUD_WRAPPER, default
-# ~/gocache-research/cloud.sh), and the dagger on PATH must refuse a local fallback above load 16.
+# Correctness only; no timing conclusions. Locally it waits for load1 <= 16; with CLOUD=1 it runs
+# directly on a Dagger Cloud engine (--engine=cloud) instead, with no local fallback.
 export DAGGER_LEAVE_OLD_ENGINE=true
 set -euo pipefail
 WT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -12,7 +11,7 @@ if [ -z "${CLOUD:-}" ]; then
   until [ "$(awk '{print int($1)}' /proc/loadavg)" -le 16 ]; do sleep 30; done
   run() { ~/.local/bin/dagger "$@"; }
 else
-  run() { "${CLOUD_WRAPPER:-$HOME/gocache-research/cloud.sh}" g24-hybrid "$@"; }
+  run() { ~/.local/bin/dagger --engine=cloud "$@"; }
 fi
 echo "start $(date -u +%T) load $(cut -d' ' -f1 /proc/loadavg)"
 mkdir -p "$OUT"
