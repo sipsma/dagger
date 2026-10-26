@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Compile-work gap capture (runs in the client container; /work = gcexp workspace with yq at ./yq).
 # Needs gcexp with the compile-work options (sipsma/dagger gocache-g19-gcexp-cw).
 # Plain go build, each cold in a fresh GOCACHE volume and traced (per-package build/link action times):

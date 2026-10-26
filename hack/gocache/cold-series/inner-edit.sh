@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # Edit-A capture (runs in the client container; /work = gcexp workspace with yq at ./yq).
 # A plain cold build preloads the image, module and module cache; then, profiled one by one: the first
 # replay (first-c16.dump), a no-change replay (noop1.dump) and edit A (edit-a.dump: one string in an
