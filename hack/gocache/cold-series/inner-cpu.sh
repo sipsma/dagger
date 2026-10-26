@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # CPU budget capture (runs in the client container; /work = gcexp workspace with yq at ./yq).
 # /proc/stat is machine-wide, so each step records the CPU-seconds the whole VM spent busy (user, nice,
 # system, irq, softirq) and idle during it: plain go build against the per-package replay, cold and serial.

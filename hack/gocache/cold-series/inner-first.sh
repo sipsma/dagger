@@ -1,3 +1,4 @@
+export DAGGER_LEAVE_OLD_ENGINE=true
 # First-build materialisation capture (runs in the client container; /work = gcexp workspace with yq at ./yq).
 # A plain cold build first pulls the image, loads the module and downloads modules, so the dumped
 # first replay holds only per-package work: every package exec, dependency-archive directory
