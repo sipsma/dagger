@@ -85,6 +85,9 @@ type spanLookup struct {
 	spanLinkSet map[uint32]uint32
 	// targetLinkSets maps a linked span to the sets that contain it.
 	targetLinkSets map[uint32][]uint32
+	// freeLinkSets are the slots of sets emptied by spans whose links grew,
+	// for reuse.
+	freeLinkSets []uint32
 }
 
 // causalLinkSet is one distinct set of cause-link targets and the spans
@@ -199,6 +202,9 @@ func (l *spanLookup) addCauseLinksLocked(spanID string, targets []string) {
 		members := l.linkSets[old].members
 		i := slices.Index(members, span)
 		l.linkSets[old].members = slices.Delete(members, i, i+1)
+		if len(l.linkSets[old].members) == 0 {
+			l.dropLinkSetLocked(old)
+		}
 	}
 	set := l.linkSetLocked(next)
 	l.linkSets[set].members = append(l.linkSets[set].members, span)
@@ -217,20 +223,50 @@ func (l *spanLookup) causalIDLocked(spanID string) uint32 {
 
 // linkSetLocked returns the set with exactly targets (sorted), adding it.
 func (l *spanLookup) linkSetLocked(targets []uint32) uint32 {
-	key := make([]byte, 0, 4*len(targets))
-	for _, id := range targets {
-		key = binary.LittleEndian.AppendUint32(key, id)
-	}
-	if set, ok := l.linkSetIDs[string(key)]; ok {
+	key := linkSetKey(targets)
+	if set, ok := l.linkSetIDs[key]; ok {
 		return set
 	}
-	set := uint32(len(l.linkSets))
-	l.linkSets = append(l.linkSets, causalLinkSet{targets: targets})
-	l.linkSetIDs[string(key)] = set
+	var set uint32
+	if n := len(l.freeLinkSets); n > 0 {
+		set = l.freeLinkSets[n-1]
+		l.freeLinkSets = l.freeLinkSets[:n-1]
+		l.linkSets[set] = causalLinkSet{targets: targets}
+	} else {
+		set = uint32(len(l.linkSets))
+		l.linkSets = append(l.linkSets, causalLinkSet{targets: targets})
+	}
+	l.linkSetIDs[key] = set
 	for _, target := range targets {
 		l.targetLinkSets[target] = append(l.targetLinkSets[target], set)
 	}
 	return set
+}
+
+// dropLinkSetLocked removes a set no span carries any more, so that a span
+// whose links grow leaves nothing behind.
+func (l *spanLookup) dropLinkSetLocked(set uint32) {
+	targets := l.linkSets[set].targets
+	delete(l.linkSetIDs, linkSetKey(targets))
+	for _, target := range targets {
+		sets := l.targetLinkSets[target]
+		i := slices.Index(sets, set)
+		if sets = slices.Delete(sets, i, i+1); len(sets) == 0 {
+			delete(l.targetLinkSets, target)
+		} else {
+			l.targetLinkSets[target] = sets
+		}
+	}
+	l.linkSets[set] = causalLinkSet{}
+	l.freeLinkSets = append(l.freeLinkSets, set)
+}
+
+func linkSetKey(targets []uint32) string {
+	key := make([]byte, 0, 4*len(targets))
+	for _, id := range targets {
+		key = binary.LittleEndian.AppendUint32(key, id)
+	}
+	return string(key)
 }
 
 // causalChildrenLocked calls f with each span that cause-links to spanID.
