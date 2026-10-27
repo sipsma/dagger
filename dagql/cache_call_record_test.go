@@ -73,7 +73,7 @@ func callRecordTestRun(t *testing.T, ctx context.Context, a *Cache, srv *Server,
 
 // callRecordTestEntry returns the cache's entry of the call's recipe: the
 // call's own record, an entry other than the result the call returned.
-func callRecordTestEntry(t *testing.T, ctx context.Context, c *Cache, frame *ResultCall, returned AnyResult) AnyResult {
+func callRecordTestEntry(t *testing.T, c *Cache, frame *ResultCall, returned AnyResult) AnyResult {
 	t.Helper()
 	recipe, err := frame.deriveRecipeDigest(c)
 	require.NoError(t, err)
@@ -130,7 +130,7 @@ func callRecordTestSeed(t *testing.T, moduleField string, content digest.Digest)
 	t.Helper()
 	actx, a, asrv := transferTestCache(t)
 	inner, frame := callRecordTestRun(t, actx, a, asrv, moduleField, content)
-	return callRecordTestCloud(t, actx, a, callRecordTestEntry(t, actx, a, frame, inner))
+	return callRecordTestCloud(t, actx, a, callRecordTestEntry(t, a, frame, inner))
 }
 
 // callRecordTestOnB merges the bundle into a fresh engine B, and runs B's
@@ -260,7 +260,7 @@ func TestCallRecordSurvivesARestart(t *testing.T) {
 	actx, a, asrv = persistedListTestCache(t, path)
 	asrv.InstallObject(NewClass(asrv, ClassOpts[*transferTestValue]{}))
 	require.Empty(t, a.PersistenceResetReason())
-	entry := callRecordTestEntry(t, actx, a, frame, Result[Typed]{shared: &sharedResult{id: innerID}})
+	entry := callRecordTestEntry(t, a, frame, Result[Typed]{shared: &sharedResult{id: innerID}})
 	mod := callRecordTestModule(t, actx, a, asrv, "module-a", content)
 	wolfi, _, _ := callRecordTestCall(t, actx, a, asrv, "wolfi", nil, mod, callRecordTestValue("wolfi again"))
 	got, ran, _ := callRecordTestCall(t, actx, a, asrv, "container", wolfi, mod, callRecordTestValue("container again"))
@@ -285,7 +285,7 @@ func TestCallRecordReturningItsReceiverOwnsItOnce(t *testing.T) {
 	got, ran, frame := callRecordTestCall(t, ctx, a, srv, "withPackage", wolfi, mod, func(*ResultCall) (AnyResult, error) { return wolfi, nil })
 	require.True(t, ran)
 	require.Equal(t, wolfi.cacheSharedResult().id, got.cacheSharedResult().id, "the function returns its receiver")
-	callRecordTestEntry(t, ctx, a, frame, wolfi)
+	callRecordTestEntry(t, a, frame, wolfi)
 	require.NoError(t, cacheOwnershipError(a))
 }
 
@@ -303,7 +303,7 @@ func TestCallRecordFollowsARecomputedResult(t *testing.T) {
 			content := digest.FromString("call-record-test-module-content")
 			ctx, a, srv := transferTestCache(t)
 			inner, frame := callRecordTestRun(t, ctx, a, srv, "module-a", content)
-			entry := callRecordTestEntry(t, ctx, a, frame, inner)
+			entry := callRecordTestEntry(t, a, frame, inner)
 			if expireEntry {
 				currentEntryTestExpire(a, entry)
 			}
@@ -322,7 +322,7 @@ func TestCallRecordFollowsARecomputedResult(t *testing.T) {
 			require.Equal(t, recomputed.cacheSharedResult().id, got.cacheSharedResult().id)
 			require.NotEqual(t, inner.cacheSharedResult().id, recomputed.cacheSharedResult().id)
 
-			current := callRecordTestEntry(t, ctx, a, frame, recomputed)
+			current := callRecordTestEntry(t, a, frame, recomputed)
 			a.egraphMu.RLock()
 			returnedID := current.cacheSharedResult().returnedID
 			expired := a.resultExpiredAtLocked(current.cacheSharedResult(), time.Now().Unix())
@@ -347,7 +347,7 @@ func TestCallRecordLoadsAsTheReturnedResult(t *testing.T) {
 	t.Parallel()
 	ctx, a, srv := transferTestCache(t)
 	inner, frame := callRecordTestRun(t, ctx, a, srv, "module-a", digest.FromString("call-record-test-module-content"))
-	entry := callRecordTestEntry(t, ctx, a, frame, inner)
+	entry := callRecordTestEntry(t, a, frame, inner)
 	for name, session := range map[string]string{"exact": "", "for a session": "test-session"} {
 		loaded, err := a.LoadResultByResultID(ctx, session, srv, uint64(entry.cacheSharedResult().id))
 		require.NoError(t, err, name)
@@ -453,7 +453,7 @@ func TestCallRecordMergeReplacesOneWhoseResultExpired(t *testing.T) {
 	inner, frame := callRecordTestRun(t, actx, a, asrv, "module-a", content)
 	recipe, err := frame.deriveRecipeDigest(a)
 	require.NoError(t, err)
-	bundle := callRecordTestCloud(t, actx, a, callRecordTestEntry(t, actx, a, frame, inner))
+	bundle := callRecordTestCloud(t, actx, a, callRecordTestEntry(t, a, frame, inner))
 
 	bctx, b, bsrv := transferTestCache(t)
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
@@ -480,7 +480,7 @@ func TestCallRecordMergeReplacesOneWhoseResultExpired(t *testing.T) {
 		return res, nil
 	})
 	require.True(t, ran, "A runs the call again")
-	refreshed := callRecordTestCloudRoot(t, actx, a, callRecordTestEntry(t, actx, a, frame, recomputed))
+	refreshed := callRecordTestCloudRoot(t, actx, a, callRecordTestEntry(t, a, frame, recomputed))
 
 	reply, err = b.MergeValues(bctx, cloudCacheID, refreshed)
 	require.NoError(t, err)
