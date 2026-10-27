@@ -5217,6 +5217,7 @@ func (c *Cache) runLazyTask(ctx context.Context, res AnyResult, shared *sharedRe
 		if OTelProfActive(evalCtx) && !producerSkip {
 			lazyCallbackCtx, lazySpan, lazyIsResume = c.beginOTelLazyOp(evalCtx, shared.id, group, resultCall, storedPart)
 			attempt.spanCtx = lazySpan.SpanContext()
+			RecordOpSpan(lazyOp, lazySpan)
 		}
 		g.attempt = attempt
 		shared.lazyMu.Unlock()
@@ -5985,6 +5986,9 @@ func (c *Cache) getOrInitCall(
 	if armed {
 		req.CacheEvidence = NewCacheDecision()
 	}
+	if req.ownSpan.IsValid() {
+		profOp.SetSpan(req.ownSpan.TraceID(), req.ownSpan.SpanID())
+	}
 	res, err := c.getOrInitCallTakingOver(ctx, sessionID, resolver, req, fn, profOp)
 	profLookupFacts(ctx, profOp, req.CacheEvidence, res)
 	if armed {
@@ -6242,6 +6246,7 @@ func (c *Cache) getOrInitCallInner(
 	var execSpan trace.Span
 	if OTelProfActive(callCtx) && !req.ResultCall.ProfileSkip {
 		callCtx, execSpan = beginOTelCallExec(callCtx, callKey, profCallClass(req.ResultCall))
+		RecordOpSpan(execOp, execSpan)
 	}
 	sharedWorkCtx, releaseOperationLease, err := withOperationLease(withoutOperationLease(callCtx))
 	if err != nil {
@@ -6563,6 +6568,7 @@ func (c *Cache) wait(
 		if oc.execSpanCtx.IsValid() {
 			pubSpan = beginOTelPublishResult(context.WithoutCancel(oc.sharedWorkCtx))
 			oc.pubSpan = pubSpan
+			RecordOpSpan(pubOp, pubSpan)
 		}
 		// Publication's own waits (the graph lock's) belong to pubOp; the
 		// shared execution's op has ended.

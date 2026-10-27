@@ -2029,6 +2029,8 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 	if wcprof.Enabled(ctx) || dagql.OTelProfActive(ctx) {
 		profArgv = execProfArgv(state)
 	}
+	// the native phases the OTel split's phase spans are emitted for
+	var containerStartOp, processRunOp uint64
 	if wcprof.Enabled(ctx) {
 		// split engine overhead (creating/starting the container) from the
 		// user's process runtime
@@ -2038,7 +2040,7 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 			outcome = wcprof.OutcomeError
 		}
 		if startedNS := profStartedNS.Load(); startedNS > 0 {
-			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, startedNS, wcprof.OutcomeOK)
+			containerStartOp = wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, startedNS, wcprof.OutcomeOK)
 			processStartNS := startedNS
 			if releasedNS := workloadReleasedNS(pidFile, startedNS, profStartedWall.Load()); releasedNS != 0 && releasedNS <= endNS {
 				// runc creating the container, up to releasing the workload
@@ -2046,11 +2048,12 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 				processStartNS = releasedNS
 			}
 			runID := wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{Ident: state.id, WorkType: wcprof.WorkTypeUser, Argv: profArgv}, processStartNS, endNS, outcome)
+			processRunOp = runID
 			if initStartedNS, spawnedNS, exitedNS, ok := initTiming.read(); ok {
 				recordProcessRunSplit(ctx, runID, state.id, profArgv, processStartNS, endNS, initStartedNS, spawnedNS, exitedNS, outcome)
 			}
 		} else {
-			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, endNS, outcome)
+			containerStartOp = wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, endNS, outcome)
 		}
 	}
 	// OTel exec split: the same containerStart/processRun boundary,
@@ -2061,7 +2064,7 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 	if ns := profStartedWall.Load(); ns > 0 {
 		profStartedWallTime = time.Unix(0, ns)
 	}
-	emitOTelExecSplit(ctx, state.id, profStartWall, profStartedWallTime, endWall, runErr, profArgv)
+	emitOTelExecSplit(ctx, state.id, profStartWall, profStartedWallTime, endWall, runErr, profArgv, containerStartOp, processRunOp)
 	return exitError(ctx, state.exitCodePath, runErr, state.procInfo.Meta.ValidExitCodes)
 }
 

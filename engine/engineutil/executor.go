@@ -230,6 +230,7 @@ func (c *Client) Run(
 		}
 		ctx, execRunSpan = beginOTelExecRun(ctx, execIdent, attrs...)
 		state.otelExecRunSpanCtx = execRunSpan.SpanContext()
+		dagql.RecordOpSpan(execOp, execRunSpan)
 	}
 	err := c.run(ctx, state,
 		namedSetupFunc{"setupNetwork", c.setupNetwork},
