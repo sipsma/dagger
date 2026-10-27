@@ -1,8 +1,10 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -140,4 +142,68 @@ func TestGitCheckoutFetchedPackOnlyForItsFetch(t *testing.T) {
 			require.True(t, strings.Contains(gitTestObjects(t, dir), sha))
 		})
 	}
+}
+
+// A fetch the remote refused by commit and retried by its named ref brought
+// that ref's tip, which can reach history the pinned commit's checkout would
+// not have at its depth. Its pack is not the checkout's, so the checkout
+// copies by fetching.
+func TestGitCheckoutFetchedPackNotAfterNamedRetry(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	source := t.TempDir()
+	gitMirrorTestRun(t, source, "init", "--quiet", "--initial-branch=main")
+	commit := func(message string) string {
+		gitMirrorTestRun(t, source, "add", ".")
+		gitMirrorTestRun(t, source, "-c", "user.name=Dagger", "-c", "user.email=dagger@localhost", "commit", "--quiet", "-m", message)
+		return gitMirrorTestRun(t, source, "rev-parse", "HEAD")
+	}
+	for i := range 150 {
+		require.NoError(t, os.WriteFile(filepath.Join(source, fmt.Sprintf("f%d", i)), []byte(fmt.Sprintf("file %d\n", i)), 0o644))
+	}
+	root := commit("root")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "f0"), []byte("pinned\n"), 0o644))
+	pinned := commit("pinned")
+	gitMirrorTestRun(t, source, "checkout", "--quiet", "-b", "side", root)
+	require.NoError(t, os.WriteFile(filepath.Join(source, "f1"), []byte("side\n"), 0o644))
+	commit("side")
+	gitMirrorTestRun(t, source, "checkout", "--quiet", "main")
+	// The branch moved past the pinned commit to a merge after it was
+	// resolved, so the retry fetches the merge's history instead.
+	gitMirrorTestRun(t, source, "-c", "user.name=Dagger", "-c", "user.email=dagger@localhost", "merge", "--quiet", "--no-edit", "side")
+
+	repo, git, mirror := gitMirrorTestRepo(t, source)
+	git = git.New(gitutil.WithExec(func(_ context.Context, cmd *exec.Cmd) error {
+		for _, arg := range cmd.Args {
+			if arg == pinned+":"+fetchedGitRef(pinned) {
+				return gitutil.ErrSHAFetchUnsupported
+			}
+		}
+		return cmd.Run()
+	}))
+	refs := []*RemoteGitRef{{Ref: &gitutil.Ref{Name: "refs/heads/main", SHA: pinned}}}
+	retried, err := repo.fetchObjects(ctx, git, 2, false, refs)
+	require.NoError(t, err)
+	require.True(t, retried)
+
+	// The mirror holds one pack, but not the pinned commit's checkout.
+	pack, err := gitMirrorFetchedPack(mirror, pinned, 2)
+	require.NoError(t, err)
+	require.NotNil(t, pack)
+	checkout := func(fetched *gitMirrorFetch) (string, string) {
+		dir := t.TempDir()
+		checkoutGit := gitutil.NewGitCLI(gitutil.WithWorkTree(dir), gitutil.WithGitDir(filepath.Join(dir, ".git")))
+		_, method, err := copyGitCheckout(ctx, checkoutGit, git, filepath.Join(dir, ".git"), &gitutil.Ref{SHA: pinned}, 2, fetched)
+		require.NoError(t, err)
+		return dir, method
+	}
+	packed, _ := checkout(pack)
+	fetchedDir, _ := checkout(nil)
+	require.NotEqual(t, gitTestObjects(t, fetchedDir), gitTestObjects(t, packed))
+
+	fetched, err := gitMirrorFetchedForCheckout(mirror, true, 2, false, refs, retried)
+	require.NoError(t, err)
+	require.Nil(t, fetched)
+	_, method := checkout(fetched)
+	require.Equal(t, "fetch", method)
 }
