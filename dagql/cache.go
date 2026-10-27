@@ -5986,8 +5986,8 @@ func (c *Cache) getOrInitCall(
 	if armed {
 		req.CacheEvidence = NewCacheDecision()
 	}
-	if req.ownSpan.IsValid() {
-		profOp.SetSpan(req.ownSpan.TraceID(), req.ownSpan.SpanID())
+	if sc := ownCallSpan(ctx, req.ResultCall); sc.IsValid() {
+		profOp.SetSpan(sc.TraceID(), sc.SpanID())
 	}
 	res, err := c.getOrInitCallTakingOver(ctx, sessionID, resolver, req, fn, profOp)
 	profLookupFacts(ctx, profOp, req.CacheEvidence, res)
