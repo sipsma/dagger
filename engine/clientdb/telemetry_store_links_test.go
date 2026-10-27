@@ -54,6 +54,47 @@ func TestSpanLookupSharedCauseLinksStayCompact(t *testing.T) {
 	require.Len(t, kids, linkers, "every linking span is a causal child of each target")
 }
 
+// A span whose links grow across snapshots, as a reused service's live span
+// does, moves to a larger set each time. The sets it leaves behind must not
+// stay in the index, or growing one span link by link costs the square of
+// its links.
+//
+// Not parallel: it measures the live heap, which concurrent tests would move.
+func TestSpanLookupGrowingCauseLinksStayCompact(t *testing.T) {
+	const links = 3000
+	id := func(i int) string { return fmt.Sprintf("%016x", i+1) }
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	l := newSpanLookup()
+	l.mu.Lock()
+	// Two spans share the first set; only the first span keeps growing.
+	l.addLocked(Span{ID: 1, TraceID: "trace", SpanID: "service"}, []string{id(0)})
+	l.addLocked(Span{ID: 2, TraceID: "trace", SpanID: "sibling"}, []string{id(0)})
+	for i := 1; i < links; i++ {
+		l.addLocked(Span{ID: int64(i + 2), TraceID: "trace", SpanID: "service"}, []string{id(i)})
+	}
+	l.mu.Unlock()
+
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	retained := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+	runtime.KeepAlive(l)
+
+	// One span with 3,000 links and one with one link: a cost per link
+	// stays well under this bound; the square of the links does not.
+	require.Less(t, retained, int64(4<<20), "the index retains %d bytes for one span grown to %d cause links", retained, links)
+
+	require.ElementsMatch(t, []string{"service", "sibling"}, l.causalChildrenOf(id(0)))
+	require.Equal(t, []string{"service"}, l.causalChildrenOf(id(links-1)))
+	// Each log scope holds the span, its link targets, and the other spans
+	// linking those targets.
+	require.Equal(t, map[string]struct{}{"sibling": {}, id(0): {}, "service": {}}, l.logScope("sibling"))
+	require.Len(t, l.logScope("service"), 1+links+1)
+}
+
 // The index answers every causal query exactly as an index of each link edge
 // would: children, parents (through the log scope's seeds), descendants and
 // log scopes, over spans whose links repeat across snapshot rows, grow in
