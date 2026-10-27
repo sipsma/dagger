@@ -746,6 +746,7 @@ func main() { //nolint:gocyclo
 				cancel()
 			})
 		}
+		flushStopDump()
 		return nil
 	}
 
