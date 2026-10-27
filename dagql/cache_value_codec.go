@@ -304,11 +304,11 @@ func validateTransferEnvelopeKind(env PersistedResultEnvelope, typ *ResultCallTy
 			return fmt.Errorf("null carries scalar payload")
 		}
 	case persistedResultKindRef:
-		if root || env.ResultID == 0 || env.TypeName != "" || env.ObjectCodec != "" || len(env.ObjectJSON) != 0 || len(env.ScalarJSON) != 0 || len(env.Items) != 0 {
+		if root || env.ResultID == 0 || envelopeHasBody(env) {
 			return fmt.Errorf("invalid result reference envelope")
 		}
 	case persistedResultKindReturned:
-		if !root || env.ReturnedID == 0 || env.TypeName != "" || env.ObjectCodec != "" || len(env.ObjectJSON) != 0 || len(env.ScalarJSON) != 0 || len(env.Items) != 0 {
+		if !root || env.ReturnedID == 0 || envelopeHasBody(env) {
 			return fmt.Errorf("invalid returned row reference envelope")
 		}
 	case persistedResultKindList:
@@ -332,6 +332,13 @@ func validateTransferEnvelopeKind(env PersistedResultEnvelope, typ *ResultCallTy
 		return fmt.Errorf("unknown envelope kind %q", env.Kind)
 	}
 	return nil
+}
+
+// envelopeHasBody reports whether an envelope carries a value of its own: a
+// type, an object or scalar payload, or items. A reference envelope carries
+// none; the row it names does.
+func envelopeHasBody(env PersistedResultEnvelope) bool {
+	return env.TypeName != "" || env.ObjectCodec != "" || len(env.ObjectJSON) != 0 || len(env.ScalarJSON) != 0 || len(env.Items) != 0
 }
 
 // validateTransferEnvelopeStructure checks what visitPersistedEnvelope checks
