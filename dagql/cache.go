@@ -5983,8 +5983,12 @@ func (c *Cache) getOrInitCall(
 	if !wcprof.Enabled(ctx) || req == nil || req.ResultCall == nil {
 		return c.getOrInitCallTakingOver(ctx, sessionID, resolver, req, fn, nil)
 	}
+	// a call the server's telemetry spanned starts where its span did: the
+	// telemetry's preparation since is the call's
+	ownSpan, ownStart := ownCallSpan(ctx, req.ResultCall)
 	ctx, profOp := wcprof.BeginOp(ctx, wcprof.OpKindCall, profCallClass(req.ResultCall), wcprof.OpOpts{
 		ClientID: profClientID(ctx),
+		Start:    ownStart,
 	})
 	// The profile reads why the lookup decided what it did from the decision's
 	// carrier, which a recording span arms; with none, it arms one for this
@@ -5994,8 +5998,8 @@ func (c *Cache) getOrInitCall(
 	if armed {
 		req.CacheEvidence = NewCacheDecision()
 	}
-	if sc := ownCallSpan(ctx, req.ResultCall); sc.IsValid() {
-		profOp.SetSpan(sc.TraceID(), sc.SpanID())
+	if ownSpan.IsValid() {
+		profOp.SetSpan(ownSpan.TraceID(), ownSpan.SpanID())
 	}
 	res, err := c.getOrInitCallTakingOver(ctx, sessionID, resolver, req, fn, profOp)
 	profLookupFacts(ctx, profOp, req.CacheEvidence, res)
