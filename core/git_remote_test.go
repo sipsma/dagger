@@ -241,7 +241,7 @@ func TestGitCheckoutIndependentAfterFetch(t *testing.T) {
 			ref := &gitutil.Ref{SHA: next, Name: tc.refName}
 			checkout := t.TempDir()
 			checkoutGit := gitutil.NewGitCLI(gitutil.WithWorkTree(checkout), gitutil.WithGitDir(filepath.Join(checkout, ".git")))
-			tmpref, method, err := copyGitCheckout(ctx, checkoutGit, git, filepath.Join(checkout, ".git"), ref, tc.depth)
+			tmpref, method, err := copyGitCheckout(ctx, checkoutGit, git, filepath.Join(checkout, ".git"), ref, tc.depth, nil)
 			require.NoError(t, err)
 			require.Equal(t, tc.method, method)
 

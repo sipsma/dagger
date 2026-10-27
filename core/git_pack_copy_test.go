@@ -51,7 +51,7 @@ func gitPackTestCheckoutFrom(t *testing.T, mirror string, mirrorGit *gitutil.Git
 	var tmpref, method string
 	var err error
 	if pack {
-		tmpref, method, err = copyGitCheckout(ctx, git, mirrorGit, gitDir, ref, 0)
+		tmpref, method, err = copyGitCheckout(ctx, git, mirrorGit, gitDir, ref, 0, nil)
 	} else {
 		tmpref, err = fetchGitCheckout(ctx, git, "file://"+mirror, ref, 0)
 		method = "fetch"
