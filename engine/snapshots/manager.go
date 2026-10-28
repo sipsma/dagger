@@ -144,6 +144,10 @@ type snapshotManager struct {
 	snapshotContentDigests map[string]map[digest.Digest]struct{}
 	importedLayerByBlob    map[ImportedLayerBlobKey]string
 	importedLayerByDiff    map[ImportedLayerDiffKey]string
+	// layerImported is closed, and replaced, whenever a layer is added to
+	// the import indexes: chain imports waiting for a layer's blob look
+	// again. Under mu.
+	layerImported          chan struct{}
 	snapshotOwnerLeases    map[string]map[string]struct{}
 	importLayerLocker      keyedLocker
 	exportLayerLocker      keyedLocker
@@ -184,6 +188,7 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		snapshotContentDigests: make(map[string]map[digest.Digest]struct{}),
 		importedLayerByBlob:    make(map[ImportedLayerBlobKey]string),
 		importedLayerByDiff:    make(map[ImportedLayerDiffKey]string),
+		layerImported:          make(chan struct{}),
 		snapshotOwnerLeases:    make(map[string]map[string]struct{}),
 		ownerLeaseLocker:       locker.New(),
 		backgroundReleases:     newBackgroundReleases(maxPendingReleases),
