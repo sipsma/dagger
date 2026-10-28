@@ -48,6 +48,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list mirror persisted_edges: %w", err)
 	}
+	resultCallRows, err := c.pdb.ListMirrorResultCalls(ctx)
+	if err != nil {
+		return fmt.Errorf("list mirror result_calls: %w", err)
+	}
 	resultDepRows, err := c.pdb.ListMirrorResultDeps(ctx)
 	if err != nil {
 		return fmt.Errorf("list mirror result_deps: %w", err)
@@ -218,6 +222,21 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 			c.putResultLocked(res)
 			c.traceImportResultLoaded(ctx, importRunID, resultID, row.CallFrameJSON)
+		}
+
+		for _, row := range resultCallRows {
+			res := c.resultsByID[sharedResultID(row.ResultID)]
+			if res == nil {
+				return fmt.Errorf("import result_call %d: missing result", row.ResultID)
+			}
+			kept, err := decodeKeptCall(row.Call, digest.Digest(row.RequestDigest))
+			if err != nil {
+				return fmt.Errorf("import result_call %d: %w", row.ResultID, err)
+			}
+			if res.calls == nil {
+				res.calls = make(map[digest.Digest]*keptCall)
+			}
+			res.calls[kept.id.recipe] = kept
 		}
 
 		for _, row := range persistedEdgeRows {
