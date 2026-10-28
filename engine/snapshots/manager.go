@@ -142,12 +142,19 @@ type snapshotManager struct {
 	metadataDB metadata.Transactor
 
 	snapshotContentDigests map[string]map[digest.Digest]struct{}
-	importedLayerByBlob    map[ImportedLayerBlobKey]string
-	importedLayerByDiff    map[ImportedLayerDiffKey]string
-	snapshotOwnerLeases    map[string]map[string]struct{}
-	importLayerLocker      keyedLocker
-	exportLayerLocker      keyedLocker
-	ownerLeaseLocker       *locker.Locker
+	// snapshotContentOwned holds, of each snapshot's recorded blobs, those
+	// attached to every lease that owns the snapshot: a blob is added once
+	// recordSnapshotContent has attached it to each owner. A lease that
+	// becomes an owner later has every recorded blob attached first
+	// (addSnapshotOwner), and one that is removed owns nothing, so the blobs
+	// stay attached to every owner. In memory only.
+	snapshotContentOwned map[string]map[digest.Digest]struct{}
+	importedLayerByBlob  map[ImportedLayerBlobKey]string
+	importedLayerByDiff  map[ImportedLayerDiffKey]string
+	snapshotOwnerLeases  map[string]map[string]struct{}
+	importLayerLocker    keyedLocker
+	exportLayerLocker    keyedLocker
+	ownerLeaseLocker     *locker.Locker
 	// layerImported is closed, and replaced, whenever a layer is added to
 	// the import indexes: chain imports waiting for a layer's blob look
 	// again. Under mu.
@@ -186,6 +193,7 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		metadataStore:          newMetadataStore(),
 		records:                make(map[string]*cacheRecord),
 		snapshotContentDigests: make(map[string]map[digest.Digest]struct{}),
+		snapshotContentOwned:   make(map[string]map[digest.Digest]struct{}),
 		importedLayerByBlob:    make(map[ImportedLayerBlobKey]string),
 		importedLayerByDiff:    make(map[ImportedLayerDiffKey]string),
 		layerImported:          make(chan struct{}),
