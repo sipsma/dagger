@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 // PartGateCell is a stable row attachment. Merely binding it allocates no gate.
@@ -34,6 +38,9 @@ func (cell *PartGateCell) loadOrCreate() *PartWriterGate {
 type rowCompleteParts struct {
 	stamp completePartsStamp
 	keys  []string
+	// sizes are the raw sizes of keys, index-aligned (partRawSize), when the
+	// engine with the remote cache read them; nil when no size was read.
+	sizes []int64
 }
 
 // completePartsStamp is what rowCompleteParts keeps of the capture it was read
@@ -76,30 +83,130 @@ func (stamp *completePartsStamp) current(row *sharedResult) bool {
 // its bookkeeping is in flight, the parts the row's gate has settled, a
 // subset, are returned instead. It never waits on another row.
 func (c *Cache) completePartKeys(ctx context.Context, row *sharedResult) []string {
-	if cached := row.completeParts.Load(); cached != nil && cached.stamp.current(row) {
-		return cached.keys
+	keys, _ := c.completePartKeysAndSizes(ctx, row)
+	return keys
+}
+
+// completePartKeysAndSizes returns completePartKeys and, on an engine with the
+// remote cache, each part's raw size, index-aligned with the keys: what the
+// remote cache prices a part by before an export measures it. Another engine
+// reads no size, and gets nil sizes. Sizes are nil too when the record could
+// not be captured, or a size could not be read.
+func (c *Cache) completePartKeysAndSizes(ctx context.Context, row *sharedResult) ([]string, []int64) {
+	var reader partSizeReader
+	if c.partContentSource.attachedBridge() != nil {
+		reader, _ = c.snapshotManager.(partSizeReader)
+	}
+	return c.completeParts(ctx, row, reader)
+}
+
+// completeParts reads the row's complete part keys and, with reader, their
+// raw sizes, once per revision of the row's value. On an engine with the
+// remote cache every read takes the sizes, so a read for the keys alone,
+// such as a merge's warming, never leaves them unread.
+func (c *Cache) completeParts(ctx context.Context, row *sharedResult, reader partSizeReader) ([]string, []int64) {
+	if cached := row.completeParts.Load(); cached != nil && cached.stamp.current(row) && (reader == nil || cached.sizes != nil) {
+		return cached.keys, cached.sizes
 	}
 	record, version, err := c.captureRowRecord(ctx, row)
 	if err != nil {
-		return row.settledPartKeys()
+		return row.settledPartKeys(), nil
 	}
 	probes, err := describePartRecord(record)
 	if err != nil {
-		return row.settledPartKeys()
+		return row.settledPartKeys(), nil
 	}
-	var keys []string
+	type completePart struct {
+		key  string
+		desc PartDescriptor
+	}
+	var parts []completePart
 	for _, probe := range probes {
 		if !probe.LocalComplete {
 			continue
 		}
 		if key, err := partAddressKey(probe.Descriptor.Address); err == nil {
-			keys = append(keys, key)
+			parts = append(parts, completePart{key: key, desc: probe.Descriptor})
 		}
 	}
-	slices.Sort(keys)
-	keys = slices.Compact(keys)
-	row.completeParts.Store(&rowCompleteParts{stamp: newCompletePartsStamp(version), keys: keys})
-	return keys
+	slices.SortStableFunc(parts, func(a, b completePart) int { return strings.Compare(a.key, b.key) })
+	parts = slices.CompactFunc(parts, func(a, b completePart) bool { return a.key == b.key })
+	keys := make([]string, len(parts))
+	for i, part := range parts {
+		keys[i] = part.key
+	}
+	var sizes []int64
+	if reader != nil {
+		sizes = make([]int64, len(parts))
+		for i, part := range parts {
+			if sizes[i], err = partRawSize(ctx, reader, part.desc); err != nil {
+				sizes = nil
+				break
+			}
+		}
+	}
+	row.completeParts.Store(&rowCompleteParts{stamp: newCompletePartsStamp(version), keys: keys, sizes: sizes})
+	return keys, sizes
+}
+
+// partSizeStrings formats sizes, index-aligned with parts, as the decimal
+// strings CachePartSizesAttr carries; nil when there is no size for each part.
+func partSizeStrings(parts []string, sizes []int64) []string {
+	if len(parts) == 0 || len(sizes) != len(parts) {
+		return nil
+	}
+	out := make([]string, len(sizes))
+	for i, size := range sizes {
+		out[i] = strconv.FormatInt(size, 10)
+	}
+	return out
+}
+
+// partSizeReader is the snapshot manager's per-layer usage and parents, and
+// the size of a file that travels as its own content, with which an engine
+// with the remote cache reads its parts' raw sizes.
+type partSizeReader interface {
+	SnapshotUsage(ctx context.Context, snapshotID string) (int64, error)
+	SnapshotParent(ctx context.Context, snapshotID string) (string, error)
+	OwnFileSize(ctx context.Context, snapshotID, filePath string) (size int64, own bool, err error)
+}
+
+// partRawSize is a complete part's raw, uncompressed size: for a File that
+// travels as its own content, the file's size; otherwise the sum of the usage
+// each layer of the part's snapshot chain recorded when it was committed,
+// which reads no files. The sum overcounts files a later layer replaced or
+// deleted. A part with no snapshot owns no filesystem bytes.
+func partRawSize(ctx context.Context, reader partSizeReader, desc PartDescriptor) (_ int64, rerr error) {
+	if desc.Absent || desc.SnapshotID == "" {
+		return 0, nil
+	}
+	if desc.Value != nil && desc.Value.Kind == "file" {
+		fileCtx, op := wcprof.BeginOp(ctx, wcprof.OpKindRemoteCache, "remotecache.part.size", wcprof.OpOpts{Ident: "file"})
+		size, own, err := reader.OwnFileSize(fileCtx, desc.SnapshotID, desc.Value.Path)
+		op.EndErr(err)
+		if err != nil {
+			return 0, err
+		}
+		if own {
+			return size, nil
+		}
+	}
+	ctx, op := wcprof.BeginOp(ctx, wcprof.OpKindRemoteCache, "remotecache.part.size", wcprof.OpOpts{Ident: "chain"})
+	defer func() { op.EndErr(rerr) }()
+	var total int64
+	for id := desc.SnapshotID; id != ""; {
+		usage, err := reader.SnapshotUsage(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		total += usage
+		parent, err := reader.SnapshotParent(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		id = parent
+	}
+	return total, nil
 }
 
 // taskSettledPartKeys returns the address keys of the outputs task installed
