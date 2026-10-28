@@ -114,6 +114,33 @@ type Adapter interface {
 	// ExpectMerge makes an evaluation of recipe's entry wait until wait
 	// ends, or until deadline.
 	ExpectMerge(recipe digest.Digest, wait *dagql.RemoteMergeWait, deadline time.Time)
+	// SettleState returns the engine's side of settling with the service,
+	// and a channel closed when it next changes.
+	SettleState() (SettleState, <-chan struct{})
+	// Settled records the service's Settled for a settle of period that
+	// listed sessions.
+	Settled(period uint64, sessions []protocol.SettleSession)
+}
+
+// SettleState is where the engine stands in settling with the service.
+type SettleState struct {
+	// Period is the engine's current idle period (protocol.Open).
+	Period uint64
+	// Live is set while a session is live.
+	Live bool
+	// Sessions are the ended sessions no Settled has covered.
+	Sessions []protocol.SettleSession
+	// Settled is set once a Settled covered Period.
+	Settled bool
+	// TimedOut is set once the engine gave up waiting to settle after its
+	// last session ended, until a session starts again.
+	TimedOut bool
+}
+
+// settling reports whether the engine should ask the service to settle:
+// no session is live, and it neither settled nor gave up for its period.
+func (st SettleState) settling() bool {
+	return !st.Live && !st.Settled && !st.TimedOut && st.Period > 0
 }
 
 // Export is one capture, as Adapter.Export hands it to its consumer.
