@@ -179,6 +179,13 @@ func (r *cloudReceiver) snapshot() (auths, spans, logs, metrics []string) {
 		append([]string(nil), r.metricNames...)
 }
 
+// metrics returns the names of the metrics Cloud received so far.
+func (r *cloudReceiver) metrics() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.metricNames...)
+}
+
 // newCloudTestSession is a one-client session whose main client carries md.
 func newCloudTestSession(t *testing.T, srv *Server, md *engine.ClientMetadata) (*daggerSession, *clientRuntime) {
 	t.Helper()
@@ -988,8 +995,7 @@ func TestSessionTeardownDoesNotWaitOnCloudMetrics(t *testing.T) {
 
 	receiver.open()
 	require.Eventually(t, func() bool {
-		_, _, _, metrics := receiver.snapshot()
-		return slices.Contains(metrics, "cloud.metric")
+		return slices.Contains(receiver.metrics(), "cloud.metric")
 	}, 10*time.Second, 10*time.Millisecond, "the session's last metrics never reached Cloud")
 }
 
@@ -1013,8 +1019,7 @@ func TestEngineStopDeliversLastCloudMetrics(t *testing.T) {
 	// Cloud answers shortly after the engine starts stopping.
 	time.AfterFunc(300*time.Millisecond, receiver.open)
 	require.NoError(t, srv.cloudForwarders.stopAll(ctx, sessionTelemetryFlushTimeout))
-	_, _, _, metrics := receiver.snapshot()
-	require.Contains(t, metrics, "cloud.metric", "the engine stopped before its session's last metrics reached Cloud")
+	require.Contains(t, receiver.metrics(), "cloud.metric", "the engine stopped before its session's last metrics reached Cloud")
 }
 
 func TestCloudMetricQueueShutdownIsBounded(t *testing.T) {
