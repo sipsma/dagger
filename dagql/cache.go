@@ -207,6 +207,10 @@ type persistedEdge struct {
 // index named it, so a restart restores one current entry per recipe. Older
 // stores cannot tell a recipe's current entry from others of its recipe and
 // are wiped on import.
+//
+// 23: self payload envelopes are version 6: a call's own row whose value is
+// another call's result is a returned_ref root naming that row. Older stores
+// hold version 5 envelopes, which are never read, so they are wiped on import.
 const cachePersistenceSchemaVersion = "23"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
