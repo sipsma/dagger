@@ -125,7 +125,7 @@ type ImportedValue struct {
 	ResultID uint64
 }
 
-const valueBundleVersion = 4
+const valueBundleVersion = 5
 
 // PersistedTransferCodec operates only on encoded copies, without resolving
 // schemas, operations, result references or storage.
