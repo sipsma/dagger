@@ -957,6 +957,63 @@ func gaugeMetrics(value int64) *metricdata.ResourceMetrics {
 // bound in all, draining, the exports in flight and the release: the first
 // export waits on Cloud until its own bound, before the drain deadline, and
 // the second then starts and is cancelled at that deadline.
+// The session's end doesn't wait for Cloud to answer its last metrics, which
+// a client's stream would otherwise wait for: they go out in the background,
+// within the same bound, and still arrive.
+func TestSessionTeardownDoesNotWaitOnCloudMetrics(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	receiver := newCloudReceiver(t, true)
+	const bound = 2 * time.Second
+	sess, root := newCloudTestSession(t, &Server{sessionCloudFlushTimeout: bound}, &engine.ClientMetadata{
+		CloudAuth:               basicCloudAuth("dag_test_token"),
+		CloudURL:                receiver.URL,
+		CloudTelemetryPublisher: engine.CloudTelemetryPublisherEngine,
+	})
+	sess.telemetryEnded = make(chan struct{})
+	emitCloudTestTelemetry(t, sess, root)
+
+	start := time.Now()
+	require.NoError(t, sess.shutdownTelemetry(ctx))
+	require.Less(t, time.Since(start), bound/2, "the session's end waited for Cloud to answer its last metrics")
+	select {
+	case <-sess.telemetryEnded:
+	default:
+		t.Fatal("the session's telemetry did not end")
+	}
+
+	receiver.open()
+	require.Eventually(t, func() bool {
+		_, _, _, metrics := receiver.snapshot()
+		return slices.Contains(metrics, "cloud.metric")
+	}, 10*time.Second, 10*time.Millisecond, "the session's last metrics never reached Cloud")
+}
+
+// An engine stopped right after its last session, as a CI engine is, still
+// delivers that session's last metrics: its stop waits for them as it waits
+// for the session's spans and logs.
+func TestEngineStopDeliversLastCloudMetrics(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	receiver := newCloudReceiver(t, true)
+	srv := &Server{}
+	sess, root := newCloudTestSession(t, srv, &engine.ClientMetadata{
+		CloudAuth:               basicCloudAuth("dag_test_token"),
+		CloudURL:                receiver.URL,
+		CloudTelemetryPublisher: engine.CloudTelemetryPublisherEngine,
+	})
+	emitCloudTestTelemetry(t, sess, root)
+	require.NoError(t, sess.shutdownTelemetry(ctx))
+
+	// Cloud answers shortly after the engine starts stopping.
+	time.AfterFunc(300*time.Millisecond, receiver.open)
+	require.NoError(t, srv.cloudForwarders.stopAll(ctx, sessionTelemetryFlushTimeout))
+	_, _, _, metrics := receiver.snapshot()
+	require.Contains(t, metrics, "cloud.metric", "the engine stopped before its session's last metrics reached Cloud")
+}
+
 func TestCloudMetricQueueShutdownIsBounded(t *testing.T) {
 	t.Parallel()
 	receiver := newCloudReceiver(t, true)
