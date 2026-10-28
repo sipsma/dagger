@@ -223,7 +223,10 @@ func (c *Cache) beginOTelLazyOp(evalCtx context.Context, sharedID sharedResultID
 // and its replacement count. The attempt's evaluating session holds the
 // entry, so no replacement happens during it.
 type lazySpanCacheState struct {
-	parts         []string
+	parts []string
+	// partSizes are the raw sizes of parts, index-aligned, on an engine with
+	// the remote cache.
+	partSizes     []int64
 	deps          []uint64
 	contentDigest digest.Digest
 	replacements  uint64
@@ -243,7 +246,8 @@ type lazySpanCacheState struct {
 // installs. The read takes the graph lock itself, so it runs before the
 // dependencies are read under it.
 func (c *Cache) lazySpanCacheState(ctx context.Context, row *sharedResult, frame *ResultCall) lazySpanCacheState {
-	state := lazySpanCacheState{parts: c.completePartKeys(ctx, row)}
+	var state lazySpanCacheState
+	state.parts, state.partSizes = c.completePartKeysAndSizes(ctx, row)
 	if frame != nil {
 		state.contentDigest = frame.ContentDigest()
 	}
@@ -284,6 +288,9 @@ func endOTelLazyOp(span trace.Span, isResume bool, sharedID sharedResultID, part
 		)
 		if len(cacheState.parts) > 0 {
 			span.SetAttributes(attribute.StringSlice(telemetryattrs.CachePartsAttr, cacheState.parts))
+			if sizes := partSizeStrings(cacheState.parts, cacheState.partSizes); sizes != nil {
+				span.SetAttributes(attribute.StringSlice(telemetryattrs.CachePartSizesAttr, sizes))
+			}
 		}
 		if cacheState.contentDigest != "" {
 			span.SetAttributes(attribute.String(telemetryattrs.CacheOutputContentDigestAttr, cacheState.contentDigest.String()))
