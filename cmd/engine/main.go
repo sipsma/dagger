@@ -658,15 +658,7 @@ func main() { //nolint:gocyclo
 			// ReadHeaderTimeout no matter how active it is, and since all of a
 			// client's streams share one h2 connection, any query outliving it
 			// fails with `Post "http://dagger/query": unexpected EOF`.
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
-					// The docs on grpcServer.ServeHTTP warn that some features are missing vs. serving fully "native" gRPC,
-					// but in practice it seems to work fine for us and only be relevant for some advanced features we don't use.
-					grpcServer.ServeHTTP(w, r)
-					return
-				}
-				srv.ServeHTTP(w, r)
-			}),
+			Handler:   apiHandler(grpcServer, http.HandlerFunc(srv.ServeStatus), srv),
 			Protocols: protocols,
 		}
 		errCh := make(chan error, 1)
@@ -1132,4 +1124,23 @@ func setupNetwork(ctx context.Context, netName, netCIDR string) (*networkConfig,
 		CNIConfigPath:  cniConfigPath,
 		FirewallPlugin: firewalld,
 	}, nil
+}
+
+// apiHandler serves the engine's main listener: gRPC requests go to the
+// control API, GET server.StatusPath to the engine's status, which needs no
+// session, and every other request to a client's session.
+func apiHandler(grpcServer, status, sessions http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
+			// The docs on grpcServer.ServeHTTP warn that some features are missing vs. serving fully "native" gRPC,
+			// but in practice it seems to work fine for us and only be relevant for some advanced features we don't use.
+			grpcServer.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == server.StatusPath {
+			status.ServeHTTP(w, r)
+			return
+		}
+		sessions.ServeHTTP(w, r)
+	})
 }
