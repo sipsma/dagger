@@ -152,9 +152,12 @@ type snapshotManager struct {
 	importedLayerByBlob  map[ImportedLayerBlobKey]string
 	importedLayerByDiff  map[ImportedLayerDiffKey]string
 	snapshotOwnerLeases  map[string]map[string]struct{}
-	importLayerLocker    keyedLocker
-	exportLayerLocker    keyedLocker
-	ownerLeaseLocker     *locker.Locker
+	// leaseOwnedSnapshots is snapshotOwnerLeases by lease: the snapshots
+	// each lease owns, so that removing a lease visits only those.
+	leaseOwnedSnapshots map[string]map[string]struct{}
+	importLayerLocker   keyedLocker
+	exportLayerLocker   keyedLocker
+	ownerLeaseLocker    *locker.Locker
 	// layerImported is closed, and replaced, whenever a layer is added to
 	// the import indexes: chain imports waiting for a layer's blob look
 	// again. Under mu.
@@ -198,6 +201,7 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		importedLayerByDiff:    make(map[ImportedLayerDiffKey]string),
 		layerImported:          make(chan struct{}),
 		snapshotOwnerLeases:    make(map[string]map[string]struct{}),
+		leaseOwnedSnapshots:    make(map[string]map[string]struct{}),
 		ownerLeaseLocker:       locker.New(),
 		backgroundReleases:     newBackgroundReleases(maxPendingReleases),
 		localMounter:           opt.LocalMounter,
