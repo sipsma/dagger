@@ -94,7 +94,10 @@ Current hook points:
   digest as ident and its size in bytes, and a lock wait on
   `snapshots.importLayer`. A layer whose blob the import awaits from another
   source (a chain's `Await`) is an `io` wait on `snapshots.awaitLayer:<digest>`
-  for as long as it waits.
+  for as long as it waits. Each metadata write transaction the snapshot
+  manager makes, as when it attaches a lease to a snapshot and its parents,
+  is an `io` op `snapshots.metadata.write`, from asking for the database's
+  single writer to the commit's end.
 - `engine/snapshots` owner leases: `AttachLease` and `RemoveLease` record a
   lock wait on `snapshots.snapshotManager.mu` when another holder blocks the
   manager's lock (`wcprof.Lock`).
