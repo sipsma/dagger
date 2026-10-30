@@ -386,7 +386,7 @@ func TestImportChainAwaitProfiled(t *testing.T) {
 }
 
 // Each metadata write transaction the manager makes is profiled as one
-// snapshots.metadata.write op: attaching a lease to a chain of snapshots
+// snapshot.metadata.write op: attaching a lease to a chain of snapshots
 // writes them all in one.
 func TestMetadataWriteProfiled(t *testing.T) {
 	store := testutil.NewStore(t)
@@ -398,12 +398,12 @@ func TestMetadataWriteProfiled(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, store.Manager.RemoveLease(context.Background(), "profiled-owner")) })
 	var writes []profiledEvent
 	for _, ev := range profiledUnder(t, root.ID()) {
-		if ev.Type == "op" && ev.class == "snapshots.metadata.write" {
+		if ev.Type == "op" && ev.class == "snapshot.metadata.write" {
 			writes = append(writes, ev)
 		}
 	}
 	require.Len(t, writes, 1, "one transaction for the snapshot and its parent")
 	require.Equal(t, root.ID(), writes[0].ParentID)
 	require.Equal(t, "ok", writes[0].Outcome)
-	require.Equal(t, "io", writes[0].OpKind)
+	require.Equal(t, "internal", writes[0].OpKind)
 }
