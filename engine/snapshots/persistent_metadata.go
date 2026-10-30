@@ -329,7 +329,7 @@ func (cm *snapshotManager) writeLease(ctx context.Context, fn func(context.Conte
 		return true, fn(ctx)
 	}
 	var fnErr error
-	err := cm.metadataDB.Update(func(tx *bolt.Tx) error {
+	err := cm.profiledUpdate(ctx, func(tx *bolt.Tx) error {
 		fnErr = fn(boltutil.WithTransaction(ctx, tx))
 		return nil
 	})
@@ -346,9 +346,26 @@ func (cm *snapshotManager) updateMetadata(ctx context.Context, fn func(context.C
 	if cm.metadataDB == nil {
 		return fn(ctx)
 	}
-	return cm.metadataDB.Update(func(tx *bolt.Tx) error {
+	return cm.profiledUpdate(ctx, func(tx *bolt.Tx) error {
 		return fn(boltutil.WithTransaction(ctx, tx))
 	})
+}
+
+// profiledUpdate runs fn in one metadata write transaction, recorded, when
+// the profile records, as one snapshots.metadata.write op: the time from
+// asking for the database's single writer to the commit's end.
+func (cm *snapshotManager) profiledUpdate(ctx context.Context, fn func(*bolt.Tx) error) error {
+	if !wcprof.Enabled(ctx) {
+		return cm.metadataDB.Update(fn)
+	}
+	start := time.Now()
+	err := cm.metadataDB.Update(fn)
+	outcome := wcprof.OutcomeOK
+	if err != nil {
+		outcome = wcprof.OutcomeError
+	}
+	wcprof.RecordOpAt(ctx, wcprof.OpKindIO, "snapshots.metadata.write", wcprof.OpOpts{}, start, time.Now(), outcome)
+	return err
 }
 
 func (cm *snapshotManager) createOwnerLease(ctx context.Context, leaseID string) error {
