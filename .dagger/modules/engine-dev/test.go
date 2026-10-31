@@ -11,6 +11,7 @@ import (
 	"dagger/engine-dev/internal/dagger"
 
 	"github.com/dagger/dagger/engine/distconsts"
+	"golang.org/x/sync/errgroup"
 )
 
 // List all core engine tests
@@ -491,6 +492,16 @@ exit "$result"
 // the engine.tar the tests start their own engines from.
 // (FIXME: do this more cleanly, and reuse the standard Go toolchain)
 func (dev *EngineDev) testContainer(ctx context.Context, ebpfProgs []string, wcprof bool, withServiceEngine dagger.WithContainerFunc) (*dagger.Container, []string, error) {
+	// Build the CLI that InstallClient installs while the dev engine builds
+	// and starts, rather than after, when the tests first need it.
+	cliCtx, cancelCLI := context.WithCancel(ctx)
+	defer cancelCLI()
+	var cliBuild errgroup.Group
+	cliBuild.Go(func() error {
+		_, err := dev.clientBinary().Sync(cliCtx)
+		return err
+	})
+
 	devEngine, err := dev.
 		WithEBPFProgs(ebpfProgs).
 		WithEngineConfig(`registry."registry:5000"`, `http = true`).
@@ -582,6 +593,9 @@ func (dev *EngineDev) testContainer(ctx context.Context, ebpfProgs []string, wcp
 		WithMountedCache("/run", engineRunVol).
 		WithServiceBinding("registry", registrySvc)
 
+	if err := cliBuild.Wait(); err != nil {
+		return nil, nil, err
+	}
 	tests, err = dev.InstallClient(ctx, tests, devEngineSvc)
 	if err != nil {
 		return nil, nil, err
