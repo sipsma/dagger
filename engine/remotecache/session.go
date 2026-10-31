@@ -330,9 +330,15 @@ func (s *session) handleExport(env protocol.Envelope) {
 	// The export's profile op: the service's work, not a client's, so it is
 	// recorded when the engine records everything. It spans what the export's
 	// line times: from the request, before the wait for a slot, to the chains'
-	// release.
+	// release. It names the roots asked for, which an export cut off before
+	// its reply has no other record of.
 	arrived := time.Now()
 	profCtx, profOp := wcprof.BeginOp(s.ctx, wcprof.OpKindRemoteCache, "remotecache.export", wcprof.OpOpts{Start: arrived})
+	if profOp != nil {
+		for _, root := range req.Roots {
+			wcprof.Fact(profCtx, profOp.ID(), "export.root", root)
+		}
+	}
 	select {
 	case s.exportSlots <- struct{}{}:
 	case <-s.ctx.Done():
