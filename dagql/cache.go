@@ -1527,6 +1527,9 @@ func pendingLazyComputationLocked(shared *sharedResult, reporting HasLazyEvaluat
 		return true
 	}
 	for key, group := range shared.lazyPartGroups {
+		if isPartDeliveryTaskKey(key) {
+			continue
+		}
 		if reporting.LazyGroupStoredPart(key) == "" && !group.settled() {
 			return true
 		}
