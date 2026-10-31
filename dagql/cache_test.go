@@ -542,8 +542,9 @@ func TestInstallSpanLookupWalksClosureOwnersUpward(t *testing.T) {
 	c.egraphMu.Lock()
 	moduleErr := c.addExplicitDependencyLocked(ctx, moduleReturn, chained, "test")
 	chainErr := c.addExplicitDependencyLocked(ctx, chained, leaf, "test")
-	moduleReturnAncestors := c.installAncestorIDsLocked(moduleReturn.id)
-	leafAncestors := c.installAncestorIDsLocked(leaf.id)
+	candidates := map[sharedResultID][]trace.SpanContext{chained.id: nil, moduleReturn.id: nil}
+	moduleReturnAncestors := c.installAncestorsAmongLocked(moduleReturn.id, candidates)
+	leafAncestors := c.installAncestorsAmongLocked(leaf.id, candidates)
 	c.egraphMu.Unlock()
 	assert.NilError(t, moduleErr)
 	assert.NilError(t, chainErr)
