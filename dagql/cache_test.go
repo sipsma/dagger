@@ -588,6 +588,85 @@ func TestInstallSpanLookupWalksClosureOwnersUpward(t *testing.T) {
 		[]trace.SpanContext{moduleSpanCtx})
 }
 
+// installSpanTestChain builds a cache whose leaf result has n results built
+// on it, one on the next, and records the leaf's own install. With withOwner,
+// a module call's return sits directly on the leaf; with withOther, a second
+// module call's return sits on nothing the leaf is under.
+func installSpanTestChain(t *testing.T, n int, withOwner, withOther bool) (c *Cache, leaf, other *sharedResult, spans []trace.SpanContext) {
+	t.Helper()
+	ctx := t.Context()
+	c = &Cache{resultsByID: map[sharedResultID]*sharedResult{}}
+	next := sharedResultID(1)
+	newResult := func() *sharedResult {
+		res := &sharedResult{id: next}
+		next++
+		c.resultsByID[res.id] = res
+		return res
+	}
+	span := func(id byte) trace.SpanContext {
+		return trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{id}, SpanID: trace.SpanID{id}})
+	}
+	leaf = newResult()
+	c.egraphMu.Lock()
+	below := leaf
+	for range n {
+		above := newResult()
+		assert.NilError(t, c.addExplicitDependencyLocked(ctx, above, below, "test"))
+		below = above
+	}
+	c.egraphMu.Unlock()
+	spans = append(spans, span(1))
+	c.recordSessionResultInstallSpanLocked(ctx, "test-session", leaf.id, span(1), false)
+	if withOwner {
+		ownerRes := newResult()
+		c.egraphMu.Lock()
+		assert.NilError(t, c.addExplicitDependencyLocked(ctx, ownerRes, leaf, "test"))
+		c.egraphMu.Unlock()
+		spans = append(spans, span(2))
+		c.recordSessionResultInstallSpanLocked(ctx, "test-session", ownerRes.id, span(2), true)
+	}
+	if withOther {
+		other = newResult()
+		c.recordSessionResultInstallSpanLocked(ctx, "test-session", other.id, span(3), true)
+	}
+	return c, leaf, other, spans
+}
+
+// Every lazy evaluation looks up its result's install spans, and on a fresh
+// engine a result can have thousands of results built on it. With no module
+// call return in the session, or with every return already found, the
+// lookup doesn't go on through them: it costs the same with 2,000 results
+// above as with 20.
+func TestInstallSpanLookupStopsWhenNoReturnIsLeft(t *testing.T) {
+	for _, owner := range []bool{false, true} {
+		allocs := func(n int) float64 {
+			c, leaf, _, spans := installSpanTestChain(t, n, owner, false)
+			assert.DeepEqual(t, c.sessionResultInstallSpanContexts(t.Context(), "test-session", leaf.id), spans)
+			return testing.AllocsPerRun(50, func() {
+				c.sessionResultInstallSpanContexts(t.Context(), "test-session", leaf.id)
+			})
+		}
+		few, many := allocs(20), allocs(2000)
+		assert.Assert(t, many <= few, "with a module return %v, lookup allocations grew from %v with 20 results above to %v with 2000", owner, few, many)
+	}
+}
+
+// A module call's return owns its closure as it is when a lookup asks, so a
+// result that joins the closure after the return was recorded is in it.
+func TestInstallSpanLookupFollowsAClosureThatGrows(t *testing.T) {
+	t.Parallel()
+	c, leaf, other, spans := installSpanTestChain(t, 3, true, true)
+	assert.DeepEqual(t, c.sessionResultInstallSpanContexts(t.Context(), "test-session", leaf.id), spans)
+
+	c.egraphMu.Lock()
+	assert.NilError(t, c.addExplicitDependencyLocked(t.Context(), other, leaf, "test"))
+	c.egraphMu.Unlock()
+	otherSpan := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{3}, SpanID: trace.SpanID{3}})
+	assert.DeepEqual(t,
+		c.sessionResultInstallSpanContexts(t.Context(), "test-session", leaf.id),
+		append(spans, otherSpan))
+}
+
 func TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans(t *testing.T) {
 	t.Parallel()
 
