@@ -1146,12 +1146,12 @@ func (c *Cache) captureSessionLazySpanContext(ctx context.Context, sessionID str
 	c.sessionMu.Unlock()
 }
 
-func (c *Cache) sessionLazySpanContext(sessionID string, resultID sharedResultID) (trace.SpanContext, bool) {
+func (c *Cache) sessionLazySpanContext(ctx context.Context, sessionID string, resultID sharedResultID) (trace.SpanContext, bool) {
 	if c == nil || sessionID == "" || resultID == 0 {
 		return trace.SpanContext{}, false
 	}
 
-	c.sessionMu.Lock()
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
 	spanCtx := c.sessionLazySpansBySession[sessionID][resultID]
 	c.sessionMu.Unlock()
 	if !spanCtx.IsValid() {
@@ -1170,8 +1170,8 @@ type sessionLazyAnchor struct {
 
 // sessionLazyAnchorFor returns the session's anchor for resultID if it links
 // every one of installCtxs, sorted by compareSpanContexts.
-func (c *Cache) sessionLazyAnchorFor(sessionID string, resultID sharedResultID, installCtxs []trace.SpanContext) (trace.SpanContext, bool) {
-	c.sessionMu.Lock()
+func (c *Cache) sessionLazyAnchorFor(ctx context.Context, sessionID string, resultID sharedResultID, installCtxs []trace.SpanContext) (trace.SpanContext, bool) {
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
 	anchor, ok := c.sessionLazyAnchors[sessionID][resultID]
 	c.sessionMu.Unlock()
 	if !ok || !spanContextsCover(anchor.installs, installCtxs) {
@@ -1180,8 +1180,8 @@ func (c *Cache) sessionLazyAnchorFor(sessionID string, resultID sharedResultID, 
 	return anchor.spanCtx, true
 }
 
-func (c *Cache) recordSessionLazyAnchor(sessionID string, resultID sharedResultID, spanCtx trace.SpanContext, installCtxs []trace.SpanContext) {
-	c.sessionMu.Lock()
+func (c *Cache) recordSessionLazyAnchor(ctx context.Context, sessionID string, resultID sharedResultID, spanCtx trace.SpanContext, installCtxs []trace.SpanContext) {
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
 	defer c.sessionMu.Unlock()
 	// Same released-session refusal as the other session telemetry writers.
 	if c.sessionLifecycle(sessionID).lifecycle.Load()&cacheSessionReleasedBit != 0 {
@@ -1433,7 +1433,7 @@ func (m *ancestorMarks) unvisit(id sharedResultID) {
 // given session — i.e. the API spans whose call returned (or owns) this
 // result. Used to attribute later runtime failures (e.g. a service exiting
 // early) back to the API span that installed the value.
-func (c *Cache) ResultInstallSpans(sessionID string, res AnyResult) []trace.SpanContext {
+func (c *Cache) ResultInstallSpans(ctx context.Context, sessionID string, res AnyResult) []trace.SpanContext {
 	if c == nil || sessionID == "" || res == nil {
 		return nil
 	}
@@ -1441,7 +1441,7 @@ func (c *Cache) ResultInstallSpans(sessionID string, res AnyResult) []trace.Span
 	if shared == nil || shared.id == 0 {
 		return nil
 	}
-	return c.sessionResultInstallSpanContexts(sessionID, shared.id)
+	return c.sessionResultInstallSpanContexts(ctx, sessionID, shared.id)
 }
 
 // sessionResultInstallSpanContexts returns the install span contexts for
@@ -1449,16 +1449,16 @@ func (c *Cache) ResultInstallSpans(sessionID string, res AnyResult) []trace.Span
 // plus closure-owning install spans (module API call returns) recorded for
 // any result that transitively depends on it. The upward walk happens here,
 // on demand, instead of eagerly materializing the closure at install time.
-func (c *Cache) sessionResultInstallSpanContexts(sessionID string, resultID sharedResultID) []trace.SpanContext {
+func (c *Cache) sessionResultInstallSpanContexts(ctx context.Context, sessionID string, resultID sharedResultID) []trace.SpanContext {
 	if c == nil || sessionID == "" || resultID == 0 {
 		return nil
 	}
 
-	c.egraphMu.RLock()
+	wcprof.ReadLock(ctx, &c.egraphMu, egraphLockIdent)
 	ancestorIDs := c.installAncestorIDsLocked(resultID)
 	c.egraphMu.RUnlock()
 
-	c.sessionMu.Lock()
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
 	defer c.sessionMu.Unlock()
 	byResult := c.sessionResultInstallSpans[sessionID]
 	if byResult == nil {
