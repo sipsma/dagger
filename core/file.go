@@ -293,6 +293,11 @@ func (file *File) EncodePersistedObject(ctx context.Context, enc *dagql.PersistE
 	}
 	if file.Lazy != nil {
 		payload.Form = persistedFileFormLazy
+		if file.completedElsewhere {
+			// Its operation completed on the engine it came from, though not
+			// here: a record of it says so, as the one it came in did.
+			payload.OperationState = "evaluated"
+		}
 		lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, enc, file.Lazy)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
@@ -330,7 +335,7 @@ func decodePersistedFileWithSnapshotRole(ctx context.Context, dec *dagql.Persist
 		file.OutputRev++ // private decoded output, before publication
 		file.outputMu.Unlock()
 	}()
-	file.completedElsewhere = persisted.Form == transferPending && persisted.OperationState == "evaluated"
+	file.completedElsewhere = persisted.OperationState == "evaluated"
 	// A record from another engine that holds no download address decodes
 	// as local persistence decodes a pending file: its recipe armed.
 	if persisted.Form == transferPending && persisted.LazyKind != "" && dec.ArmRecipe() {
