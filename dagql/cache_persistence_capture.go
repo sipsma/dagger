@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 // CapturePersistedRecord copies one registered row without evaluating it or
@@ -32,7 +34,7 @@ func (c *Cache) captureRowRecord(ctx context.Context, shared *sharedResult) (_ P
 	if err := context.Cause(ctx); err != nil {
 		return PersistedRecord{}, nil, err
 	}
-	c.egraphMu.Lock()
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 	if shared.id == 0 || c.resultsByID[shared.id] != shared {
 		c.egraphMu.Unlock()
 		return PersistedRecord{}, nil, fmt.Errorf("capture persisted record: result %d is not registered in this cache", shared.id)
@@ -55,7 +57,7 @@ func (c *Cache) captureRowRecord(ctx context.Context, shared *sharedResult) (_ P
 	c.egraphMu.Unlock()
 	defer func() {
 		cleanupCtx := context.WithoutCancel(ctx)
-		c.egraphMu.Lock()
+		wcprof.WriteLock(cleanupCtx, &c.egraphMu, egraphLockIdent)
 		queue, decErr := c.decrementIncomingOwnershipLocked(cleanupCtx, shared, nil)
 		releases, collectErr := c.collectUnownedResultsLocked(cleanupCtx, queue)
 		c.egraphMu.Unlock()
