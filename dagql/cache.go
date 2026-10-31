@@ -2748,9 +2748,6 @@ type sharedResult struct {
 	// for one restored after a restart. It goes with the value. Guarded by
 	// egraphMu.
 	mergedAtUnixNano int64
-	// remoteLookupWait is the last wait of an evaluation of the entry for a
-	// remote lookup's merge (cache_remote_lookup.go), or nil.
-	remoteLookupWait atomic.Pointer[remoteLookupWait]
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key. Only a blob-backed cache (the Cloud)
 	// sets them. Guarded by egraphMu.
@@ -4814,7 +4811,6 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 		}
 	}()
 
-	c.awaitRemoteMerge(ctx, shared)
 	watch := partReselectWatch{loop: "evaluateOne"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
@@ -4851,7 +4847,6 @@ func (c *Cache) EvaluateParts(ctx context.Context, res AnyResult, parts ...PartK
 		}
 	}()
 
-	c.awaitRemoteMerge(ctx, shared)
 	watch := partReselectWatch{loop: "EvaluateParts"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
