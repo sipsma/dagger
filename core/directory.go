@@ -49,7 +49,11 @@ type Directory struct {
 	// transferShell is set when the directory decoded from another engine's
 	// record without its recipe, and never changes after.
 	transferShell bool
-	Platform      Platform
+	// completedElsewhere is set when the directory decoded from another
+	// engine's record of an operation that completed there, and never
+	// changes after.
+	completedElsewhere bool
+	Platform           Platform
 	// Services necessary to provision the directory.
 	Services ServiceBindings
 
@@ -350,6 +354,7 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dec *dagql.Pe
 		dir.OutputRev++ // private decoded output, before publication
 		dir.outputMu.Unlock()
 	}()
+	dir.completedElsewhere = persisted.Form == transferPending && persisted.OperationState == "evaluated"
 	// A record from another engine that holds no download address decodes
 	// as local persistence decodes a pending directory: its recipe armed.
 	if persisted.Form == transferPending && persisted.LazyKind != "" && dec.ArmRecipe() {
@@ -407,6 +412,10 @@ func (*Directory) DecodePersistedObject(ctx context.Context, dec *dagql.PersistD
 // engine's record without its recipe, so that its content comes only through
 // part acquisition.
 func (dir *Directory) PartTransferShell() bool { return dir.transferShell }
+
+// OperationCompletedElsewhere reports whether the directory decoded from
+// another engine's record of an operation that completed there.
+func (dir *Directory) OperationCompletedElsewhere() bool { return dir.completedElsewhere }
 
 func loadCanonicalScratchDirectory(ctx context.Context) (string, bkcache.ImmutableRef, error) {
 	query, err := CurrentQuery(ctx)
