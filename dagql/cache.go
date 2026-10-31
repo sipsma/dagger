@@ -2508,6 +2508,9 @@ type Cache struct {
 	// shareReport receives the parts each pass completed; see
 	// WithSnapshotShareReport. Set at construction.
 	shareReport func([]SnapshotSharedPart)
+	// partReads reports the parts of entries work reads; see
+	// WithPartReadReport. Nil unless set at construction.
+	partReads *partReadLog
 	// partPreparation is the engine's registered preparation-context
 	// callback, nil on a cache that cannot reconstruct persisted services.
 	partPreparation PartPreparationContext
@@ -5039,6 +5042,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 		}
 		if err == nil {
 			c.recordWorkloadUse(ctx, shared, nil)
+			c.partReads.record(shared.id, nil)
 		}
 		return err
 	}
@@ -5075,6 +5079,7 @@ func (c *Cache) EvaluateParts(ctx context.Context, res AnyResult, parts ...PartK
 		}
 		if err == nil {
 			c.recordWorkloadUse(ctx, shared, parts)
+			c.partReads.record(shared.id, parts)
 		}
 		return err
 	}
@@ -5702,6 +5707,7 @@ func (c *Cache) CloseWithShutdownError(ctx context.Context, cause error) error {
 		// here, or fails admission. Placed before it, an enqueue in between
 		// could strand a counted operation with no worker.
 		c.closeSnapshotSharing()
+		c.partReads.flush()
 		if err := c.waitForQuiescence(ctx); err != nil {
 			slog.Error("dagql cache close failed waiting for quiescence; persistence will remain dirty", "err", err)
 			c.closeErr = errors.Join(c.closeErr, fmt.Errorf("wait for dagql cache quiescence: %w", err))
@@ -5869,6 +5875,7 @@ func (c *Cache) deleteResultLocked(res *sharedResult) {
 	c.forgetListItemLocked(res)
 	c.resultPayloadBytes -= res.payloadBytes
 	delete(c.resultsByID, res.id)
+	c.partReads.forget(res.id)
 }
 
 // setResultPayloadBytesLocked replaces res's payload size, keeping the
