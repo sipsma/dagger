@@ -492,13 +492,13 @@ func TestCaptureSessionLazySpanContextFirstWriterWinsAndRelease(t *testing.T) {
 	assert.Assert(t, sharedB != nil)
 	assert.Equal(t, sharedA.id, sharedB.id)
 
-	gotSpanCtx, ok := c.sessionLazySpanContext("test-session", sharedA.id)
+	gotSpanCtx, ok := c.sessionLazySpanContext(t.Context(), "test-session", sharedA.id)
 	assert.Assert(t, ok)
 	assert.Equal(t, gotSpanCtx.TraceID(), spanCtxA.TraceID())
 	assert.Equal(t, gotSpanCtx.SpanID(), spanCtxA.SpanID())
 
 	cacheTestReleaseSession(t, c, ctx)
-	_, ok = c.sessionLazySpanContext("test-session", sharedA.id)
+	_, ok = c.sessionLazySpanContext(t.Context(), "test-session", sharedA.id)
 	assert.Assert(t, !ok)
 }
 
@@ -519,7 +519,7 @@ func TestSessionResultInstallSpanContextsSorted(t *testing.T) {
 	c.recordSessionResultInstallSpanLocked(t.Context(), "test-session", 1, spanCtxA, false)
 	c.recordSessionResultInstallSpanLocked(t.Context(), "test-session", 1, spanCtxB, false)
 
-	got := c.sessionResultInstallSpanContexts("test-session", 1)
+	got := c.sessionResultInstallSpanContexts(t.Context(), "test-session", 1)
 	assert.DeepEqual(t, got, []trace.SpanContext{spanCtxA, spanCtxB})
 }
 
@@ -574,17 +574,17 @@ func TestInstallSpanLookupWalksClosureOwnersUpward(t *testing.T) {
 	// leaf sees its own install plus the module span via closure ownership,
 	// but not the chained result's plain install.
 	assert.DeepEqual(t,
-		c.sessionResultInstallSpanContexts("test-session", leaf.id),
+		c.sessionResultInstallSpanContexts(t.Context(), "test-session", leaf.id),
 		[]trace.SpanContext{moduleSpanCtx, leafSpanCtx})
 
 	// chained likewise sees itself plus the module span.
 	assert.DeepEqual(t,
-		c.sessionResultInstallSpanContexts("test-session", chained.id),
+		c.sessionResultInstallSpanContexts(t.Context(), "test-session", chained.id),
 		[]trace.SpanContext{moduleSpanCtx, chainedSpanCtx})
 
 	// moduleReturn has no ancestors; it sees only its own install.
 	assert.DeepEqual(t,
-		c.sessionResultInstallSpanContexts("test-session", moduleReturn.id),
+		c.sessionResultInstallSpanContexts(t.Context(), "test-session", moduleReturn.id),
 		[]trace.SpanContext{moduleSpanCtx})
 }
 
