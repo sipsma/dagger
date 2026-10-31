@@ -39,19 +39,11 @@ const (
 	UploadConcurrency = 16
 	// LookupsInFlight is how many lookups the engine has unanswered at once.
 	LookupsInFlight = 4
-	// DefaultLookupWait is how long an evaluation waits for a merge a
-	// lookup's answer names: none. Lookups are asked without waiting, so no
-	// miss waits on the service.
-	DefaultLookupWait time.Duration = 0
-
 	// lookupLinger is how long the engine waits, after a miss, for more
 	// misses to send with it.
 	lookupLinger = 25 * time.Millisecond
 	// lookupTimeout bounds the wait for a lookup's answer.
 	lookupTimeout = 30 * time.Second
-	// endedMerges is how many ended merges a session remembers by ID, so a
-	// lookup's answer that names one doesn't wait for it.
-	endedMerges = 4096
 
 	// Reconnection backoff: from backoffMin, doubling to backoffMax, each
 	// wait moved by up to backoffJitter of itself either way.
@@ -84,9 +76,6 @@ type Config struct {
 	// Lookups asks the service for the calls the engine's cache misses. The
 	// engine always sets it; a test that serves no lookups leaves it off.
 	Lookups bool
-	// LookupWait bounds an evaluation's wait for a merge a lookup's answer
-	// names as carrying the call's value. Zero never waits.
-	LookupWait time.Duration
 }
 
 // Adapter is the engine's side of the service's requests: its cache
@@ -115,9 +104,6 @@ type Adapter interface {
 	// lingering up to linger after the first for more. dropped counts the
 	// misses a full queue refused since the last take.
 	TakeLookupMisses(ctx context.Context, limit int, linger time.Duration) (misses []dagql.RemoteMiss, dropped uint64, err error)
-	// ExpectMerge makes an evaluation of recipe's entry wait until wait
-	// ends, or until deadline.
-	ExpectMerge(recipe digest.Digest, wait *dagql.RemoteMergeWait, deadline time.Time)
 	// SettleState returns the engine's side of settling with the service,
 	// and a channel closed when it next changes.
 	SettleState() (SettleState, <-chan struct{})
