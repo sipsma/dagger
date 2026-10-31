@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,9 +37,8 @@ func New(
 	// Project source directory
 	// +defaultPath="/"
 	source *dagger.Directory,
-	// Go version
+	// Go version (default: the version wolfi.lock.json was resolved for)
 	// +optional
-	// +default="1.26"
 	version string,
 	// Use a custom module cache
 	// +optional
@@ -115,7 +115,7 @@ func New(
 	// caller inside a module still passes ws, which the engine requires.
 	// +optional
 	noVcs bool,
-) *Go {
+) (*Go, error) {
 	if source == nil {
 		source = dag.Directory()
 	}
@@ -130,26 +130,24 @@ func New(
 		buildCache = dag.CacheVolume("github.com/dagger/dagger/modules/go:build")
 	}
 	customBase := base != nil
+	lock, err := loadWolfiLock()
+	if err != nil {
+		return nil, err
+	}
+	if version == "" {
+		version = lock.Go
+	}
 	if base == nil {
-		packages := []string{
-			"go-" + version,
-			"ca-certificates",
-			// gcc is needed to run go test -race https://github.com/golang/go/issues/9918 (???)
-			"build-base",
-			// adding the git CLI to inject vcs info into the go binaries
-			"git",
-			// Install protoc for protobug support by default
-			// The specific version is dictated by Dagger's own requirement
-			// FIXME: make this optional with overlay support
-			"protobuf~35", // ADD: brings /usr/bin/protoc and runtime libs
-			"protobuf-dev~35",
+		packages, err := lock.basePackages(version, runtime.GOARCH)
+		if err != nil {
+			return nil, err
 		}
 		if len(extraPackages) > 0 {
 			packages = append(packages, extraPackages...)
 		}
 		base = dag.
 			Wolfi().
-			Container(dagger.WolfiContainerOpts{Packages: packages}).
+			Container(dagger.WolfiContainerOpts{Packages: packages, Arch: runtime.GOARCH}).
 			WithEnvVariable("GOLANG_VERSION", version).
 			WithEnvVariable("GOPATH", "/go").
 			WithEnvVariable("PATH", "${GOPATH}/bin:${PATH}", dagger.ContainerWithEnvVariableOpts{Expand: true}).
@@ -210,7 +208,7 @@ func New(
 		Race:        race,
 		Experiment:  experiment,
 		Limit:       limit,
-	}
+	}, nil
 }
 
 // A Go project

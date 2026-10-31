@@ -602,9 +602,7 @@ func (r *Go) Version(ctx context.Context) (string, error) {
 type GoOpts struct {
 	// Project source directory
 	Source *Directory
-	// Go version
-	//
-	// Default: "1.26"
+	// Go version (default: the version wolfi.lock.json was resolved for)
 	Version string
 	// Use a custom module cache
 	ModuleCache *CacheVolume

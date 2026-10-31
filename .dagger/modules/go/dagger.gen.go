@@ -662,7 +662,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg noVcs", err))
 				}
 			}
-			return New(ctx, source, version, moduleCache, buildCache, base, ldflags, tags, values, cgo, race, experiment, extraPackages, limit, ws, vcsCommit, vcsDirty, noVcs), nil
+			return New(ctx, source, version, moduleCache, buildCache, base, ldflags, tags, values, cgo, race, experiment, extraPackages, limit, ws, vcsCommit, vcsDirty, noVcs)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -670,121 +670,121 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		return dag.Module().
 			WithDescription("A module to develop, build, test Go softwares\n").
 			WithObject(
-				dag.TypeDef().WithObject("Go", dagger.TypeDefWithObjectOpts{Description: "A Go project", SourceMap: dag.SourceMap("main.go", 217, 6)}).
+				dag.TypeDef().WithObject("Go", dagger.TypeDefWithObjectOpts{Description: "A Go project", SourceMap: dag.SourceMap("main.go", 215, 6)}).
 					WithFunction(
 						dag.Function("Binary",
 							dag.TypeDef().WithObject("File")).
 							WithDescription("Build a single main package, and return the compiled binary").
-							WithSourceMap(dag.SourceMap("main.go", 516, 1)).
-							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Which package to build", SourceMap: dag.SourceMap("main.go", 519, 2)}).
-							WithArg("noSymbols", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable symbol table", SourceMap: dag.SourceMap("main.go", 522, 2)}).
-							WithArg("noDwarf", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable DWARF generation", SourceMap: dag.SourceMap("main.go", 525, 2)}).
-							WithArg("platform", dag.TypeDef().WithScalar("Platform").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Target build platform", SourceMap: dag.SourceMap("main.go", 528, 2)})).
+							WithSourceMap(dag.SourceMap("main.go", 514, 1)).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Which package to build", SourceMap: dag.SourceMap("main.go", 517, 2)}).
+							WithArg("noSymbols", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable symbol table", SourceMap: dag.SourceMap("main.go", 520, 2)}).
+							WithArg("noDwarf", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable DWARF generation", SourceMap: dag.SourceMap("main.go", 523, 2)}).
+							WithArg("platform", dag.TypeDef().WithScalar("Platform").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Target build platform", SourceMap: dag.SourceMap("main.go", 526, 2)})).
 					WithFunction(
 						dag.Function("Build",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Build the given main packages, and return the build directory").
-							WithSourceMap(dag.SourceMap("main.go", 350, 1)).
-							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Which targets to build (default all main packages)", SourceMap: dag.SourceMap("main.go", 355, 2), DefaultValue: dagger.JSON("[\"./...\"]")}).
-							WithArg("noSymbols", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable symbol table", SourceMap: dag.SourceMap("main.go", 358, 2)}).
-							WithArg("noDwarf", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable DWARF generation", SourceMap: dag.SourceMap("main.go", 361, 2)}).
-							WithArg("platform", dag.TypeDef().WithScalar("Platform").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Target build platform", SourceMap: dag.SourceMap("main.go", 364, 2)}).
-							WithArg("output", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Output directory", SourceMap: dag.SourceMap("main.go", 368, 2), DefaultValue: dagger.JSON("\"./bin/\"")})).
+							WithSourceMap(dag.SourceMap("main.go", 348, 1)).
+							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Which targets to build (default all main packages)", SourceMap: dag.SourceMap("main.go", 353, 2), DefaultValue: dagger.JSON("[\"./...\"]")}).
+							WithArg("noSymbols", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable symbol table", SourceMap: dag.SourceMap("main.go", 356, 2)}).
+							WithArg("noDwarf", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Disable DWARF generation", SourceMap: dag.SourceMap("main.go", 359, 2)}).
+							WithArg("platform", dag.TypeDef().WithScalar("Platform").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Target build platform", SourceMap: dag.SourceMap("main.go", 362, 2)}).
+							WithArg("output", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Output directory", SourceMap: dag.SourceMap("main.go", 366, 2), DefaultValue: dagger.JSON("\"./bin/\"")})).
 					WithFunction(
 						dag.Function("CheckTidy",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check if 'go mod tidy' is up-to-date").
-							WithSourceMap(dag.SourceMap("main.go", 940, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 938, 1)).
 							WithCheck().
-							WithArg("include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 942, 2)}).
-							WithArg("exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 943, 2)})).
+							WithArg("include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 940, 2)}).
+							WithArg("exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 941, 2)})).
 					WithFunction(
 						dag.Function("Download",
 							dag.TypeDef().WithObject("Go")).
 							WithDescription("Download dependencies into the module cache").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("main.go", 266, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 264, 1))).
 					WithFunction(
 						dag.Function("Env",
 							dag.TypeDef().WithObject("Container")).
 							WithDescription("Prepare a build environment for the given Go source code:\n  - Build a base container with Go tooling installed and configured\n  - Apply configuration\n  - Mount the source code").
-							WithSourceMap(dag.SourceMap("main.go", 285, 1)).
-							WithArg("platform", dag.TypeDef().WithScalar("Platform").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 287, 2)})).
+							WithSourceMap(dag.SourceMap("main.go", 283, 1)).
+							WithArg("platform", dag.TypeDef().WithScalar("Platform").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 285, 2)})).
 					WithFunction(
 						dag.Function("GenerateDaggerRuntime",
 							dag.TypeDef().WithObject("Go")).
-							WithSourceMap(dag.SourceMap("main.go", 781, 1)).
-							WithArg("start", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 781, 57)})).
+							WithSourceMap(dag.SourceMap("main.go", 779, 1)).
+							WithArg("start", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 779, 57)})).
 					WithFunction(
 						dag.Function("GenerateDaggerRuntimes",
 							dag.TypeDef().WithObject("Changeset")).
 							WithDescription("Generate Dagger runtime files for Go SDK modules in the configured source.").
-							WithSourceMap(dag.SourceMap("main.go", 737, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 735, 1)).
 							WithGenerator()).
 					WithFunction(
 						dag.Function("ListPackages",
 							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
 							WithDescription("List packages matching the specified criteria").
-							WithSourceMap(dag.SourceMap("main.go", 607, 1)).
-							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Filter by name or pattern. Example './foo/...'", SourceMap: dag.SourceMap("main.go", 612, 2), DefaultValue: dagger.JSON("[\"./...\"]")}).
-							WithArg("onlyMain", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Only list main packages", SourceMap: dag.SourceMap("main.go", 615, 2)})).
+							WithSourceMap(dag.SourceMap("main.go", 605, 1)).
+							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Filter by name or pattern. Example './foo/...'", SourceMap: dag.SourceMap("main.go", 610, 2), DefaultValue: dagger.JSON("[\"./...\"]")}).
+							WithArg("onlyMain", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Only list main packages", SourceMap: dag.SourceMap("main.go", 613, 2)})).
 					WithFunction(
 						dag.Function("Modules",
 							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
 							WithDescription("Scan the source for go modules, and return their paths").
-							WithSourceMap(dag.SourceMap("main.go", 685, 1)).
-							WithArg("include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 687, 2)}).
-							WithArg("exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 688, 2)})).
+							WithSourceMap(dag.SourceMap("main.go", 683, 1)).
+							WithArg("include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 685, 2)}).
+							WithArg("exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 686, 2)})).
 					WithFunction(
 						dag.Function("Test",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Run tests for the given packages").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("main.go", 554, 1)).
-							WithArg("run", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Only run these tests", SourceMap: dag.SourceMap("main.go", 558, 2)}).
-							WithArg("skip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Skip these tests", SourceMap: dag.SourceMap("main.go", 561, 2)}).
-							WithArg("failFast", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Abort test run on first failure", SourceMap: dag.SourceMap("main.go", 564, 2)}).
-							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "How many tests to run in parallel - defaults to the number of CPUs", SourceMap: dag.SourceMap("main.go", 568, 2), DefaultValue: dagger.JSON("0")}).
-							WithArg("timeout", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "How long before timing out the test run", SourceMap: dag.SourceMap("main.go", 572, 2), DefaultValue: dagger.JSON("\"30m\"")}).
-							WithArg("count", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 575, 2), DefaultValue: dagger.JSON("1")}).
-							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Which packages to test", SourceMap: dag.SourceMap("main.go", 579, 2), DefaultValue: dagger.JSON("[\"./...\"]")})).
+							WithSourceMap(dag.SourceMap("main.go", 552, 1)).
+							WithArg("run", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Only run these tests", SourceMap: dag.SourceMap("main.go", 556, 2)}).
+							WithArg("skip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Skip these tests", SourceMap: dag.SourceMap("main.go", 559, 2)}).
+							WithArg("failFast", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Abort test run on first failure", SourceMap: dag.SourceMap("main.go", 562, 2)}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "How many tests to run in parallel - defaults to the number of CPUs", SourceMap: dag.SourceMap("main.go", 566, 2), DefaultValue: dagger.JSON("0")}).
+							WithArg("timeout", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "How long before timing out the test run", SourceMap: dag.SourceMap("main.go", 570, 2), DefaultValue: dagger.JSON("\"30m\"")}).
+							WithArg("count", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 573, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Which packages to test", SourceMap: dag.SourceMap("main.go", 577, 2), DefaultValue: dagger.JSON("[\"./...\"]")})).
 					WithFunction(
 						dag.Function("Tests",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("List tests").
-							WithSourceMap(dag.SourceMap("main.go", 335, 1)).
-							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Packages to list tests from (default all packages)", SourceMap: dag.SourceMap("main.go", 340, 2), DefaultValue: dagger.JSON("[\"./...\"]")})).
+							WithSourceMap(dag.SourceMap("main.go", 333, 1)).
+							WithArg("pkgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Packages to list tests from (default all packages)", SourceMap: dag.SourceMap("main.go", 338, 2), DefaultValue: dagger.JSON("[\"./...\"]")})).
 					WithFunction(
 						dag.Function("Tidy",
 							dag.TypeDef().WithObject("Changeset")).
-							WithSourceMap(dag.SourceMap("main.go", 708, 1)).
-							WithArg("include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 710, 2)}).
-							WithArg("exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 711, 2)})).
+							WithSourceMap(dag.SourceMap("main.go", 706, 1)).
+							WithArg("include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 708, 2)}).
+							WithArg("exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 709, 2)})).
 					WithFunction(
 						dag.Function("TidyModule",
 							dag.TypeDef().WithObject("Changeset")).
-							WithSourceMap(dag.SourceMap("main.go", 697, 1)).
-							WithArg("module", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 697, 25)})).
-					WithField("Version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Go version", SourceMap: dag.SourceMap("main.go", 219, 2)}).
-					WithField("Source", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "Project source directory", SourceMap: dag.SourceMap("main.go", 222, 2)}).
-					WithField("ModuleCache", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Go module cache", SourceMap: dag.SourceMap("main.go", 225, 2)}).
-					WithField("BuildCache", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Go build cache", SourceMap: dag.SourceMap("main.go", 228, 2)}).
-					WithField("Base", dag.TypeDef().WithObject("Container"), dagger.TypeDefWithFieldOpts{Description: "Base container from which to run all operations", SourceMap: dag.SourceMap("main.go", 231, 2)}).
-					WithField("Ldflags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Pass arguments to 'go build -ldflags'", SourceMap: dag.SourceMap("main.go", 234, 2)}).
-					WithField("Tags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Pass arguments to 'go build -tags'", SourceMap: dag.SourceMap("main.go", 237, 2)}).
-					WithField("Values", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Add string value definition of the form importpath.name=value", SourceMap: dag.SourceMap("main.go", 240, 2)}).
-					WithField("Cgo", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.TypeDefWithFieldOpts{Description: "Enable CGO", SourceMap: dag.SourceMap("main.go", 243, 2)}).
-					WithField("Race", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.TypeDefWithFieldOpts{Description: "Enable race detector", SourceMap: dag.SourceMap("main.go", 246, 2)}).
-					WithField("Experiment", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Enable go experiments", SourceMap: dag.SourceMap("main.go", 249, 2)}).
-					WithField("Include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 251, 2)}).
-					WithField("Exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 253, 2)}).
-					WithField("Limit", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "Max number of parallel jobs to run", SourceMap: dag.SourceMap("main.go", 256, 2)}).
+							WithSourceMap(dag.SourceMap("main.go", 695, 1)).
+							WithArg("module", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 695, 25)})).
+					WithField("Version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Go version", SourceMap: dag.SourceMap("main.go", 217, 2)}).
+					WithField("Source", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "Project source directory", SourceMap: dag.SourceMap("main.go", 220, 2)}).
+					WithField("ModuleCache", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Go module cache", SourceMap: dag.SourceMap("main.go", 223, 2)}).
+					WithField("BuildCache", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Go build cache", SourceMap: dag.SourceMap("main.go", 226, 2)}).
+					WithField("Base", dag.TypeDef().WithObject("Container"), dagger.TypeDefWithFieldOpts{Description: "Base container from which to run all operations", SourceMap: dag.SourceMap("main.go", 229, 2)}).
+					WithField("Ldflags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Pass arguments to 'go build -ldflags'", SourceMap: dag.SourceMap("main.go", 232, 2)}).
+					WithField("Tags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Pass arguments to 'go build -tags'", SourceMap: dag.SourceMap("main.go", 235, 2)}).
+					WithField("Values", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Add string value definition of the form importpath.name=value", SourceMap: dag.SourceMap("main.go", 238, 2)}).
+					WithField("Cgo", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.TypeDefWithFieldOpts{Description: "Enable CGO", SourceMap: dag.SourceMap("main.go", 241, 2)}).
+					WithField("Race", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.TypeDefWithFieldOpts{Description: "Enable race detector", SourceMap: dag.SourceMap("main.go", 244, 2)}).
+					WithField("Experiment", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{Description: "Enable go experiments", SourceMap: dag.SourceMap("main.go", 247, 2)}).
+					WithField("Include", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 249, 2)}).
+					WithField("Exclude", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 251, 2)}).
+					WithField("Limit", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "Max number of parallel jobs to run", SourceMap: dag.SourceMap("main.go", 254, 2)}).
 					WithConstructor(
 						dag.Function("New",
 							dag.TypeDef().WithObject("Go")).
-							WithSourceMap(dag.SourceMap("main.go", 33, 1)).
-							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Project source directory", SourceMap: dag.SourceMap("main.go", 38, 2), DefaultPath: "/"}).
-							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Go version", SourceMap: dag.SourceMap("main.go", 42, 2), DefaultValue: dagger.JSON("\"1.26\"")}).
+							WithSourceMap(dag.SourceMap("main.go", 34, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Project source directory", SourceMap: dag.SourceMap("main.go", 39, 2), DefaultPath: "/"}).
+							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Go version (default: the version wolfi.lock.json was resolved for)", SourceMap: dag.SourceMap("main.go", 42, 2)}).
 							WithArg("moduleCache", dag.TypeDef().WithObject("CacheVolume").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Use a custom module cache", SourceMap: dag.SourceMap("main.go", 45, 2)}).
 							WithArg("buildCache", dag.TypeDef().WithObject("CacheVolume").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Use a custom build cache", SourceMap: dag.SourceMap("main.go", 49, 2)}).
 							WithArg("base", dag.TypeDef().WithObject("Container").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Use a custom base container.\nThe container must have Go installed.", SourceMap: dag.SourceMap("main.go", 54, 2)}).
