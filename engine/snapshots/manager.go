@@ -14,6 +14,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/labels"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/dagger/dagger/engine/snapshots/fsdiff"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/internal/buildkit/client"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
 	"github.com/moby/locker"
@@ -252,7 +253,7 @@ func (cm *snapshotManager) Get(ctx context.Context, id string, opts ...RefOption
 }
 
 func (cm *snapshotManager) GetBySnapshotID(ctx context.Context, snapshotID string, opts ...RefOption) (ImmutableRef, error) {
-	cm.mu.Lock()
+	wcprof.Lock(ctx, &cm.mu, managerMuProfIdent)
 	defer cm.mu.Unlock()
 	if err := cm.rehydrateSnapshotMetadataLocked(ctx, snapshotID, true); err != nil {
 		return nil, err
@@ -491,7 +492,7 @@ func (cm *snapshotManager) New(ctx context.Context, s ImmutableRef, opts ...RefO
 	}
 
 	// All metadataStore and records map mutations must happen under cm.mu.
-	cm.mu.Lock()
+	wcprof.Lock(ctx, &cm.mu, managerMuProfIdent)
 	defer cm.mu.Unlock()
 
 	md := cm.ensureMetadata(id)
