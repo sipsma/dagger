@@ -3,23 +3,40 @@ package wcprof
 import (
 	"context"
 	"math"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
 
 // Holders a recorded wait on an RWMutex can name in place of an op.
 const (
-	// HolderUnknown: the lock was taken directly (Lock or TryLock), with no
-	// context to name the op that took it.
+	// HolderUnknown: the lock was changing hands, released and not yet
+	// marked by its next taker, or held by readers the recorder didn't
+	// count.
 	HolderUnknown uint64 = math.MaxUint64
 	// HolderReaders: the lock was held for reading.
 	HolderReaders uint64 = math.MaxUint64 - 1
+	// HolderDirect is set in the holder of a lock taken directly (Lock or
+	// TryLock), with no context to name its op: the holder's low 32 bits
+	// are the recorder's string ID of the function that took it
+	// (DirectHolderName).
+	HolderDirect uint64 = 1 << 62
 )
+
+// DirectHolderName is the string ID of the function that took a lock
+// directly, when holder is such a holder.
+func DirectHolderName(holder uint64) (uint32, bool) {
+	if holder == HolderUnknown || holder == HolderReaders || holder&HolderDirect == 0 {
+		return 0, false
+	}
+	return uint32(holder), true
+}
 
 // RWMutex is a sync.RWMutex that remembers who holds it while a recorder
 // is active, so that a wait on it recorded by WriteLock or ReadLock names
-// its holder: the op that took it through WriteLock, HolderUnknown when it
-// was taken directly, or HolderReaders when it was held for reading.
+// its holder: the op that took it through WriteLock, the function that took
+// it directly (HolderDirect), or HolderReaders while anyone reads it.
 // Releasing it makes the holder unknown before the lock is free, so a
 // waiter that reads it before the next taker marks itself reads
 // HolderUnknown, never the holder that released it; and a waiter whose
@@ -30,22 +47,28 @@ type RWMutex struct {
 	since  atomic.Int64
 	// seq counts changes of holder: odd while one is written (holderAt).
 	seq atomic.Uint64
+	// readers counts the readers that took it while a recorder was active.
+	readers atomic.Int64
 	// observe, when set, sees each holder an acquisition marks (ObserveMarks).
 	observe atomic.Pointer[func(holder uint64)]
 }
 
-// Lock locks m for writing, its holder unknown.
+// Lock locks m for writing, held by its caller (markDirect).
+//
+//go:noinline
 func (m *RWMutex) Lock() {
 	m.RWMutex.Lock()
-	m.mark(HolderUnknown)
+	m.markDirect()
 }
 
-// TryLock tries to lock m for writing, its holder unknown.
+// TryLock tries to lock m for writing, held by its caller (markDirect).
+//
+//go:noinline
 func (m *RWMutex) TryLock() bool {
 	if !m.RWMutex.TryLock() {
 		return false
 	}
-	m.mark(HolderUnknown)
+	m.markDirect()
 	return true
 }
 
@@ -70,24 +93,63 @@ func (m *RWMutex) TryRLock() bool {
 	return true
 }
 
-// RUnlock unlocks m for reading. A reader leaving while others still read
-// makes the holder unknown until the next reader marks it: unknown, not
-// wrong.
+// RUnlock unlocks m for reading. The last reader to leave makes the holder
+// unknown; so does a reader the recorder didn't count, which took m before
+// it was active: unknown, not wrong.
 func (m *RWMutex) RUnlock() {
-	if global.Load() != nil && m.holder.Load() == HolderReaders {
-		m.set(HolderUnknown, 0)
+	if global.Load() != nil {
+		if m.leaveReaders() == 0 && m.holder.Load() == HolderReaders {
+			m.set(HolderUnknown, 0)
+		}
 	}
 	m.RWMutex.RUnlock()
 }
 
-// mark records holder as m's holder from now, while a recorder is active.
-func (m *RWMutex) mark(holder uint64) {
+// leaveReaders counts a reader leaving and returns the readers left, never
+// below 0.
+func (m *RWMutex) leaveReaders() int64 {
+	for {
+		n := m.readers.Load()
+		if n <= 0 {
+			return 0
+		}
+		if m.readers.CompareAndSwap(n, n-1) {
+			return n - 1
+		}
+	}
+}
+
+// markDirect records the function that called Lock or TryLock as m's
+// holder from now, while a recorder is active.
+//
+//go:noinline
+func (m *RWMutex) markDirect() {
 	r := global.Load()
 	if r == nil {
 		return
 	}
+	var pc [1]uintptr
+	// Skip runtime.Callers, markDirect and Lock or TryLock.
+	runtime.Callers(3, pc[:])
+	holder := r.directHolder(pc[0])
 	m.set(holder, r.Now())
 	m.observed(holder)
+}
+
+// directHolder is the holder naming the function that called at pc, as
+// package.function, looked up once per call site.
+func (r *Recorder) directHolder(pc uintptr) uint64 {
+	if h, ok := r.directHolders.Load(pc); ok {
+		return h.(uint64)
+	}
+	frame, _ := runtime.CallersFrames([]uintptr{pc}).Next()
+	name := frame.Function
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	h := HolderDirect | uint64(r.Intern(name))
+	r.directHolders.Store(pc, h)
+	return h
 }
 
 // ObserveMarks calls f, in the acquiring goroutine, with the holder each
@@ -116,11 +178,16 @@ func (m *RWMutex) set(holder uint64, since int64) {
 	m.seq.Add(1)
 }
 
-// markReaders records m as held for reading, writing only when its holder
-// changes, so that readers don't contend on it. Readers have no time: one
-// reader's would count the idle time before a later one as held.
+// markReaders counts a reader and records m as held for reading, writing
+// the holder only when it changes, so that readers don't contend on it.
+// Readers have no time: one reader's would count the idle time before a
+// later one as held.
 func (m *RWMutex) markReaders() {
-	if global.Load() == nil || m.holder.Load() == HolderReaders {
+	if global.Load() == nil {
+		return
+	}
+	m.readers.Add(1)
+	if m.holder.Load() == HolderReaders {
 		return
 	}
 	m.set(HolderReaders, 0)
@@ -134,20 +201,25 @@ func (m *RWMutex) release() {
 	m.set(HolderUnknown, 0)
 }
 
-// markOp records the op of ctx as m's holder, or HolderUnknown when ctx
-// names none, while a recorder is active; it looks nothing up otherwise, as
-// its caller holds m.
+// markOp records the op of ctx as m's holder, or WriteLock's caller when
+// ctx names none, while a recorder is active; it looks nothing up
+// otherwise, as its caller holds m.
+//
+//go:noinline
 func (m *RWMutex) markOp(ctx context.Context) {
 	r := global.Load()
 	if r == nil {
 		return
 	}
-	op := CurrentOpID(ctx)
-	if op == 0 {
-		op = HolderUnknown
+	holder := CurrentOpID(ctx)
+	if holder == 0 {
+		var pc [1]uintptr
+		// Skip runtime.Callers, markOp and WriteLock.
+		runtime.Callers(3, pc[:])
+		holder = r.directHolder(pc[0])
 	}
-	m.set(op, r.Now())
-	m.observed(op)
+	m.set(holder, r.Now())
+	m.observed(holder)
 }
 
 // Holder is m's holder and when it took m, as a wait on m begun now would

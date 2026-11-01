@@ -369,6 +369,9 @@ type Recorder struct {
 	total    atomic.Int64
 
 	strings stringTable
+	// directHolders maps the call site of a direct lock to its holder
+	// (RWMutex.markDirect).
+	directHolders sync.Map
 
 	shards [numShards]shard
 
