@@ -377,3 +377,7 @@ tool github.com/matryer/moq
 // containerd and the engine run their metadata on an in-memory store with
 // bbolt's API, saved when the engine stops and loaded when it starts.
 replace go.etcd.io/bbolt => ./internal/fastbolt
+
+// containerd's metadata content store, patched to do its file work outside
+// the metadata database's write transaction. Demo only, not for a PR.
+replace github.com/containerd/containerd/v2 => ./internal/containerd
