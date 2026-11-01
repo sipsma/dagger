@@ -476,16 +476,18 @@ func TestPartPrefetchAheadQueueImportThatUnpacksNothingGivesItsPlaceBack(t *test
 	f := newExhaustionFixture(t, big, next)
 	f.cache.partPrefetchConfig = &partPrefetchConfig{largeBlob: 1, workers: 1, smallWorkers: 1, smallStreams: 8, budget: 1 << 30, ttl: time.Hour, queue: 8, aheadOffer: 64 << 10, aheadMax: 2}
 	t.Cleanup(f.cache.closePartPrefetch)
-	idle := func() bool {
+	// idle reports whether the worker has let go of its offer, with taken
+	// places counted.
+	idle := func(taken int) bool {
 		p := f.cache.partPrefetcher.Load()
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		return p.aheadCurrent == nil
+		return p.aheadCurrent == nil && p.aheadTaken == taken
 	}
 	f.acceptOffer(t, f.receiver, big)
-	require.Eventually(t, func() bool { return f.aheadOf(big) && idle() }, 10*time.Second, 10*time.Millisecond, "the chain is imported ahead")
+	require.Eventually(t, func() bool { return f.aheadOf(big) && idle(1) }, 10*time.Second, 10*time.Millisecond, "the chain is imported ahead")
 	f.acceptOffer(t, persistedListTestResult(t, f.ctx, f.cache, f.srv, "prefix-row", &transferTestValue{Text: "pending"}), prefix)
-	require.Eventually(t, func() bool { return f.aheadOf(prefix) && idle() }, 10*time.Second, 10*time.Millisecond, "the prefix is imported ahead")
+	require.Eventually(t, func() bool { return f.aheadOf(prefix) && idle(1) }, 10*time.Second, 10*time.Millisecond, "the prefix is imported ahead, and gives its place back")
 	lines := f.logs.lines(t, "remote cache part applied ahead")
 	require.Equal(t, "0", fmt.Sprint(lines[len(lines)-1].fields["unpacked_layers"]), "the prefix's import unpacks nothing")
 	f.acceptOffer(t, persistedListTestResult(t, f.ctx, f.cache, f.srv, "next-row", &transferTestValue{Text: "pending"}), next)
