@@ -515,3 +515,34 @@ func TestPartPrefetchAheadImportTakesAConsumedStoredBlob(t *testing.T) {
 	require.Equal(t, "done", line.fields["outcome"], "the import ahead finishes: %v", line.fields)
 	require.True(t, f.aheadOf(big))
 }
+
+// Holding a consumed stored blob again keeps to the budget: when the bytes
+// freed by its consumption are spoken for meanwhile, the import ahead stops
+// rather than going past the budget.
+func TestPartPrefetchAheadImportKeepsToTheBudgetForAConsumedBlob(t *testing.T) {
+	big := newSizedChainFixture(t, "big", 64<<10)
+	f := newExhaustionFixture(t, big)
+	f.cache.partPrefetchConfig = &partPrefetchConfig{largeBlob: 1, workers: 1, smallWorkers: 1, smallStreams: 8, budget: 1 << 30, ttl: time.Hour, queue: 8, aheadOffer: 64 << 10, aheadMax: 4}
+	t.Cleanup(f.cache.closePartPrefetch)
+	var once sync.Once
+	f.store.BeforeApply = func(ctx context.Context, desc ocispec.Descriptor) error {
+		if desc.Digest == big.digest(0) {
+			once.Do(func() {
+				f.cache.partPrefetchConsumed(ctx, big.chain.Layers[1:])
+				// Other jobs take up the bytes the consumption freed.
+				p := f.cache.partPrefetcher.Load()
+				p.mu.Lock()
+				p.cfg.budget = p.held
+				p.mu.Unlock()
+			})
+		}
+		return nil
+	}
+	f.acceptOffer(t, f.receiver, big)
+	line := (&prefetchFixture{exhaustionFixture: f}).aheadLine(t)
+	require.Equal(t, "not_prefetched", line.fields["outcome"])
+	p := f.cache.partPrefetcher.Load()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	require.LessOrEqual(t, p.held, p.cfg.budget, "the held bytes stay within the budget")
+}

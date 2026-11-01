@@ -1386,7 +1386,7 @@ func (p *partPrefetcher) awaitBlob(ctx context.Context, a *partPrefetchAhead, de
 
 // holdStored holds desc's blob for a's import ahead when it is in the
 // content store with no prefetch hold, as a stored blob of an ahead job is
-// held, and reports whether it did.
+// held, within the budget, and reports whether it did.
 func (p *partPrefetcher) holdStored(ctx context.Context, a *partPrefetchAhead, desc ocispecs.Descriptor) (bool, error) {
 	release, held, err := p.snapshot.HoldContent(ctx, desc, p.cfg.ttl)
 	if err != nil || !held {
@@ -1404,6 +1404,12 @@ func (p *partPrefetcher) holdStored(ctx context.Context, a *partPrefetchAhead, d
 		p.mu.Unlock()
 		_ = release(context.WithoutCancel(ctx))
 		return true, nil
+	}
+	if p.held+desc.Size > p.cfg.budget {
+		// The bytes its consumption freed went to other holds meanwhile.
+		p.mu.Unlock()
+		_ = release(context.WithoutCancel(ctx))
+		return false, nil
 	}
 	p.holds[desc.Digest] = &partPrefetchHold{bytes: desc.Size, release: release, offers: map[*partOffer]struct{}{a.offer: {}}, expires: time.Now().Add(p.cfg.ttl)}
 	p.held += desc.Size
