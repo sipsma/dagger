@@ -46,6 +46,13 @@ func (l partPrefetchLane) String() string {
 // blob takes the large lane, each lane's workers, how many of a small job's
 // blobs download at once, the bytes it holds unconsumed, how long it holds
 // them, and how many accepted offers wait in each lane.
+//
+// aheadOffer is the chain size from which a held offer's chain is unpacked
+// ahead of demand. A smaller offer's blobs are only downloaded and held, and
+// its install unpacks the layers it reads: unpacking every held chain ahead
+// writes gigabytes while the engine's own work needs the disk, which costs
+// that work more than the installs it saves. Zero unpacks every offer's
+// chain ahead.
 type partPrefetchConfig struct {
 	largeBlob    int64
 	workers      int
@@ -54,6 +61,7 @@ type partPrefetchConfig struct {
 	budget       int64
 	ttl          time.Duration
 	queue        int
+	aheadOffer   int64
 }
 
 func defaultPartPrefetchConfig() partPrefetchConfig {
@@ -65,6 +73,7 @@ func defaultPartPrefetchConfig() partPrefetchConfig {
 		budget:       4 << 30,
 		ttl:          30 * time.Minute,
 		queue:        256,
+		aheadOffer:   256 << 20,
 	}
 }
 
@@ -866,13 +875,20 @@ func (p *partPrefetcher) settle(job *partPrefetchJob, desc ocispecs.Descriptor, 
 }
 
 // checkAheadLocked starts importing offer's chain ahead of demand once one
-// of its blobs is held for it, unless it is imported or importing already.
-// Requires p.mu.
+// of its blobs is held for it, unless it is imported or importing already, or
+// its chain is smaller than aheadOffer. Requires p.mu.
 func (p *partPrefetcher) checkAheadLocked(offer *partOffer) {
 	if p.importer == nil || p.closed || p.aheads[offer] != nil {
 		return
 	}
 	layers := offer.record.Chain.Layers
+	var size int64
+	for _, layer := range layers {
+		size += layer.Descriptor.Size
+	}
+	if size < p.cfg.aheadOffer {
+		return
+	}
 	expires := time.Time{}
 	for _, layer := range layers {
 		h := p.holds[layer.Descriptor.Digest]
