@@ -528,9 +528,16 @@ func TestPartPrefetchAheadImportKeepsToTheBudgetForAConsumedBlob(t *testing.T) {
 	f.store.BeforeApply = func(ctx context.Context, desc ocispec.Descriptor) error {
 		if desc.Digest == big.digest(0) {
 			once.Do(func() {
+				p := f.cache.partPrefetcher.Load()
+				// The second blob's download settles into a hold first, so
+				// that its consumption frees its bytes.
+				require.Eventually(t, func() bool {
+					p.mu.Lock()
+					defer p.mu.Unlock()
+					return p.holds[big.digest(1)] != nil
+				}, 10*time.Second, time.Millisecond, "the second blob is held")
 				f.cache.partPrefetchConsumed(ctx, big.chain.Layers[1:])
 				// Other jobs take up the bytes the consumption freed.
-				p := f.cache.partPrefetcher.Load()
 				p.mu.Lock()
 				p.cfg.budget = p.held
 				p.mu.Unlock()
