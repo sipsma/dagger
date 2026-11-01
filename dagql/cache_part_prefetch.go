@@ -1369,6 +1369,11 @@ func (p *partPrefetcher) awaitBlob(ctx context.Context, a *partPrefetchAhead, de
 		changed := p.changed
 		p.mu.Unlock()
 		if !coming {
+			// An install that imported the blob consumed its prefetch hold,
+			// but the blob is still stored: hold it again, for the import.
+			if held, err := p.holdStored(ctx, a, desc); err != nil || held {
+				return err
+			}
 			return fmt.Errorf("%w: %s (%s)", errPartPrefetchNotComing, desc.Digest, why)
 		}
 		select {
@@ -1377,6 +1382,34 @@ func (p *partPrefetcher) awaitBlob(ctx context.Context, a *partPrefetchAhead, de
 			return context.Cause(ctx)
 		}
 	}
+}
+
+// holdStored holds desc's blob for a's import ahead when it is in the
+// content store with no prefetch hold, as a stored blob of an ahead job is
+// held, and reports whether it did.
+func (p *partPrefetcher) holdStored(ctx context.Context, a *partPrefetchAhead, desc ocispecs.Descriptor) (bool, error) {
+	release, held, err := p.snapshot.HoldContent(ctx, desc, p.cfg.ttl)
+	if err != nil || !held {
+		return false, err
+	}
+	p.mu.Lock()
+	if p.closed || a.gone {
+		p.mu.Unlock()
+		_ = release(context.WithoutCancel(ctx))
+		return false, nil
+	}
+	if h := p.holds[desc.Digest]; h != nil {
+		// Another hold of it came meanwhile: that one serves.
+		h.offers[a.offer] = struct{}{}
+		p.mu.Unlock()
+		_ = release(context.WithoutCancel(ctx))
+		return true, nil
+	}
+	p.holds[desc.Digest] = &partPrefetchHold{bytes: desc.Size, release: release, offers: map[*partOffer]struct{}{a.offer: {}}, expires: time.Now().Add(p.cfg.ttl)}
+	p.held += desc.Size
+	p.changedLocked()
+	p.mu.Unlock()
+	return true, nil
 }
 
 // notComingLocked says why no download of desc's blob is coming for offer,

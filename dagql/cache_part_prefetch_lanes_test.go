@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/dagger/dagger/engine/snapshots/testutil"
 	"github.com/dagger/dagger/internal/buildkit/util/compression"
 	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -489,4 +491,27 @@ func TestPartPrefetchAheadQueueRenewsExpiredAddresses(t *testing.T) {
 	require.Eventually(t, func() bool { return f.aheadOf(big) }, 10*time.Second, 10*time.Millisecond, "the chain is imported ahead from renewed addresses")
 	require.NotEmpty(t, taken(), "the job renewed the addresses")
 	require.Positive(t, f.transport.count("https://renewed.invalid/big/0"))
+}
+
+// An import ahead whose next blob's prefetch hold an install consumed, the
+// blob still stored, holds the blob again and imports the chain, instead of
+// stopping because no prefetch of it is coming.
+func TestPartPrefetchAheadImportTakesAConsumedStoredBlob(t *testing.T) {
+	big := newSizedChainFixture(t, "big", 64<<10)
+	f := newExhaustionFixture(t, big)
+	f.cache.partPrefetchConfig = &partPrefetchConfig{largeBlob: 1, workers: 1, smallWorkers: 1, smallStreams: 8, budget: 1 << 30, ttl: time.Hour, queue: 8, aheadOffer: 64 << 10, aheadMax: 4}
+	t.Cleanup(f.cache.closePartPrefetch)
+	// The store imports in order: while the first layer applies, an install
+	// that imported the second layer consumes its hold.
+	var once sync.Once
+	f.store.BeforeApply = func(ctx context.Context, desc ocispec.Descriptor) error {
+		if desc.Digest == big.digest(0) {
+			once.Do(func() { f.cache.partPrefetchConsumed(ctx, big.chain.Layers[1:]) })
+		}
+		return nil
+	}
+	f.acceptOffer(t, f.receiver, big)
+	line := (&prefetchFixture{exhaustionFixture: f}).aheadLine(t)
+	require.Equal(t, "done", line.fields["outcome"], "the import ahead finishes: %v", line.fields)
+	require.True(t, f.aheadOf(big))
 }
