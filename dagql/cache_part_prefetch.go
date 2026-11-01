@@ -52,8 +52,8 @@ func (l partPrefetchLane) String() string {
 // room, and one worker runs its largest offer first and waits for that
 // offer's import ahead before taking the next, starting each only while no
 // install runs. Only that offer is imported ahead. aheadMax is how many
-// offers the worker takes; after it, large offers go to their lanes, to be
-// downloaded only. Zero aheadOffer queues every offer in its lanes, each
+// offers the worker takes whose imports unpacked something; after it, large
+// offers go to their lanes, to be downloaded only. Zero aheadOffer queues every offer in its lanes, each
 // imported ahead once a blob of it is held.
 type partPrefetchConfig struct {
 	largeBlob    int64
@@ -206,6 +206,8 @@ type partPrefetchAhead struct {
 	gone bool
 	// done is closed once its import has ended, kept or not.
 	done chan struct{}
+	// applied counts the layers its import applied itself, once it ended.
+	applied int
 }
 
 // partPrefetchJobKey names a job: an offer has one in each lane its blobs
@@ -759,8 +761,9 @@ func (p *partPrefetcher) workAhead() {
 		imported := p.awaitAheadImport()
 		p.mu.Lock()
 		if !imported {
-			// An offer whose import ahead ended without importing gives its
-			// place back.
+			// An offer whose import ahead ended without importing, or
+			// imported only layers the engine had already, gives its place
+			// back.
 			p.aheadTaken--
 		}
 		var dropped []*partPrefetchJob
@@ -878,7 +881,7 @@ func (p *partPrefetcher) runAhead(jobs []*partPrefetchJob) {
 // once it is held. A job of the offer queued meanwhile, as a replacement
 // queues one for a blob its import waits for, runs here: no other worker
 // would run it. It reports whether the offer's chain was imported ahead and
-// kept, and lets go of the offer.
+// kept, unpacking at least one layer itself, and lets go of the offer.
 func (p *partPrefetcher) awaitAheadImport() bool {
 	p.waitAheadImport()
 	p.mu.Lock()
@@ -886,7 +889,7 @@ func (p *partPrefetcher) awaitAheadImport() bool {
 	imported := false
 	if offer := p.aheadCurrent; offer != nil {
 		a := p.aheads[offer]
-		imported = a != nil && a.ref != nil
+		imported = a != nil && a.ref != nil && a.applied > 0
 	}
 	p.aheadCurrent = nil
 	return imported
@@ -1307,10 +1310,14 @@ func (p *partPrefetcher) importAhead(ctx context.Context, offer *partOffer, row 
 			outcome = "error"
 		}
 	}
+	mu.Lock()
+	n := applied
+	mu.Unlock()
 	p.mu.Lock()
 	keep := ref != nil && !a.gone && !p.closed
 	if keep {
 		a.ref = ref
+		a.applied = n
 	} else {
 		p.removeAheadLocked(a)
 	}

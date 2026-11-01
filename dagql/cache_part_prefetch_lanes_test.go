@@ -464,6 +464,34 @@ func TestPartPrefetchAheadQueueFailedImportGivesItsPlaceBack(t *testing.T) {
 	require.Eventually(t, func() bool { return f.aheadOf(next) }, 10*time.Second, 10*time.Millisecond, "the next large offer is imported ahead")
 }
 
+// An ahead offer whose import unpacks nothing, its layers already imported
+// under another offer, gives its place back: the next large offer is still
+// imported ahead under a cap of two.
+func TestPartPrefetchAheadQueueImportThatUnpacksNothingGivesItsPlaceBack(t *testing.T) {
+	big := newSizedChainFixture(t, "big", 96<<10)
+	// big's lower layer alone, served from big's addresses.
+	prefix := chainFixture{tag: big.tag, chain: big.lower, blobs: big.blobs[:1]}
+	require.Equal(t, big.digest(0), prefix.digest(0))
+	next := newSizedChainFixture(t, "next", 72<<10)
+	f := newExhaustionFixture(t, big, next)
+	f.cache.partPrefetchConfig = &partPrefetchConfig{largeBlob: 1, workers: 1, smallWorkers: 1, smallStreams: 8, budget: 1 << 30, ttl: time.Hour, queue: 8, aheadOffer: 64 << 10, aheadMax: 2}
+	t.Cleanup(f.cache.closePartPrefetch)
+	idle := func() bool {
+		p := f.cache.partPrefetcher.Load()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.aheadCurrent == nil
+	}
+	f.acceptOffer(t, f.receiver, big)
+	require.Eventually(t, func() bool { return f.aheadOf(big) && idle() }, 10*time.Second, 10*time.Millisecond, "the chain is imported ahead")
+	f.acceptOffer(t, persistedListTestResult(t, f.ctx, f.cache, f.srv, "prefix-row", &transferTestValue{Text: "pending"}), prefix)
+	require.Eventually(t, func() bool { return f.aheadOf(prefix) && idle() }, 10*time.Second, 10*time.Millisecond, "the prefix is imported ahead")
+	lines := f.logs.lines(t, "remote cache part applied ahead")
+	require.Equal(t, "0", fmt.Sprint(lines[len(lines)-1].fields["unpacked_layers"]), "the prefix's import unpacks nothing")
+	f.acceptOffer(t, persistedListTestResult(t, f.ctx, f.cache, f.srv, "next-row", &transferTestValue{Text: "pending"}), next)
+	require.Eventually(t, func() bool { return f.aheadOf(next) }, 10*time.Second, 10*time.Millisecond, "the next large offer is imported ahead")
+}
+
 // An ahead offer whose blobs' addresses have expired is renewed, not
 // skipped: the job downloads from the renewed addresses and the chain is
 // imported ahead.
