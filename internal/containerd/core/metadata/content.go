@@ -390,13 +390,28 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 	cs.l.RLock()
 	defer cs.l.RUnlock()
 
+	// The backing store's file work, a stat of shared content and creating
+	// the ingest's files, runs outside the write transaction: the database
+	// has one writer, which every other metadata update waits on. cs.l, held
+	// for reading throughout, keeps garbage collection from sweeping the blob
+	// or the ingest in between.
 	var (
-		w      content.Writer
-		exists bool
-		bref   string
+		sharedInfo    content.Info
+		sharedInfoErr error = errdefs.ErrNotFound
+	)
+	if wOpts.Desc.Digest != "" {
+		sharedInfo, sharedInfoErr = cs.Store.Info(ctx, wOpts.Desc.Digest)
+	}
+
+	var (
+		w       content.Writer
+		exists  bool
+		bref    string
+		shared  bool
+		created bool
+		leased  bool
 	)
 	if err := update(ctx, cs.db, func(tx *bolt.Tx) error {
-		var shared bool
 		if wOpts.Desc.Digest != "" {
 			cbkt := getBlobBucket(tx, ns, wOpts.Desc.Digest)
 			if cbkt != nil {
@@ -412,7 +427,7 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 			}
 
 			if cs.shared || isSharedContent(tx, wOpts.Desc.Digest) {
-				if st, err := cs.Store.Info(ctx, wOpts.Desc.Digest); err == nil {
+				if st, err := sharedInfo, sharedInfoErr; err == nil {
 					// Ensure the expected size is the same, it is likely
 					// an error if the size is mismatched but the caller
 					// must resolve this on commit
@@ -429,7 +444,7 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 			return err
 		}
 
-		leased, err := addIngestLease(ctx, tx, wOpts.Ref)
+		leased, err = addIngestLease(ctx, tx, wOpts.Ref)
 		if err != nil {
 			return err
 		}
@@ -445,6 +460,7 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 			if err := bkt.Put(bucketKeyRef, []byte(bref)); err != nil {
 				return err
 			}
+			created = true
 		} else {
 			bref = string(brefb)
 		}
@@ -465,21 +481,43 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 			if err := bkt.Put(bucketKeyExpected, []byte(wOpts.Desc.Digest)); err != nil {
 				return err
 			}
-		} else {
-			// Do not use the passed in expected value here since it was
-			// already checked against the user metadata. The content must
-			// be committed in the namespace before it will be seen as
-			// available in the current namespace.
-			desc := wOpts.Desc
-			desc.Digest = ""
-			w, err = cs.Store.Writer(ctx, content.WithRef(bref), content.WithDescriptor(desc))
 		}
-		return err
+		return nil
 	}); err != nil {
 		return nil, err
 	}
 	if exists {
 		return nil, fmt.Errorf("content %v: %w", wOpts.Desc.Digest, errdefs.ErrAlreadyExists)
+	}
+	if !shared {
+		// Do not use the passed in expected value here since it was
+		// already checked against the user metadata. The content must
+		// be committed in the namespace before it will be seen as
+		// available in the current namespace.
+		desc := wOpts.Desc
+		desc.Digest = ""
+		var err error
+		if w, err = cs.Store.Writer(ctx, content.WithRef(bref), content.WithDescriptor(desc)); err != nil {
+			// The ingest this call recorded is removed, as the transaction
+			// that recorded it would have been rolled back. One the ref's
+			// current writer holds is left to it.
+			if created && !errdefs.IsUnavailable(err) {
+				if rerr := update(ctx, cs.db, func(tx *bolt.Tx) error {
+					if bkt := getIngestsBucket(tx, ns); bkt != nil {
+						if err := bkt.DeleteBucket([]byte(wOpts.Ref)); err != nil && err != errbolt.ErrBucketNotFound {
+							return err
+						}
+					}
+					if leased {
+						return removeIngestLease(ctx, tx, wOpts.Ref)
+					}
+					return nil
+				}); rerr != nil {
+					log.G(ctx).WithError(rerr).WithField("ref", wOpts.Ref).Warn("failed to remove ingest after writer failure")
+				}
+			}
+			return nil, err
+		}
 	}
 
 	return &namespacedWriter{
@@ -601,8 +639,17 @@ func (nw *namespacedWriter) Commit(ctx context.Context, size int64, expected dig
 		return fmt.Errorf("failed to perform sync: %w", err)
 	}
 
+	// The backing store commits the content, its file work, before the
+	// write transaction records it: the database has one writer, which every
+	// other metadata update waits on. nw.l, held for reading throughout,
+	// keeps garbage collection from sweeping the committed blob in between.
+	base, actual, size, err := nw.commitContent(ctx, size, expected, opts...)
+	if err != nil {
+		return err
+	}
+
 	if err := update(ctx, nw.db, func(tx *bolt.Tx) error {
-		dgst, size, err := nw.commit(ctx, tx, size, expected, opts...)
+		dgst, size, err := nw.commitMetadata(tx, base, actual, size)
 		if err != nil {
 			if !errdefs.IsAlreadyExists(err) {
 				return err
@@ -647,30 +694,33 @@ func (nw *namespacedWriter) Sync() error {
 	return nil
 }
 
-func (nw *namespacedWriter) commit(ctx context.Context, tx *bolt.Tx, size int64, expected digest.Digest, opts ...content.Opt) (digest.Digest, int64, error) {
+// commitContent checks the commit's options and size, and commits the
+// written content in the backing store, returning the content's info, digest
+// and size for commitMetadata.
+func (nw *namespacedWriter) commitContent(ctx context.Context, size int64, expected digest.Digest, opts ...content.Opt) (content.Info, digest.Digest, int64, error) {
 	var base content.Info
 	for _, opt := range opts {
 		if err := opt(&base); err != nil {
 			if nw.w != nil {
 				nw.w.Close()
 			}
-			return "", 0, err
+			return content.Info{}, "", 0, err
 		}
 	}
 	if err := validateInfo(&base); err != nil {
 		if nw.w != nil {
 			nw.w.Close()
 		}
-		return "", 0, err
+		return content.Info{}, "", 0, err
 	}
 
 	var actual digest.Digest
 	if nw.w == nil {
 		if size != 0 && size != nw.desc.Size {
-			return "", 0, fmt.Errorf("%q failed size validation: %v != %v: %w", nw.ref, nw.desc.Size, size, errdefs.ErrFailedPrecondition)
+			return content.Info{}, "", 0, fmt.Errorf("%q failed size validation: %v != %v: %w", nw.ref, nw.desc.Size, size, errdefs.ErrFailedPrecondition)
 		}
 		if expected != "" && expected != nw.desc.Digest {
-			return "", 0, fmt.Errorf("%q unexpected digest: %w", nw.ref, errdefs.ErrFailedPrecondition)
+			return content.Info{}, "", 0, fmt.Errorf("%q unexpected digest: %w", nw.ref, errdefs.ErrFailedPrecondition)
 		}
 		size = nw.desc.Size
 		actual = nw.desc.Digest
@@ -678,20 +728,24 @@ func (nw *namespacedWriter) commit(ctx context.Context, tx *bolt.Tx, size int64,
 		status, err := nw.w.Status()
 		if err != nil {
 			nw.w.Close()
-			return "", 0, err
+			return content.Info{}, "", 0, err
 		}
 		if size != 0 && size != status.Offset {
 			nw.w.Close()
-			return "", 0, fmt.Errorf("%q failed size validation: %v != %v: %w", nw.ref, status.Offset, size, errdefs.ErrFailedPrecondition)
+			return content.Info{}, "", 0, fmt.Errorf("%q failed size validation: %v != %v: %w", nw.ref, status.Offset, size, errdefs.ErrFailedPrecondition)
 		}
 		size = status.Offset
 
 		if err := nw.w.Commit(ctx, size, expected); err != nil && !errdefs.IsAlreadyExists(err) {
-			return "", 0, err
+			return content.Info{}, "", 0, err
 		}
 		actual = nw.w.Digest()
 	}
+	return base, actual, size, nil
+}
 
+// commitMetadata records content commitContent committed in the namespace.
+func (nw *namespacedWriter) commitMetadata(tx *bolt.Tx, base content.Info, actual digest.Digest, size int64) (digest.Digest, int64, error) {
 	bkt, err := createBlobBucket(tx, nw.namespace, actual)
 	if err != nil {
 		if err == errbolt.ErrBucketExists {
