@@ -41,9 +41,56 @@ import (
 
 type contentStore struct {
 	content.Store
-	db     *DB
-	shared bool
-	l      sync.RWMutex
+	db      *DB
+	shared  bool
+	l       sync.RWMutex
+	ingests ingestLocks
+}
+
+// ingestLocks serializes the operations on each ingest ref: reserving its
+// ingest and creating its writer, committing it, and aborting it. Each runs
+// the backing store's file work outside the write transaction, so without it
+// one could act on another's ingest in between, as a commit deleting the
+// ingest a new writer of the ref had just reused.
+type ingestLocks struct {
+	mu    sync.Mutex
+	locks map[string]*ingestLock
+}
+
+type ingestLock struct {
+	mu      sync.Mutex
+	waiters int
+}
+
+// lock locks the ingest ref of namespace ns and returns its unlock. With a
+// transaction in ctx, every operation already runs in it, and lock does
+// nothing: a ref's other operation could hold the lock waiting for that
+// transaction.
+func (l *ingestLocks) lock(ctx context.Context, ns, ref string) func() {
+	if _, ok := boltutil.Transaction(ctx); ok {
+		return func() {}
+	}
+	key := ns + "\x00" + ref
+	l.mu.Lock()
+	if l.locks == nil {
+		l.locks = map[string]*ingestLock{}
+	}
+	il := l.locks[key]
+	if il == nil {
+		il = &ingestLock{}
+		l.locks[key] = il
+	}
+	il.waiters++
+	l.mu.Unlock()
+	il.mu.Lock()
+	return func() {
+		il.mu.Unlock()
+		l.mu.Lock()
+		if il.waiters--; il.waiters == 0 {
+			delete(l.locks, key)
+		}
+		l.mu.Unlock()
+	}
 }
 
 // newContentStore returns a namespaced content store using an existing
@@ -337,6 +384,7 @@ func (cs *contentStore) Abort(ctx context.Context, ref string) error {
 
 	cs.l.RLock()
 	defer cs.l.RUnlock()
+	defer cs.ingests.lock(ctx, ns, ref)()
 
 	return update(ctx, cs.db, func(tx *bolt.Tx) error {
 		ibkt := getIngestsBucket(tx, ns)
@@ -389,12 +437,14 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 
 	cs.l.RLock()
 	defer cs.l.RUnlock()
+	defer cs.ingests.lock(ctx, ns, wOpts.Ref)()
 
 	// The backing store's file work, a stat of shared content and creating
 	// the ingest's files, runs outside the write transaction: the database
 	// has one writer, which every other metadata update waits on. cs.l, held
 	// for reading throughout, keeps garbage collection from sweeping the blob
-	// or the ingest in between.
+	// or the ingest in between, and the ref's lock keeps its other operations
+	// from acting on the ingest.
 	var (
 		sharedInfo    content.Info
 		sharedInfoErr error = errdefs.ErrNotFound
@@ -500,7 +550,7 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 		if w, err = cs.Store.Writer(ctx, content.WithRef(bref), content.WithDescriptor(desc)); err != nil {
 			// The ingest this call recorded is removed, as the transaction
 			// that recorded it would have been rolled back. One the ref's
-			// current writer holds is left to it.
+			// open writer holds is left to it.
 			if created && !errdefs.IsUnavailable(err) {
 				if rerr := update(ctx, cs.db, func(tx *bolt.Tx) error {
 					if bkt := getIngestsBucket(tx, ns); bkt != nil {
@@ -527,6 +577,7 @@ func (cs *contentStore) Writer(ctx context.Context, opts ...content.WriterOpt) (
 		db:        cs.db,
 		provider:  cs.Store,
 		l:         &cs.l,
+		ingests:   &cs.ingests,
 		w:         w,
 		bref:      bref,
 		started:   time.Now(),
@@ -543,7 +594,8 @@ type namespacedWriter struct {
 		content.Provider
 		content.Ingester
 	}
-	l *sync.RWMutex
+	l       *sync.RWMutex
+	ingests *ingestLocks
 
 	w content.Writer
 
@@ -642,7 +694,10 @@ func (nw *namespacedWriter) Commit(ctx context.Context, size int64, expected dig
 	// The backing store commits the content, its file work, before the
 	// write transaction records it: the database has one writer, which every
 	// other metadata update waits on. nw.l, held for reading throughout,
-	// keeps garbage collection from sweeping the committed blob in between.
+	// keeps garbage collection from sweeping the committed blob in between,
+	// and the ref's lock keeps a new writer of the ref from reusing the
+	// ingest the transaction removes.
+	defer nw.ingests.lock(ctx, nw.namespace, nw.ref)()
 	base, actual, size, err := nw.commitContent(ctx, size, expected, opts...)
 	if err != nil {
 		return err
