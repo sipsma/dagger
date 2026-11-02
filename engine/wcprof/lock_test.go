@@ -113,12 +113,12 @@ func TestReadersHoldUntilTheLastLeaves(t *testing.T) {
 	var mu RWMutex
 	mu.RLock()
 	mu.RLock()
-	mu.RUnlock()
+	mu.RUnlock() //nolint:staticcheck // SA2001: one of two readers leaves while the other still reads.
 	if w := lockWait(t, r, waiterCtx, &mu, mu.RUnlock); w.ResultID != HolderReaders {
 		t.Fatalf("wait %+v: want holder HolderReaders while a reader still reads", w)
 	}
 	mu.RLock()
-	mu.RUnlock()
+	mu.RUnlock() //nolint:staticcheck // SA2001: the last reader leaves.
 	if h, _ := mu.Holder(); h != HolderUnknown {
 		t.Fatalf("holder %d once the last reader left: want HolderUnknown", h)
 	}
