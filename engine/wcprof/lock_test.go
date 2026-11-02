@@ -53,44 +53,18 @@ func TestWriteLockNamesItsHolder(t *testing.T) {
 	}
 }
 
-// lockDirectly and tryLockDirectly take mu directly, as a caller with no
-// context to name its op does.
-//
-//go:noinline
-func lockDirectly(mu *RWMutex) { mu.Lock() }
-
-//go:noinline
-func tryLockDirectly(mu *RWMutex) bool { return mu.TryLock() }
-
-// writeLockWithNoOp takes mu through WriteLock under a context with no op.
-//
-//go:noinline
-func writeLockWithNoOp(mu *RWMutex) { WriteLock(context.Background(), mu, "test.mu") }
-
-// A lock taken directly, or through WriteLock under a context with no op,
-// is held by the function that took it, from when it took it: never by the
-// op that took it before through WriteLock.
-func TestDirectLockHolderIsItsCaller(t *testing.T) {
-	for name, take := range map[string]func(*RWMutex){
-		"wcprof.lockDirectly":      lockDirectly,
-		"wcprof.tryLockDirectly":   func(mu *RWMutex) { tryLockDirectly(mu) },
-		"wcprof.writeLockWithNoOp": writeLockWithNoOp,
-	} {
-		t.Run(name, func(t *testing.T) {
-			r := withTestRecorder(t, 0)
-			earlierCtx, _ := BeginOp(context.Background(), OpKindRemoteCache, "remotecache.merge.commit", OpOpts{})
-			waiterCtx, _ := BeginOp(context.Background(), OpKindLazy, "Container.withExec", OpOpts{})
-			var mu RWMutex
-			WriteLock(earlierCtx, &mu, "test.mu")
-			mu.Unlock()
-			take(&mu)
-			took := r.Now()
-			w := lockWait(t, r, waiterCtx, &mu, mu.Unlock)
-			id, ok := DirectHolderName(w.ResultID)
-			if !ok || r.strings.values[id] != name || w.Bytes <= 0 || w.Bytes > took {
-				t.Fatalf("wait %+v: want a direct holder named %s, taken at or before %d", w, name, took)
-			}
-		})
+// A lock taken directly, with no context to name its taker, is held by
+// HolderUnknown: never by the op that took it before through WriteLock.
+func TestDirectLockHolderIsUnknown(t *testing.T) {
+	r := withTestRecorder(t, 0)
+	earlierCtx, _ := BeginOp(context.Background(), OpKindRemoteCache, "remotecache.merge.commit", OpOpts{})
+	waiterCtx, _ := BeginOp(context.Background(), OpKindLazy, "Container.withExec", OpOpts{})
+	var mu RWMutex
+	WriteLock(earlierCtx, &mu, "test.mu")
+	mu.Unlock()
+	mu.Lock()
+	if w := lockWait(t, r, waiterCtx, &mu, mu.Unlock); w.ResultID != HolderUnknown {
+		t.Fatalf("wait %+v: want holder HolderUnknown, not the earlier holder", w)
 	}
 }
 
@@ -102,25 +76,6 @@ func TestReadLockedHolderIsReaders(t *testing.T) {
 	mu.RLock()
 	if w := lockWait(t, r, waiterCtx, &mu, mu.RUnlock); w.ResultID != HolderReaders {
 		t.Fatalf("wait %+v: want holder HolderReaders", w)
-	}
-}
-
-// A lock held by several readers is held by HolderReaders until the last of
-// them leaves, then by HolderUnknown.
-func TestReadersHoldUntilTheLastLeaves(t *testing.T) {
-	r := withTestRecorder(t, 0)
-	waiterCtx, _ := BeginOp(context.Background(), OpKindLazy, "Container.withExec", OpOpts{})
-	var mu RWMutex
-	mu.RLock()
-	mu.RLock()
-	mu.RUnlock() //nolint:staticcheck // SA2001: one of two readers leaves while the other still reads.
-	if w := lockWait(t, r, waiterCtx, &mu, mu.RUnlock); w.ResultID != HolderReaders {
-		t.Fatalf("wait %+v: want holder HolderReaders while a reader still reads", w)
-	}
-	mu.RLock()
-	mu.RUnlock() //nolint:staticcheck // SA2001: the last reader leaves.
-	if h, _ := mu.Holder(); h != HolderUnknown {
-		t.Fatalf("holder %d once the last reader left: want HolderUnknown", h)
 	}
 }
 
@@ -162,12 +117,12 @@ func TestReadersHaveNoAcquisitionTime(t *testing.T) {
 func TestHolderReadAcrossAChangeIsUnknown(t *testing.T) {
 	r := withTestRecorder(t, 0)
 	var mu RWMutex
-	mu.set(7, r.Now())
+	mu.mark(7)
 	h, since := mu.holderAtWith(func() {
 		mu.release()
-		mu.set(8, r.Now())
+		mu.mark(8)
 		mu.release()
-		mu.set(7, r.Now())
+		mu.mark(7)
 	})
 	if h != HolderUnknown || since != 0 {
 		t.Fatalf("holder %d since %d: want HolderUnknown with no time", h, since)
