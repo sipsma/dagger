@@ -356,9 +356,7 @@ func ReadLock(ctx context.Context, mu RWLocker, ident string) {
 
 // WriteLock acquires mu for writing, recording a blocked acquisition as Lock
 // does. On an RWMutex the wait names the lock's holder, and the op of ctx
-// is its holder from then, or WriteLock's caller when ctx has no op.
-//
-//go:noinline
+// is its holder from then.
 func WriteLock(ctx context.Context, mu RWLocker, ident string) {
 	m, tracked := mu.(*RWMutex)
 	if !tracked {
