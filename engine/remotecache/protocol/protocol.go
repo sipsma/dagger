@@ -181,10 +181,11 @@ type SettleSession struct {
 }
 
 // Claims tells the service which Dagger Cloud claim each of the engine's
-// live sessions started under, so that it can tell which check's run each
-// session's telemetry belongs to. The engine sends each live session with a
-// claim once on a connection, as it starts or, for a session live at hello,
-// after it. A session with no claim isn't sent.
+// sessions started under, so that it can tell which check's run each
+// session's telemetry belongs to. The engine sends each session with a claim
+// once on a connection, as it starts or, for a session live at hello or
+// ended and not yet settled, after it; always before the settle that lists
+// the session. A session with no claim isn't sent.
 type Claims struct {
 	Sessions []SessionClaim `json:"sessions"`
 }
