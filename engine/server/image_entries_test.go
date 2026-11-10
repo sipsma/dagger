@@ -11,7 +11,6 @@ import (
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/core"
-	"github.com/dagger/dagger/core/schema"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/remotecache"
 	"github.com/dagger/dagger/engine/remotecache/protocol"
@@ -29,7 +28,7 @@ func (d testImageDir) WriteBundle(_ context.Context, bundle dagql.ValueBundle) e
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(d.dir, schema.EngineImageBundleFile), raw, 0o644)
+	return os.WriteFile(filepath.Join(d.dir, dagql.BundleFile), raw, 0o644)
 }
 
 func (d testImageDir) WriteBlob(_ context.Context, dgst digest.Digest, r content.ReaderAt) error {
@@ -56,15 +55,15 @@ func imageEntriesDir(t *testing.T) (string, dagql.ValueBundle) {
 func imageEntriesDirOf(t *testing.T, names ...string) (string, dagql.ValueBundle) {
 	t.Helper()
 	src := newAdapterTestEngine(t)
-	var outputs []dagql.SelectedValueOutput
+	var files []dagql.AnyResult
 	for _, name := range names {
 		file := src.file(t, name)
 		require.NoError(t, src.cache.Evaluate(src.ctx, file))
-		outputs = append(outputs, dagql.SelectedValueOutput{Result: file, Address: snapshotPart})
+		files = append(files, file)
 	}
 	dir := t.TempDir()
-	require.NoError(t, src.cache.ExportImageBundle(src.ctx, outputs, exportRefConfig, testImageDir{dir}))
-	raw, err := os.ReadFile(filepath.Join(dir, schema.EngineImageBundleFile))
+	require.NoError(t, src.cache.ExportBundle(src.ctx, files, exportRefConfig, testImageDir{dir}))
+	raw, err := os.ReadFile(filepath.Join(dir, dagql.BundleFile))
 	require.NoError(t, err)
 	var bundle dagql.ValueBundle
 	require.NoError(t, json.Unmarshal(raw, &bundle))
@@ -240,8 +239,7 @@ func sdkImageEntriesDir(t *testing.T) (string, digest.Digest) {
 		require.NoError(t, src.cache.Evaluate(src.ctx, res))
 	}
 	dir := t.TempDir()
-	outputs := []dagql.SelectedValueOutput{{Result: files, Address: snapshotPart}, {Result: shipped, Address: snapshotPart}}
-	require.NoError(t, src.cache.ExportImageBundle(src.ctx, outputs, exportRefConfig, testImageDir{dir}))
+	require.NoError(t, src.cache.ExportBundle(src.ctx, []dagql.AnyResult{files, shipped}, exportRefConfig, testImageDir{dir}))
 	return dir, content
 }
 
@@ -264,7 +262,7 @@ func TestBuiltinSDKFilesSayWhyTheyAreMissing(t *testing.T) {
 	})
 	t.Run("the bundle can't be read", func(t *testing.T) {
 		dir, content := sdkImageEntriesDir(t)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, schema.EngineImageBundleFile), []byte("{"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, dagql.BundleFile), []byte("{"), 0o644))
 		e, srv := newEngine(t)
 		srv.mergeImageEntries(e.ctx, dir, []digest.Digest{content})
 		_, err := e.cache.ImageEntryByContent(content, "Directory")
@@ -287,14 +285,10 @@ func TestBuiltinSDKFilesSayWhyTheyAreMissing(t *testing.T) {
 // needs. The export waits for a result that's busy now and exports every
 // result once it's free, as on an idle engine. A result it refuses fails the
 // export at once, and a wait ends with the export's context.
-func TestExportImageBundleWaitsForBusyResults(t *testing.T) {
+func TestExportBundleWaitsForBusyResults(t *testing.T) {
 	export := func(e *adapterTestEngine, ctx context.Context, dir string, results ...dagql.AnyResult) <-chan error {
-		var outputs []dagql.SelectedValueOutput
-		for _, res := range results {
-			outputs = append(outputs, dagql.SelectedValueOutput{Result: res, Address: snapshotPart})
-		}
 		exported := make(chan error, 1)
-		go func() { exported <- e.cache.ExportImageBundle(ctx, outputs, exportRefConfig, testImageDir{dir}) }()
+		go func() { exported <- e.cache.ExportBundle(ctx, results, exportRefConfig, testImageDir{dir}) }()
 		return exported
 	}
 	t.Run("busy", func(t *testing.T) {
@@ -302,33 +296,38 @@ func TestExportImageBundleWaitsForBusyResults(t *testing.T) {
 		ready := e.file(t, "ready")
 		require.NoError(t, e.cache.Evaluate(e.ctx, ready))
 		busy := e.busyFile(t, "busy")
+		on, _ := e.publishFile(t, "on-busy", busy)
+		require.NoError(t, e.cache.Evaluate(e.ctx, on))
 		dir := t.TempDir()
-		exported := export(e, e.ctx, dir, ready, busy)
-		// Give the export time to find the result busy before its body ends.
+		exported := export(e, e.ctx, dir, ready, on)
+		// Give the export time to find the busy row before its body ends.
 		time.Sleep(200 * time.Millisecond)
 		e.bodies.unpause()
 		require.NoError(t, exportErr(t, exported))
-		raw, err := os.ReadFile(filepath.Join(dir, schema.EngineImageBundleFile))
+		raw, err := os.ReadFile(filepath.Join(dir, dagql.BundleFile))
 		require.NoError(t, err)
 		var bundle dagql.ValueBundle
 		require.NoError(t, json.Unmarshal(raw, &bundle))
-		require.ElementsMatch(t, []uint64{entryNumber(t, ready), entryNumber(t, busy)}, bundleRoots(&bundle), "every result is exported")
-		require.Len(t, bundle.Outputs, 2)
+		require.ElementsMatch(t, []uint64{entryNumber(t, ready), entryNumber(t, on)}, bundleRoots(&bundle), "every result is exported")
 	})
 	t.Run("refused", func(t *testing.T) {
 		e := newAdapterTestEngine(t)
 		ready := e.file(t, "ready")
 		require.NoError(t, e.cache.Evaluate(e.ctx, ready))
 		refused := e.refusedFile(t, "refused")
-		err := exportErr(t, export(e, e.ctx, t.TempDir(), ready, refused))
-		require.ErrorContains(t, err, "export image bundle: 1 of 2 results left out")
+		on, _ := e.publishFile(t, "on-refused", refused)
+		require.NoError(t, e.cache.Evaluate(e.ctx, on))
+		err := exportErr(t, export(e, e.ctx, t.TempDir(), ready, on))
+		require.ErrorContains(t, err, "export bundle: 1 of 2 results left out")
 		require.NotErrorIs(t, err, dagql.ErrPersistStateNotReady)
 	})
 	t.Run("canceled", func(t *testing.T) {
 		e := newAdapterTestEngine(t)
 		busy := e.busyFile(t, "busy")
+		on, _ := e.publishFile(t, "on-busy", busy)
+		require.NoError(t, e.cache.Evaluate(e.ctx, on))
 		ctx, cancel := context.WithCancel(e.ctx)
-		exported := export(e, ctx, t.TempDir(), busy)
+		exported := export(e, ctx, t.TempDir(), on)
 		time.Sleep(200 * time.Millisecond)
 		cancel()
 		require.ErrorIs(t, exportErr(t, exported), context.Canceled)

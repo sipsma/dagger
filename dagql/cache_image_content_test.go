@@ -225,10 +225,10 @@ func TestImageEntryByContent(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownEntry, "other content")
 }
 
-// An image export waits only for rows busy with something that ends on its
+// A cache export waits only for rows busy with something that ends on its
 // own. A result whose closure also reaches a row busy until a later
 // evaluation fails the export at once, though a running row comes first.
-func TestExportImageBundleFailsOnARowBusyUntilALaterEvaluation(t *testing.T) {
+func TestExportBundleFailsOnARowBusyUntilALaterEvaluation(t *testing.T) {
 	t.Parallel()
 	ctx, c, srv := transferTestCache(t)
 	rows := newLeftOutTestRows(t, ctx, c, srv)
@@ -253,8 +253,8 @@ func TestExportImageBundleFailsOnARowBusyUntilALaterEvaluation(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	err := c.ExportImageBundle(ctx, []SelectedValueOutput{{Result: rows.first, Address: PersistedPartAddress{Part: "snapshot"}}}, config.RefConfig{}, nil)
+	err := c.ExportBundle(ctx, []AnyResult{rows.first}, config.RefConfig{}, nil)
 	require.ErrorIs(t, err, ErrPersistStateNotReady)
 	require.NoError(t, ctx.Err(), "the export failed at once, without waiting")
-	require.ErrorContains(t, err, "export image bundle: 1 of 1 results left out")
+	require.ErrorContains(t, err, "export bundle: 1 of 1 results left out")
 }
