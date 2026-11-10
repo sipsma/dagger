@@ -62,7 +62,7 @@ func imageEntriesDirOf(t *testing.T, names ...string) (string, dagql.ValueBundle
 		files = append(files, file)
 	}
 	dir := t.TempDir()
-	require.NoError(t, src.cache.ExportBundle(src.ctx, files, exportRefConfig, testImageDir{dir}))
+	require.NoError(t, src.cache.ExportBundle(src.ctx, src.srv, files, exportRefConfig, testImageDir{dir}))
 	raw, err := os.ReadFile(filepath.Join(dir, dagql.BundleFile))
 	require.NoError(t, err)
 	var bundle dagql.ValueBundle
@@ -239,7 +239,7 @@ func sdkImageEntriesDir(t *testing.T) (string, digest.Digest) {
 		require.NoError(t, src.cache.Evaluate(src.ctx, res))
 	}
 	dir := t.TempDir()
-	require.NoError(t, src.cache.ExportBundle(src.ctx, []dagql.AnyResult{files, shipped}, exportRefConfig, testImageDir{dir}))
+	require.NoError(t, src.cache.ExportBundle(src.ctx, src.srv, []dagql.AnyResult{files, shipped}, exportRefConfig, testImageDir{dir}))
 	return dir, content
 }
 
@@ -288,7 +288,7 @@ func TestBuiltinSDKFilesSayWhyTheyAreMissing(t *testing.T) {
 func TestExportBundleWaitsForBusyResults(t *testing.T) {
 	export := func(e *adapterTestEngine, ctx context.Context, dir string, results ...dagql.AnyResult) <-chan error {
 		exported := make(chan error, 1)
-		go func() { exported <- e.cache.ExportBundle(ctx, results, exportRefConfig, testImageDir{dir}) }()
+		go func() { exported <- e.cache.ExportBundle(ctx, e.srv, results, exportRefConfig, testImageDir{dir}) }()
 		return exported
 	}
 	t.Run("busy", func(t *testing.T) {

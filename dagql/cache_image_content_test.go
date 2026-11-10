@@ -253,7 +253,7 @@ func TestExportBundleFailsOnARowBusyUntilALaterEvaluation(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	err := c.ExportBundle(ctx, []AnyResult{rows.first}, config.RefConfig{}, nil)
+	err := c.ExportBundle(ctx, srv, []AnyResult{rows.first}, config.RefConfig{}, nil)
 	require.ErrorIs(t, err, ErrPersistStateNotReady)
 	require.NoError(t, ctx.Err(), "the export failed at once, without waiting")
 	require.ErrorContains(t, err, "export bundle: 1 of 1 results left out")
