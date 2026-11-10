@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/dagger/dagger/core/schema"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/distconsts"
 	"github.com/dagger/dagger/engine/slog"
@@ -16,7 +15,7 @@ import (
 )
 
 // mergeImageEntries merges the entries the engine image ships, from dir: the
-// bundle the image's build exported (schema.EngineImageBundleFile) and the
+// bundle the image's build exported (dagql.BundleFile) and the
 // blobs of its parts, which the cache reads from dir when a part is first
 // used. An image without a bundle ships no entries. The start fails when the
 // bundle doesn't merge whole, or a blob it names isn't in the image, so an
@@ -30,7 +29,7 @@ func (srv *Server) mergeImageEntries(ctx context.Context, dir string) error {
 		return fmt.Errorf("engine image entries: %w", err)
 	}
 	defer root.Close()
-	raw, err := root.ReadFile(schema.EngineImageBundleFile)
+	raw, err := root.ReadFile(dagql.BundleFile)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

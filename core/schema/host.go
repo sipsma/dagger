@@ -46,10 +46,6 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 
 		dagql.NodeFunc("__bundledDirectory", s.bundledDirectory).
 			Doc("The directory with this content digest that the engine image's entries hold, such as a built-in SDK's files. Fails when the image ships none: no other result answers, since a content digest is not a secret."),
-
-		dagql.NodeFunc("_engineImageBundle", s.engineImageBundle).
-			View(AfterVersion("v1.0.0-beta.26")).
-			Doc("The entries of results, exported for an engine image to ship: a directory's or file's snapshot, a container's image config and filesystem, and a Git module source's checkout. Returns the bundle an engine built from the image merges at start, and its blobs. Called by the engine image's build."),
 	}.Install(srv)
 
 	dagql.Fields[*core.Host]{

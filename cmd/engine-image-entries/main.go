@@ -115,7 +115,10 @@ func run(ctx context.Context, sdks []string, sdkDigests string, seeds, entrypoin
 			}
 		}
 	}
-	if err := do(`query($results: [ID!]!, $out: String!) { _engineImageBundle(results: $results) { export(path: $out) } }`,
+	// The blobs are uncompressed: the image's own layer compresses them for
+	// download as well as compressed blobs would be, and an engine then
+	// unpacks each with no decompression the first time it uses it.
+	if err := do(`query($results: [ID!]!, $out: String!) { engine { localCache { _export(results: $results, forcedCompression: UNCOMPRESSED) { export(path: $out) } } } }`,
 		map[string]any{"results": results, "out": out}, nil); err != nil {
 		return fmt.Errorf("export the entries: %w", err)
 	}
