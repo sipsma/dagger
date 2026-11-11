@@ -1206,7 +1206,7 @@ func (c *Cache) captureSessionResultInstallSpan(ctx context.Context, sessionID s
 	// anywhere in the construction chain attribute back to the module API
 	// span. Closure ownership is recorded once on the returned result and
 	// resolved on demand by walking dep edges upward from the result being
-	// evaluated (installAncestorsAmongLocked), rather than eagerly fanning the
+	// evaluated (installAncestorIDsLocked), rather than eagerly fanning the
 	// span out across every result in the closure.
 	call := CurrentCall(ctx)
 	ownsClosure := call != nil && call.Module != nil
@@ -1320,23 +1320,13 @@ func (c *Cache) recordSessionResultInstallSpanLocked(ctx context.Context, sessio
 		bySession[resultID] = installs
 	}
 	installs.record(spanCtx, ownsClosure)
-	if ownsClosure {
-		if c.sessionClosureOwners == nil {
-			c.sessionClosureOwners = make(map[string]map[sharedResultID]struct{})
-		}
-		if c.sessionClosureOwners[sessionID] == nil {
-			c.sessionClosureOwners[sessionID] = make(map[sharedResultID]struct{})
-		}
-		c.sessionClosureOwners[sessionID][resultID] = struct{}{}
-	}
 }
 
-// installAncestorsAmongLocked returns the results of candidates that
-// transitively depend on rootID, found by walking direct dep edges upward via
-// depParents. The walk stops once it has found every candidate. rootID itself
-// is never returned. Caller must hold egraphMu at least for read.
-func (c *Cache) installAncestorsAmongLocked(rootID sharedResultID, candidates map[sharedResultID][]trace.SpanContext) []sharedResultID {
-	if rootID == 0 || len(candidates) == 0 {
+// installAncestorIDsLocked returns the IDs of results that transitively
+// depend on rootID, found by walking direct dep edges upward via depParents.
+// rootID itself is excluded. Caller must hold egraphMu at least for read.
+func (c *Cache) installAncestorIDsLocked(rootID sharedResultID) []sharedResultID {
+	if rootID == 0 {
 		return nil
 	}
 	root := c.resultsByID[rootID]
@@ -1345,7 +1335,7 @@ func (c *Cache) installAncestorsAmongLocked(rootID sharedResultID, candidates ma
 	}
 	seen := map[sharedResultID]struct{}{rootID: {}}
 	queue := []sharedResultID{rootID}
-	var found []sharedResultID
+	var out []sharedResultID
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
@@ -1358,16 +1348,11 @@ func (c *Cache) installAncestorsAmongLocked(rootID sharedResultID, candidates ma
 				continue
 			}
 			seen[parentID] = struct{}{}
-			if _, ok := candidates[parentID]; ok {
-				found = append(found, parentID)
-				if len(found) == len(candidates) {
-					return found
-				}
-			}
+			out = append(out, parentID)
 			queue = append(queue, parentID)
 		}
 	}
-	return found
+	return out
 }
 
 // ResultInstallSpans returns install span contexts recorded for res in the
@@ -1390,63 +1375,52 @@ func (c *Cache) ResultInstallSpans(ctx context.Context, sessionID string, res An
 // plus closure-owning install spans (module API call returns) recorded for
 // any result that transitively depends on it. The upward walk happens here,
 // on demand, instead of eagerly materializing the closure at install time.
-//
-// Every lazy evaluation asks, and a result can have thousands of results
-// built on it, so neither lock is held for each of them: the session lock
-// is held to read the result's own installs and the session's closure
-// owners, one per module call return, and the walk under the graph lock
-// stops once it has found every owner.
 func (c *Cache) sessionResultInstallSpanContexts(ctx context.Context, sessionID string, resultID sharedResultID) []trace.SpanContext {
 	if c == nil || sessionID == "" || resultID == 0 {
 		return nil
 	}
 
-	var out []trace.SpanContext
-	var owners map[sharedResultID][]trace.SpanContext
+	wcprof.ReadLock(ctx, &c.egraphMu, egraphLockIdent)
+	ancestorIDs := c.installAncestorIDsLocked(resultID)
+	c.egraphMu.RUnlock()
+
 	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
+	defer c.sessionMu.Unlock()
 	byResult := c.sessionResultInstallSpans[sessionID]
-	if installs := byResult[resultID]; installs != nil {
-		for install := range installs.all {
-			if install.spanCtx.IsValid() {
-				out = append(out, install.spanCtx)
-			}
-		}
+	if byResult == nil {
+		return nil
 	}
-	for ownerID := range c.sessionClosureOwners[sessionID] {
-		if ownerID == resultID {
-			continue
-		}
-		installs := byResult[ownerID]
+	seen := make(map[spanKey]struct{})
+	var out []trace.SpanContext
+	appendInstalls := func(id sharedResultID, closureOwnersOnly bool) {
+		installs := byResult[id]
 		if installs == nil {
-			continue
+			return
 		}
 		for install := range installs.all {
-			if !install.ownsClosure || !install.spanCtx.IsValid() {
+			if closureOwnersOnly && !install.ownsClosure {
 				continue
 			}
-			if owners == nil {
-				owners = make(map[sharedResultID][]trace.SpanContext)
+			if !install.spanCtx.IsValid() {
+				continue
 			}
-			owners[ownerID] = append(owners[ownerID], install.spanCtx)
+			key := spanKeyOf(install.spanCtx)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, install.spanCtx)
 		}
 	}
-	c.sessionMu.Unlock()
-
-	if len(owners) > 0 {
-		wcprof.ReadLock(ctx, &c.egraphMu, egraphLockIdent)
-		above := c.installAncestorsAmongLocked(resultID, owners)
-		c.egraphMu.RUnlock()
-		for _, ownerID := range above {
-			out = append(out, owners[ownerID]...)
-		}
+	appendInstalls(resultID, false)
+	for _, ancestorID := range ancestorIDs {
+		appendInstalls(ancestorID, true)
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	slices.SortFunc(out, compareSpanContexts)
-	return slices.CompactFunc(out, func(a, b trace.SpanContext) bool {
-		return compareSpanContexts(a, b) == 0
-	})
+	return out
 }
 
 func lazyResumeLinks(originalSpanCtx trace.SpanContext, installSpanContexts []trace.SpanContext) []trace.Link {
@@ -1736,7 +1710,6 @@ func (c *Cache) cleanupReleasedSession(plan *cacheSessionReleasePlan) error {
 	delete(c.sessionArbitraryCallKeysBySession, plan.sessionID)
 	delete(c.sessionLazySpansBySession, plan.sessionID)
 	delete(c.sessionResultInstallSpans, plan.sessionID)
-	delete(c.sessionClosureOwners, plan.sessionID)
 	delete(c.sessionLazyAnchors, plan.sessionID)
 	delete(c.sessionResourcesBySession, plan.sessionID)
 	delete(c.sessionVolatileVarsBySession, plan.sessionID)
@@ -2655,9 +2628,6 @@ type Cache struct {
 	// ownsClosure set, and lookups resolve closure ownership on demand by
 	// walking dep edges upward via depParents.
 	sessionResultInstallSpans map[string]map[sharedResultID]*sessionResultInstalls
-	// sessionClosureOwners indexes, per session, the results with a
-	// closure-owning install in sessionResultInstallSpans.
-	sessionClosureOwners map[string]map[sharedResultID]struct{}
 	// sessionLazyAnchors holds, per session and result, the evaluation that
 	// carries the result's cause links; see beginOTelLazyOp.
 	sessionLazyAnchors           map[string]map[sharedResultID]sessionLazyAnchor
