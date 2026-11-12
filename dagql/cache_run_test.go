@@ -58,6 +58,13 @@ func TestMergeKeepsAReadWithItsRun(t *testing.T) {
 	require.Len(t, reply.Roots, 1)
 	require.True(t, reply.Roots[0].OtherRun, "A's read was computed over another run of r than B holds")
 	require.Empty(t, reply.Imported())
+	var rOrdinal TransferOrdinal
+	for _, value := range bundle.Values {
+		if value.Record.Call != nil && value.Record.Call.Field == "r" {
+			rOrdinal = value.Ordinal
+		}
+	}
+	require.Equal(t, []TransferOrdinal{rOrdinal}, reply.OtherRun, "the reply names A's r as kept apart")
 
 	recipe := digest.Digest(runTestRecipe(t, b, bundle, "d"))
 	b.egraphMu.RLock()

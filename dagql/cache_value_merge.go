@@ -251,6 +251,10 @@ type MergeReply struct {
 	// can still return an error, from releasing a replaced value after the
 	// lock; the reply then describes what the cache holds all the same.
 	Committed bool
+	// OtherRun are the rows whose entry holds another run than theirs, which
+	// the merge kept apart (keepRunsApartLocked): they have no value in
+	// Values, and nothing the sender holds of them can land on the entry.
+	OtherRun []TransferOrdinal
 	// Stale are the held rows the cache didn't hold when the merge decided.
 	// A merge with stale rows commits nothing: the reply has only them, and
 	// the generation and clock.
@@ -2029,6 +2033,7 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 	for _, row := range commit.rows {
 		res := row.res
 		if row.otherRun {
+			reply.OtherRun = append(reply.OtherRun, row.value.Ordinal)
 			continue
 		}
 		if c.resultsByID[res.id] != res {
