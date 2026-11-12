@@ -2475,11 +2475,14 @@ type Cache struct {
 
 	// testStoredSizeMeasure runs before StoredSizes measures each value,
 	// testStoredSizesHold after each hold of egraphMu it takes, with the
-	// hold's length, and testStoredTransferNormalized after a build
-	// normalizes a record and before it keeps it.
-	testStoredSizeMeasure        func()
-	testStoredSizesHold          func(time.Duration)
-	testStoredTransferNormalized func()
+	// hold's length, testStoredTransferNormalized after a build
+	// normalizes a record and before it keeps it, and
+	// testStoredDeclaredPartsMapped each time a stored record's declared
+	// parts are mapped for a bundle's outputs.
+	testStoredSizeMeasure         func()
+	testStoredSizesHold           func(time.Duration)
+	testStoredTransferNormalized  func()
+	testStoredDeclaredPartsMapped func()
 
 	// storedSizeEncodes counts StoredSizes' first measurements of values.
 	storedSizeEncodes atomic.Uint64
