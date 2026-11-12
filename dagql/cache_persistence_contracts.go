@@ -41,6 +41,7 @@ type persistResultSnapshot struct {
 	sessionResourceHandle SessionResourceHandle
 	persistedEnvelope     *PersistedResultEnvelope
 	storedBody            []byte
+	lightEnvelope         *PersistedResultEnvelope
 	snapshotOwnerLinks    []PersistedSnapshotRefLink
 	row                   persistdb.MirrorResult
 	resultDeps            []persistdb.MirrorResultDep

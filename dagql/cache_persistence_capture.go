@@ -211,8 +211,12 @@ func (c *Cache) capturePartRecord(ctx context.Context, shared *sharedResult, imp
 	ctx = context.WithValue(ctx, capturedOutputVersionsKey{}, versions)
 	var encoding PersistedResultEncoding
 	if payload.persistedEnvelope != nil {
+		full, err := decodeStoredBody(payload.persistedEnvelope, payload.lightEnvelope, payload.storedBody)
+		if err != nil {
+			return PersistedRecord{}, err
+		}
 		encoding = PersistedResultEncoding{
-			Envelope:      *payload.persistedEnvelope,
+			Envelope:      *full,
 			SnapshotLinks: payload.snapshotOwnerLinks,
 		}
 	} else {

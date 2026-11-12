@@ -1760,7 +1760,7 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, comm
 	res.hasValue = false
 	res.self = nil
 	res.persistedEnvelope = &rec.Envelope
-	res.storedBody, res.declaredParts, res.declaredPartsErr = nil, nil, nil
+	res.storedBody, res.lightEnvelope, res.declaredParts, res.declaredPartsErr = nil, nil, nil, nil
 	res.payloadRevision++
 	c.setResultPayloadBytesLocked(res, persistedEnvelopePayloadBytes(&rec.Envelope))
 	if res.createdAtUnixNano == 0 {
@@ -1997,7 +1997,7 @@ func (c *Cache) failMergedEntryLocked(ctx context.Context, res *sharedResult, qu
 	if c.blobBacked {
 		res.storedRecordBytes = 0
 		res.storedTransfer.Store(nil)
-		res.storedBody, res.declaredParts, res.declaredPartsErr = nil, nil, nil
+		res.storedBody, res.lightEnvelope, res.declaredParts, res.declaredPartsErr = nil, nil, nil, nil
 		res.payloadMu.Lock()
 		res.persistedEnvelope = nil
 		res.hasValue = false

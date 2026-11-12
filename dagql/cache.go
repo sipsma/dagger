@@ -2934,6 +2934,7 @@ type sharedResult struct {
 	// pending (cache_stored_body.go): persistedEnvelope then keeps only the
 	// envelope's small fields. Guarded by egraphMu.
 	storedBody       []byte
+	lightEnvelope    *PersistedResultEnvelope
 	declaredParts    []declaredPart
 	declaredPartsErr error
 	transferRevision            uint64
@@ -3197,6 +3198,8 @@ type sharedResultPayloadState struct {
 	hasValue           bool
 	objClass           objectClassRef
 	persistedEnvelope  *PersistedResultEnvelope
+	storedBody         []byte
+	lightEnvelope      *PersistedResultEnvelope
 	snapshotOwnerLinks []PersistedSnapshotRefLink
 	createdAtUnixNano  int64
 	lastUsedAtUnixNano int64
@@ -3278,6 +3281,8 @@ func (res *sharedResult) loadPayloadState() sharedResultPayloadState {
 		hasValue:           res.hasValue,
 		objClass:           res.objClass,
 		persistedEnvelope:  res.persistedEnvelope,
+		storedBody:         res.storedBody,
+		lightEnvelope:      res.lightEnvelope,
 		snapshotOwnerLinks: cloneSnapshotRefLinks(res.snapshotOwnerLinks),
 		createdAtUnixNano:  res.createdAtUnixNano,
 		lastUsedAtUnixNano: res.lastUsedAtUnixNano,

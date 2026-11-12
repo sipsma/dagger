@@ -52,7 +52,7 @@ type declaredPart struct {
 // with no stored envelope, or for one already light. Requires egraphMu for
 // writing, or an entry no reader can reach yet.
 func (c *Cache) lightenStoredValueLocked(res *sharedResult) error {
-	if !c.blobBacked || res == nil || res.persistedEnvelope == nil || res.storedBody != nil {
+	if !c.blobBacked || res == nil || res.persistedEnvelope == nil || res.isLightLocked() {
 		return nil
 	}
 	env := res.persistedEnvelope
@@ -63,11 +63,9 @@ func (c *Cache) lightenStoredValueLocked(res *sharedResult) error {
 	enc, _ := storedBodyCodec()
 	body := enc.EncodeAll(raw, make([]byte, 0, len(raw)/3))
 	parts, perr := declaredPartsOf(res, env)
-	res.storedBody = body
-	res.declaredParts = parts
-	res.declaredPartsErr = perr
-	res.persistedEnvelope = &PersistedResultEnvelope{
+	light := &PersistedResultEnvelope{
 		Imported:              env.Imported,
+		PendingOffers:         env.PendingOffers,
 		PersistDeclined:       env.PersistDeclined,
 		Version:               env.Version,
 		Kind:                  env.Kind,
@@ -76,6 +74,13 @@ func (c *Cache) lightenStoredValueLocked(res *sharedResult) error {
 		ResultID:              env.ResultID,
 		SessionResourceHandle: env.SessionResourceHandle,
 	}
+	res.payloadMu.Lock()
+	res.storedBody = body
+	res.lightEnvelope = light
+	res.declaredParts = parts
+	res.declaredPartsErr = perr
+	res.persistedEnvelope = light
+	res.payloadMu.Unlock()
 	return nil
 }
 
@@ -105,13 +110,19 @@ func declaredPartsOf(res *sharedResult, env *PersistedResultEnvelope) ([]declare
 // decoded, a new value each time. Requires egraphMu, or the light envelope
 // and body read together under it (decodeStoredBody).
 func (res *sharedResult) fullStoredEnvelope() (*PersistedResultEnvelope, error) {
-	return decodeStoredBody(res.persistedEnvelope, res.storedBody)
+	return decodeStoredBody(res.persistedEnvelope, res.lightEnvelope, res.storedBody)
 }
 
-// decodeStoredBody returns the whole envelope of a light envelope and its
-// body, or env itself when there is no body.
-func decodeStoredBody(env *PersistedResultEnvelope, body []byte) (*PersistedResultEnvelope, error) {
-	if env == nil || body == nil {
+// isLightLocked reports whether res's envelope is the light one its
+// lightening left: an envelope replaced since is whole.
+func (res *sharedResult) isLightLocked() bool {
+	return res.storedBody != nil && res.persistedEnvelope != nil && res.persistedEnvelope == res.lightEnvelope
+}
+
+// decodeStoredBody returns the whole envelope of env: its body decompressed
+// when env is the light envelope the body goes with, env itself otherwise.
+func decodeStoredBody(env, light *PersistedResultEnvelope, body []byte) (*PersistedResultEnvelope, error) {
+	if env == nil || body == nil || env != light {
 		return env, nil
 	}
 	_, dec := storedBodyCodec()
@@ -129,7 +140,7 @@ func decodeStoredBody(env *PersistedResultEnvelope, body []byte) (*PersistedResu
 // declaredPartsLocked returns res's declared parts: kept for a light entry,
 // mapped from its envelope otherwise. Requires egraphMu.
 func (res *sharedResult) declaredPartsLocked() ([]declaredPart, error) {
-	if res.storedBody != nil {
+	if res.isLightLocked() {
 		return res.declaredParts, res.declaredPartsErr
 	}
 	if res.persistedEnvelope == nil {

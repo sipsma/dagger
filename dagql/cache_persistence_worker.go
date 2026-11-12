@@ -174,6 +174,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			sessionResourceHandle: res.sessionResourceHandle,
 			persistedEnvelope:     payload.persistedEnvelope,
 			storedBody:            res.storedBody,
+			lightEnvelope:         res.lightEnvelope,
 			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
 			row: persistdb.MirrorResult{
 				ID:                        int64(resultID),
@@ -600,7 +601,7 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 		}
 	}()
 	if snapshot != nil && snapshot.persistedEnvelope != nil {
-		full, err := decodeStoredBody(snapshot.persistedEnvelope, snapshot.storedBody)
+		full, err := decodeStoredBody(snapshot.persistedEnvelope, snapshot.lightEnvelope, snapshot.storedBody)
 		if err != nil {
 			return PersistedResultEncoding{}, err
 		}
