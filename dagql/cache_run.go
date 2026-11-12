@@ -83,17 +83,18 @@ func TransferredRun(from CacheID, value TransferredValue) RunName {
 // row's (a kept value or a held row of the same recipe that another run
 // made) is marked otherRun: it is no copy of the entry's value, so it teaches
 // it nothing, gives it no part, and is left out of the reply. A record the
-// merge would install that came without bytes of its own, computed over such
-// a row (its dependencies, and the owners of its offers), is dropped from the
-// merge: a read, or a result whose bytes the sender didn't send, installed on
-// the entry would read as computed from the run the entry holds, and a
-// rebuild of it would run over that run. A record that came with its bytes
-// stands alone and is kept. A record computed over a dropped row is dropped
-// too, since its dependency won't exist, and a recipe whose deciding row is
-// dropped is dropped whole, since its other rows land on that row's entry. A
-// row that lands on an entry of its own run and installs nothing is never
-// dropped: the entry keeps its own dependencies, of the runs it was computed
-// over. A dropped root is skipped; a root apart lands on its entry, whose own
+// merge would install that was computed over such a row (its dependencies,
+// and the owners of its offers) is dropped from the merge. Installed, it
+// would reference the run the entry holds: a read would read as computed from
+// it, a rebuild would run over it, and a value would read it where it keeps
+// a reference, as a container's mounted files do. That holds for a record
+// that came with bytes of its own too, since its bytes don't cover what its
+// references read, and the Cloud can still decline to store them. A record
+// computed over a dropped row is dropped too, since its dependency won't
+// exist, and a recipe whose deciding row is dropped is dropped whole, since
+// its other rows land on that row's entry. A row that lands on an entry of
+// its own run and installs nothing is never dropped: the entry keeps its own
+// dependencies, of the runs it was computed over. A dropped root is skipped; a root apart lands on its entry, whose own
 // run stands for it. The rows are decided (decideMergeRowLocked) and nothing
 // has changed yet. Requires egraphMu.
 func (c *Cache) keepRunsApartLocked(commit *valueMergeCommit) {
@@ -138,7 +139,7 @@ func (c *Cache) keepRunsApartLocked(commit *valueMergeCommit) {
 				deps = append(deps, offer.Owner.DependencyIDs...)
 			}
 			for _, dep := range deps {
-				if dropped[dep] || apart[dep] && !commit.prep.withBytes[row.ordinal] {
+				if dropped[dep] || apart[dep] {
 					dropped[row.ordinal] = true
 					changed = true
 					break
