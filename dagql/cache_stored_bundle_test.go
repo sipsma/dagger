@@ -207,7 +207,7 @@ func TestStoredBundleNeverMixesAReplacement(t *testing.T) {
 				rootValue = value
 			}
 		}
-		record, err := json.Marshal(rootValue.Record.Envelope)
+		record, err := json.Marshal(sentRecord(t, rootValue).Envelope)
 		require.NoError(t, err)
 		if rootValue.SenderReplacements == 0 {
 			require.Contains(t, string(record), "old")

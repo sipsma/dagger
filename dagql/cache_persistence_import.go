@@ -65,7 +65,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 
 	var eagerDecodeResultIDs []sharedResultID
 
-	decodedResultRows := decodeImportedResultRows(resultRows)
+	decodedResultRows := decodeImportedResultRows(resultRows, c.blobBacked)
 
 	c.egraphMu.Lock()
 	importErr := func() error {
@@ -188,6 +188,12 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				// bundles, and takes back its stored parts.
 				if err := c.restoreStoredPartsLocked(res, env, row.CallFrameJSON, row.SelfPayload); err != nil {
 					return fmt.Errorf("import result %d stored parts: %w", resultID, err)
+				}
+				if body := decoded.body; body != nil {
+					// As merge measured it: the call and the envelope
+					// encoded.
+					res.storedRecordBytes = int64(len(row.CallFrameJSON)) + body.envelopeBytes
+					c.setStoredBodyLocked(res, env, body)
 				}
 			} else if env.Kind == persistedResultKindNull {
 				// An attached absent value keeps its row identity, recorded
@@ -666,23 +672,31 @@ type importedResultRow struct {
 	envErr   error
 	frame    *ResultCall
 	frameErr error
+	// body is, on a blob-backed cache, the row's stored record as it was
+	// held, whose envelope env is without its value (decodeStoredRow).
+	body *storedBody
 }
 
 // decodeImportedResultRows decodes every results row on all cores. Decoding
 // reads only the row. The import loop checks the rows in order, so the error
-// it reports is the one of the first invalid row.
-func decodeImportedResultRows(rows []persistdb.MirrorResult) []importedResultRow {
+// it reports is the one of the first invalid row. A blob-backed cache's
+// stored record is taken back as it was held, its value not decoded.
+func decodeImportedResultRows(rows []persistdb.MirrorResult, blobBacked bool) []importedResultRow {
 	decoded := make([]importedResultRow, len(rows))
 	_ = forEachIndexParallel(len(rows), func(i int) error {
 		row := &rows[i]
 		out := &decoded[i]
-		if len(row.SelfPayload) > 0 {
-			out.env = new(PersistedResultEnvelope)
-			out.envErr = json.Unmarshal(row.SelfPayload, out.env)
-		}
 		if row.CallFrameJSON != "" {
 			out.frame = &ResultCall{}
 			out.frameErr = json.Unmarshal([]byte(row.CallFrameJSON), out.frame)
+		}
+		switch {
+		case len(row.SelfPayload) == 0:
+		case blobBacked && isStoredRow(row.SelfPayload):
+			out.env, out.body, out.envErr = decodeStoredRow(row.SelfPayload, out.frame)
+		default:
+			out.env = new(PersistedResultEnvelope)
+			out.envErr = json.Unmarshal(row.SelfPayload, out.env)
 		}
 		return nil
 	})
