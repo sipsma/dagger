@@ -364,11 +364,14 @@ func validateStoredBundle(bundle ValueBundle) error {
 }
 
 // storedTransferRecord is an entry's stored record normalized for transfer,
-// without offers, and the envelope and call it was normalized from.
+// without offers, and the envelope and call it was normalized from; and the
+// parts that envelope declares, as a bundle's outputs map them
+// (storedBundleOutputsLocked), which the record's every bundle reads.
 type storedTransferRecord struct {
 	envelope *PersistedResultEnvelope
 	call     *ResultCall
 	record   PersistedRecord
+	declared []CapturedCodecOutput
 	// size is the entry's value's encoded size in a bundle, once StoredSizes
 	// has measured it (measureStoredValue), with what else it read.
 	size atomic.Pointer[storedValueSize]
@@ -386,22 +389,33 @@ type storedValueSize struct {
 }
 
 // storedTransferRecordLocked returns res's stored record normalized for
-// transfer, without offers, and checked as validateStoredBundle relies on.
-// Normalizing reads only the record's envelope and
-// call, which the cache replaces and never changes in place, so the entry
-// keeps the result with them and normalizes again once either is replaced.
-// The kept record holds both, so neither can be freed and another take its
-// address while it is kept. The result is shared: callers copy what they
+// transfer, without offers, and checked as validateStoredBundle relies on
+// (storedTransferLocked). The result is shared: callers copy what they
 // change. Requires egraphMu.
 func (c *Cache) storedTransferRecordLocked(res *sharedResult) (PersistedRecord, error) {
-	normalized, err := normalizeStoredTransfer(res, res.persistedEnvelope, res.loadResultCall())
+	kept, err := c.storedTransferLocked(res)
 	if err != nil {
 		return PersistedRecord{}, err
+	}
+	return kept.record, nil
+}
+
+// storedTransferLocked returns res's kept transfer record, normalizing it
+// first unless one of its envelope and call is kept. Normalizing reads only
+// the record's envelope and call, which the cache replaces and never changes
+// in place, so the entry keeps the result with them and normalizes again
+// once either is replaced. The kept record holds both, so neither can be
+// freed and another take its address while it is kept. It is shared and
+// never changed. Requires egraphMu.
+func (c *Cache) storedTransferLocked(res *sharedResult) (*storedTransferRecord, error) {
+	normalized, err := c.normalizeStoredTransfer(res, res.persistedEnvelope, res.loadResultCall())
+	if err != nil {
+		return nil, err
 	}
 	if c.testStoredTransferNormalized != nil {
 		c.testStoredTransferNormalized()
 	}
-	return keepStoredTransfer(res, normalized).record, nil
+	return keepStoredTransfer(res, normalized), nil
 }
 
 // keepStoredTransfer keeps normalized as res's transfer record and returns
@@ -423,13 +437,13 @@ func keepStoredTransfer(res *sharedResult, normalized *storedTransferRecord) *st
 }
 
 // normalizeStoredTransfer returns res's transfer record of env and call: the
-// kept one if it is of them, or a new one, normalized and not kept. It reads
-// only env and call, which the cache replaces and never changes in place, so
-// it needs no lock: a caller that read them under egraphMu can normalize
-// after releasing it, and keeps the record (keepStoredTransfer) under
-// egraphMu again only if they are still the entry's (StoredSizes'
-// publishStoredSizes).
-func normalizeStoredTransfer(res *sharedResult, env *PersistedResultEnvelope, call *ResultCall) (*storedTransferRecord, error) {
+// kept one if it is of them, or a new one, normalized and not kept, with the
+// parts env declares mapped. It reads only env and call, which the cache
+// replaces and never changes in place, so it needs no lock: a caller that
+// read them under egraphMu can normalize after releasing it, and keeps the
+// record (keepStoredTransfer) under egraphMu again only if they are still
+// the entry's (StoredSizes' publishStoredSizes).
+func (c *Cache) normalizeStoredTransfer(res *sharedResult, env *PersistedResultEnvelope, call *ResultCall) (*storedTransferRecord, error) {
 	if kept := res.storedTransfer.Load(); kept != nil && kept.envelope == env && kept.call == call {
 		return kept, nil
 	}
@@ -452,12 +466,20 @@ func normalizeStoredTransfer(res *sharedResult, env *PersistedResultEnvelope, ca
 			return nil, err
 		}
 	}
-	return &storedTransferRecord{envelope: env, call: call, record: rec}, nil
+	declared, err := mapTransferredOutputs(PersistedRecord{ResultID: uint64(res.id), Envelope: *env, Call: call})
+	if c.testStoredDeclaredPartsMapped != nil {
+		c.testStoredDeclaredPartsMapped()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &storedTransferRecord{envelope: env, call: call, record: rec, declared: declared}, nil
 }
 
 // storedBundleOutputsLocked adds res's outputs to the build: its own stored
 // parts, then the declared pending parts it borrows from its class through
-// the placement rule. Requires egraphMu.
+// the placement rule, as its kept transfer record maps them. Requires
+// egraphMu.
 func (c *Cache) storedBundleOutputsLocked(build *storedBundleBuild, res *sharedResult) error {
 	keys := make([]string, 0, len(res.storedParts))
 	for key := range res.storedParts {
@@ -469,14 +491,11 @@ func (c *Cache) storedBundleOutputsLocked(build *storedBundleBuild, res *sharedR
 			return err
 		}
 	}
-	declared, err := mapTransferredOutputs(PersistedRecord{ResultID: uint64(res.id), Envelope: *res.persistedEnvelope, Call: res.loadResultCall()})
-	if c.testStoredDeclaredPartsMapped != nil {
-		c.testStoredDeclaredPartsMapped()
-	}
+	kept, err := c.storedTransferLocked(res)
 	if err != nil {
 		return fmt.Errorf("stored bundle: entry %d: %w", res.id, err)
 	}
-	for _, output := range declared {
+	for _, output := range kept.declared {
 		key, err := partAddressKey(output.Address)
 		if err != nil || output.State != "pending" {
 			continue
