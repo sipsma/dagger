@@ -267,9 +267,10 @@ func TestStoredBundleRecordGoesWithThePrunedValue(t *testing.T) {
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	_, err := cloud.StoredBundle(ctx, []uint64{r}, nil)
 	require.NoError(t, err)
-	// A blob-backed cache keeps no normalized record (cache_stored_body.go).
-	require.False(t, storedBundleTestKept(cloud, r))
-	require.False(t, storedBundleTestKept(cloud, p))
+	// A blob-backed cache keeps a record's references and size, not the
+	// record (cache_stored_body.go).
+	require.True(t, storedBundleTestKept(cloud, r))
+	require.True(t, storedBundleTestKept(cloud, p))
 
 	_, removed, dropped, err := cloud.removePrunedEdge(ctx, sharedResultID(r))
 	require.NoError(t, err)
