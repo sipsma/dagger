@@ -18,7 +18,8 @@ import (
 // TestTransferRoundTripState carries the stored bundle benchmarks' pool from
 // an engine through the Cloud to a second engine, which takes one root's
 // closure first and then the whole batch, so the second bundle carries held
-// rows. It logs the Cloud's and the second engine's state, entry by entry,
+// rows. The second engine holds every record as the Cloud stores it. The test
+// also logs the Cloud's and the second engine's state, entry by entry,
 // with times left out, as lines "STATE <cache> <entry> <hash>": two versions
 // of the transfer format that merge into the same state log the same lines.
 func TestTransferRoundTripState(t *testing.T) {
@@ -46,12 +47,74 @@ func TestTransferRoundTripState(t *testing.T) {
 	second := place(batch, &HeldBy{Cache: "cache-b", Now: time.Now().Unix()})
 	require.NotEmpty(t, second.Held, "the second bundle carries held rows")
 
+	// B holds each record as the Cloud stores it, references renamed from
+	// B's entries to the Cloud's of the same recipe.
+	require.Equal(t, roundTripRecords(t, cloud, nil), roundTripRecords(t, b, roundTripNumbers(t, b, cloud)))
+
 	lines := append(roundTripStateLines(t, "cloud", cloud), roundTripStateLines(t, "b", b)...)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
 	for _, line := range lines {
 		t.Log(line)
 	}
 	t.Logf("STATE all %x (%d lines, %d held rows)", sum, len(lines), len(second.Held))
+}
+
+// roundTripNumbers maps each of from's entries to the entry of the same
+// recipe in to.
+func roundTripNumbers(t *testing.T, from, to *Cache) map[uint64]uint64 {
+	t.Helper()
+	byRecipe := func(c *Cache) map[string]uint64 {
+		c.egraphMu.RLock()
+		defer c.egraphMu.RUnlock()
+		out := map[string]uint64{}
+		for id, res := range c.resultsByID {
+			recipe, err := res.loadResultCall().deriveRecipeDigest(c)
+			require.NoError(t, err)
+			require.NotContains(t, out, recipe.String(), "one entry a recipe")
+			out[recipe.String()] = uint64(id)
+		}
+		return out
+	}
+	toByRecipe := byRecipe(to)
+	numbers := map[uint64]uint64{}
+	for recipe, id := range byRecipe(from) {
+		number, ok := toByRecipe[recipe]
+		require.True(t, ok, "entry %d's recipe is in the other cache", id)
+		numbers[id] = number
+	}
+	return numbers
+}
+
+// roundTripRecords is each of c's entries' record in transfer form, without
+// offers or stored parts, by entry number, its references renamed through
+// numbers when numbers is not nil.
+func roundTripRecords(t *testing.T, c *Cache, numbers map[uint64]uint64) map[uint64]string {
+	t.Helper()
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	out := map[uint64]string{}
+	for id, res := range c.resultsByID {
+		rec, err := normalizeTransferRecord(PersistedRecord{ResultID: uint64(id), Envelope: *res.persistedEnvelope, Call: res.loadResultCall()})
+		require.NoError(t, err)
+		rec.Envelope.PendingOffers, rec.Envelope.StoredParts = nil, nil
+		if numbers != nil {
+			rec, err = VisitEncodedReferences(rec, func(ref *PersistedRef) error {
+				if ref.RecipeID == nil && ref.ResultID != 0 {
+					number, ok := numbers[ref.ResultID]
+					if !ok {
+						return fmt.Errorf("entry %d names %d, which has no counterpart", id, ref.ResultID)
+					}
+					ref.ResultID = number
+				}
+				return nil
+			})
+			require.NoError(t, err)
+		}
+		data, err := json.Marshal(rec)
+		require.NoError(t, err)
+		out[rec.ResultID] = string(data)
+	}
+	return out
 }
 
 // roundTripStateLines is c's state: each entry's dependencies, recipe, value
