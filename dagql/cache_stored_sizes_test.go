@@ -141,7 +141,7 @@ func TestStoredSizesPriceCallInputs(t *testing.T) {
 // carried, and adds the receiver of the call that sorts first; then C's call
 // adds its own receiver, unless that was it. Whichever sorts first, one of
 // the two cases has the bundle carry both receivers. R's price is the whole
-// bundle.
+// bundle. B took inner from the Cloud, so its R is over the Cloud's run.
 func TestStoredSizesChooseCallsInTheBundlesOrder(t *testing.T) {
 	t.Parallel()
 	for _, client := range []string{"a", "b"} {
@@ -166,6 +166,9 @@ func TestStoredSizesChooseCallsInTheBundlesOrder(t *testing.T) {
 				})
 			}
 			inner := persistedListTestResult(t, bctx, b, bsrv, "inner", &transferTestValue{Text: "inner"})
+			innerRun, ok := cloud.EntryRun(test.number)
+			require.True(t, ok)
+			runTestSetRun(b, runTestID(inner), innerRun)
 			receiverB := receiver("b")
 			call(receiverTestCall("b"), returns(inner))
 			receiver(client)
@@ -383,7 +386,7 @@ func TestStoredSizesMeasureAgainAfterAPartAddsADependency(t *testing.T) {
 	q := reply.Imported()[0].ResultID
 	part := testLiveOffer()
 	part.Owner.DependencyIDs = []uint64{q}
-	stored, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, testRunOf(cloud, r), part, 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 
@@ -512,9 +515,11 @@ func TestHeldRowSizeIsItsEncodingLength(t *testing.T) {
 		for _, replacements := range []uint64{0, 1, 77, 1<<64 - 1} {
 			for _, expires := range []int64{0, 1, -5, 1_760_000_000, -1 << 63} {
 				for _, recipe := range []digest.Digest{"xxh3:2d06800538d394c2", heldRowSizeDigest, digest.FromString("x")} {
-					data, err := json.Marshal(TransferredValue{Ordinal: TransferOrdinal(number), SenderNumber: number, SenderReplacements: replacements, Record: PersistedRecord{ResultID: number}, ExpiresAtUnix: expires, Held: recipe})
-					require.NoError(t, err)
-					require.Equal(t, int64(len(data)), heldRowSize(number, replacements, expires, recipe), "number %d, replacements %d, expiry %d, recipe %s", number, replacements, expires, recipe)
+					for _, run := range []*RunName{nil, {Cache: "e481d93d-4d0b-4a4e-8d0f-1efc60f25067", Number: 7}, {Cache: "c", Number: 1<<64 - 1, Replacements: 12}} {
+						data, err := json.Marshal(TransferredValue{Ordinal: TransferOrdinal(number), SenderNumber: number, SenderReplacements: replacements, Record: PersistedRecord{ResultID: number}, ExpiresAtUnix: expires, Held: recipe, Run: run})
+						require.NoError(t, err)
+						require.Equal(t, int64(len(data)), heldRowSize(number, replacements, expires, recipe, run), "number %d, replacements %d, expiry %d, recipe %s, run %v", number, replacements, expires, recipe, run)
+					}
 				}
 			}
 		}
@@ -575,7 +580,7 @@ func TestStoredSizesKeepNoMeasureOfAnOlderState(t *testing.T) {
 		changed = true
 		part := testLiveOffer()
 		part.Owner.DependencyIDs = []uint64{q}
-		stored, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+		stored, _, err := cloud.SetStoredPart(ctx, r, testRunOf(cloud, r), part, 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		_, err = cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
@@ -607,7 +612,7 @@ func TestStoredSizesPriceOutputsAsTheWireCarriesThem(t *testing.T) {
 	for i, number := range []uint64{r, p} {
 		chain := append(slices.Clone(base), storedLayersTestLayer(fmt.Sprint("price-top-", i), "the part's own"))
 		packs := map[digest.Digest]digest.Digest{base[0].Descriptor.Digest: testDigest("price-pack")}
-		stored, _, err := cloud.SetStoredPart(ctx, number, storedLayersTestPart("snapshot", chain, packs), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, number, testRunOf(cloud, number), storedLayersTestPart("snapshot", chain, packs), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -707,7 +712,7 @@ func TestStoredSizesAllowForEachAddressOfABlobInDifferentPacks(t *testing.T) {
 		if i == 0 {
 			packs[shared.Descriptor.Digest] = testDigest("packs-pack")
 		}
-		stored, _, err := cloud.SetStoredPart(ctx, number, storedLayersTestPart("snapshot", []snapshots.ExportLayer{shared}, packs), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, number, testRunOf(cloud, number), storedLayersTestPart("snapshot", []snapshots.ExportLayer{shared}, packs), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -834,7 +839,7 @@ func TestStoredSizesGiveUpTheLockBetweenEntries(t *testing.T) {
 		go func() {
 			part := testLiveOffer()
 			part.Owner.DependencyIDs = []uint64{q}
-			ok, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+			ok, _, err := cloud.SetStoredPart(ctx, r, testRunOf(cloud, r), part, 0)
 			written <- stored{ok, err}
 		}()
 		select {

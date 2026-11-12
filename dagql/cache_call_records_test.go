@@ -151,7 +151,7 @@ func TestCallRecordSurvivesARestore(t *testing.T) {
 	ctx, cloud := storedPersistenceTestCloud(t, path)
 	test := newCallRecordTest(t, ctx, cloud)
 	test.attach(t, ctx, test.span(t, true, 0))
-	stored, _, err := cloud.SetStoredPart(ctx, test.number, storedBenchPart(1), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, test.number, testRunOf(cloud, test.number), storedBenchPart(1), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.NoError(t, cloud.Close(ctx))

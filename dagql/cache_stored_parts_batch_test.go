@@ -14,8 +14,8 @@ func TestStoredPartsTakeTheLockOnce(t *testing.T) {
 	ctx, cloud, r, p := storedBundleTestCloud(t, "batch")
 	takers := lockTakers(t, cloud)
 	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{
-		{Number: r, Part: testLiveOffer()},
-		{Number: p, Part: testLiveOffer()},
+		{Number: r, Run: testRunOf(cloud, r), Part: testLiveOffer()},
+		{Number: p, Run: testRunOf(cloud, p), Part: testLiveOffer()},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []StoredPartResult{{Stored: true}, {Stored: true}}, got)
@@ -34,9 +34,9 @@ func TestStoredPartsAdmitEachAsAlone(t *testing.T) {
 	ctx, cloud, r, p := storedBundleTestCloud(t, "batch-each")
 	missing := r + p + 1000
 	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{
-		{Number: r, Part: testLiveOffer()},
+		{Number: r, Run: testRunOf(cloud, r), Part: testLiveOffer()},
 		{Number: missing, Part: testLiveOffer()},
-		{Number: p, Part: testLiveOffer(), CopyExpiresAtUnix: 1},
+		{Number: p, Run: testRunOf(cloud, p), Part: testLiveOffer(), CopyExpiresAtUnix: 1},
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 3)

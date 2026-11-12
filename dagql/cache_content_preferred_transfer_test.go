@@ -80,7 +80,17 @@ func TestFreshEngineGivesAServiceTheContentPreferredDigestItsProducerUsed(t *tes
 	bctx, b, bsrv := transferTestCache(t)
 	own := contentPreferredTestBinary(t, bctx, b, bsrv, "binary")
 	require.NoError(t, b.TeachContentDigest(bctx, own, digest.FromString("binary content")))
-	_, err = b.MergeValues(bctx, cloudCacheID, sent.Bundle)
+	// b holds the run of the file the service was computed over, as when it
+	// took the file from the Cloud before and digested it since: a record
+	// over another run of the file would be kept apart (cache_run.go).
+	var fileRows []uint64
+	for _, value := range sent.Bundle.Values {
+		if value.Record.Call != nil && value.Record.Call.Field == "binary" {
+			fileRows = append(fileRows, value.SenderNumber)
+		}
+	}
+	require.Len(t, fileRows, 1, "the Cloud sends the service's file")
+	_, err = b.MergeValues(bctx, cloudCacheID, runTestRows(sent.Bundle, testRunOf(b, runTestID(own)), fileRows...))
 	require.NoError(t, err)
 	installed := b.EquivalentEntries(recipe.String())
 	require.Len(t, installed, 1, "b holds the Cloud's service")

@@ -38,6 +38,9 @@ type capturedTransferRow struct {
 	// transfer is the record as the bundle carries it, naming rows by the
 	// engine's entry numbers; only its offers are relocated to ordinals.
 	transfer PersistedRecord
+	// run is the run the row names when it isn't the entry's own
+	// (sentRunLocked), read with the rest of the row.
+	run *RunName
 	// held makes the row a held row, of recipe: the selection's recipient
 	// knows it, so the bundle carries no record for it and nothing below it.
 	held   bool
@@ -218,7 +221,7 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 		}
 		if !carried[res.id] && known.knowsLocked(res) {
 			c.incrementIncomingOwnershipLocked(ctx, res)
-			row := &capturedTransferRow{shared: res, held: true, imported: res.imported, frame: frame, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
+			row := &capturedTransferRow{shared: res, held: true, imported: res.imported, run: sentRunLocked(res), frame: frame, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
 			capture.rows[res.id] = row
 			seen[res.id] = 2
 			row.ordinal = TransferOrdinal(len(capture.order) + 1)
@@ -235,7 +238,7 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 			return blocked(res.id, blockedRow{row: res.id, kind: kind, err: err})
 		}
 		c.incrementIncomingOwnershipLocked(ctx, res)
-		row := &capturedTransferRow{shared: res, imported: res.imported, frame: frame, offers: offers, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
+		row := &capturedTransferRow{shared: res, imported: res.imported, run: sentRunLocked(res), frame: frame, offers: offers, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
 		capture.rows[res.id] = row
 		for id := range res.deps {
 			row.deps = append(row.deps, uint64(id))
@@ -1237,7 +1240,7 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 	bundle := ValueBundle{Version: valueBundleVersion, Roots: capture.roots}
 	for _, row := range capture.order {
 		if row.held {
-			value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: PersistedRecord{ResultID: uint64(row.shared.id)}, ExpiresAtUnix: row.expiry, Held: row.recipe}
+			value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: PersistedRecord{ResultID: uint64(row.shared.id)}, ExpiresAtUnix: row.expiry, Held: row.recipe, Run: row.run}
 			// A row held at the walk has no dependencies here: it stands for
 			// its closure. One held after its copy keeps its links to the
 			// rows below it.
@@ -1267,7 +1270,7 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 			}
 			rec.Envelope.PendingOffers = offers
 		}
-		value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: rec, ExpiresAtUnix: row.expiry}
+		value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: rec, ExpiresAtUnix: row.expiry, Run: row.run}
 		for _, id := range row.deps {
 			value.DependencyIDs = append(value.DependencyIDs, uint64(capture.rows[sharedResultID(id)].ordinal))
 		}

@@ -63,7 +63,9 @@ func TestMergeValuesIsIdempotent(t *testing.T) {
 }
 
 // A record lands on its recipe's current entry. An unexpired value is kept:
-// the same recipe means an interchangeable value.
+// any run of a recipe is an answer to it. The engine computed this one
+// itself, so it is another run than the Cloud's, and the engine learns no
+// Cloud copy of it.
 func TestMergeValuesKeepsAnUnexpiredEntry(t *testing.T) {
 	t.Parallel()
 	bundle, _ := mergeTestSource(t, "root", "sent")
@@ -79,8 +81,8 @@ func TestMergeValuesKeepsAnUnexpiredEntry(t *testing.T) {
 	b.egraphMu.RUnlock()
 	require.False(t, imported, "the entry keeps its own computed value")
 	require.True(t, hasValue)
-	require.Equal(t, HolderKey{Cache: cloudCacheID, Number: bundle.Values[0].SenderNumber}, key, "and learns the Cloud's copy")
-	require.False(t, cloud.unstored)
+	require.Zero(t, key, "and learns no Cloud copy: the Cloud's is another run")
+	require.Nil(t, cloud)
 }
 
 // An expired entry that nothing uses takes the record in place: it keeps its
@@ -273,7 +275,8 @@ func mergeTestOffers(c *Cache, res *sharedResult) int {
 // point 3). A new entry stores the record and keeps its offers; an unexpired
 // record's offers go to the value an existing entry keeps; an expired
 // record's offers go to an unexpired value not at all, and to an expired one
-// only where it lacks one. A part complete locally takes no offer.
+// only where it lacks one. A part complete locally takes no offer. The kept
+// value is the record's run: the engine's own, come back from the Cloud.
 func TestMergeValuesAdmitsOffersByTheKeptValue(t *testing.T) {
 	t.Parallel()
 	t.Run("new entry", func(t *testing.T) {
@@ -293,6 +296,7 @@ func TestMergeValuesAdmitsOffersByTheKeptValue(t *testing.T) {
 		bundle := mergeTestOffered(t, "root")
 		bctx, b, bsrv := transferTestCache(t)
 		local := persistedListTestResult(t, bctx, b, bsrv, "root", &transferTestValue{Text: "pending"})
+		bundle = runTestRows(bundle, testRunOf(b, runTestID(local)), bundle.Values[0].SenderNumber)
 		_, err := b.MergeValues(bctx, cloudCacheID, bundle)
 		require.NoError(t, err)
 		require.Equal(t, 1, mergeTestOffers(b, local.cacheSharedResult()))
@@ -306,6 +310,7 @@ func TestMergeValuesAdmitsOffersByTheKeptValue(t *testing.T) {
 		bundle = mergeTestUnderLiveRoot(t, bundle)
 		bctx, b, bsrv := transferTestCache(t)
 		local := persistedListTestResult(t, bctx, b, bsrv, "root", &transferTestValue{Text: "pending"})
+		bundle = runTestRows(bundle, testRunOf(b, runTestID(local)), bundle.Values[0].SenderNumber)
 		_, err := b.MergeValues(bctx, cloudCacheID, bundle)
 		require.NoError(t, err)
 		require.Zero(t, mergeTestOffers(b, local.cacheSharedResult()))
@@ -317,6 +322,7 @@ func TestMergeValuesAdmitsOffersByTheKeptValue(t *testing.T) {
 		bctx, b, bsrv := transferTestCache(t)
 		local := persistedListTestResult(t, bctx, b, bsrv, "root", &transferTestValue{Text: "pending"})
 		mergeTestExpire(b, local.cacheSharedResult())
+		bundle = runTestRows(bundle, testRunOf(b, runTestID(local)), bundle.Values[0].SenderNumber)
 		_, err := b.MergeValues(bctx, cloudCacheID, bundle)
 		require.NoError(t, err)
 		require.Equal(t, 1, mergeTestOffers(b, local.cacheSharedResult()), "the part it lacked")
@@ -329,6 +335,7 @@ func TestMergeValuesAdmitsOffersByTheKeptValue(t *testing.T) {
 		local := persistedListTestResult(t, bctx, b, bsrv, "root", &transferTestValue{Text: "snapshot", links: []PersistedSnapshotRefLink{{Role: "snapshot", RefKey: "complete-snapshot"}}})
 		row := local.cacheSharedResult()
 		b.completePartKeys(bctx, row)
+		bundle = runTestRows(bundle, testRunOf(b, runTestID(local)), bundle.Values[0].SenderNumber)
 		reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 		require.NoError(t, err)
 		require.Zero(t, mergeTestOffers(b, row), "a complete part takes no offer")
@@ -407,7 +414,7 @@ func TestMergeValuesReplacesAnExpiredCloudRecord(t *testing.T) {
 	first, err := cloud.MergeValues(ctx, "cache-a", bundle)
 	require.NoError(t, err)
 	number := first.Imported()[0].ResultID
-	stored, _, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, number, testRunOf(cloud, number), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	cloud.egraphMu.RLock()
@@ -440,6 +447,20 @@ func mergeTestThroughTheCloud(t *testing.T, exported ValueBundle) (context.Conte
 	sent, err := cloud.StoredBundle(ctx, roots, time.Now().Unix(), nil)
 	require.NoError(t, err)
 	return ctx, cloud, sent.Bundle
+}
+
+// mergeTestSentNumber returns the number sent names the record of exported's
+// row for res by: the Cloud's number for it.
+func mergeTestSentNumber(t *testing.T, exported, sent ValueBundle, res AnyResult) uint64 {
+	t.Helper()
+	ordinal := mergeTestOrdinalOf(t, exported, res.cacheSharedResult())
+	for _, value := range sent.Values {
+		if value.Ordinal == ordinal {
+			return value.SenderNumber
+		}
+	}
+	t.Fatalf("sent carries no record of ordinal %d", ordinal)
+	return 0
 }
 
 // mergeTestHolding returns cache's holding on the entry of key.
@@ -740,8 +761,10 @@ func TestMergeValuesOnTheCloudCreatesTheSendersHoldings(t *testing.T) {
 }
 
 // B holds a retained R that depends on a retired P; P's recipe's current entry
-// is P'. A merged bundle with R -> P lands R on B's R, which keeps its value,
-// and the reply reports R's actual dependency, P, not P'.
+// is P'. A merged bundle with R -> P, of B's own runs come back from the
+// Cloud, lands R on B's R, which keeps its value, and the reply reports R's
+// actual dependency, P, not P'. P's record is another run than P', and the
+// reply leaves it out.
 func TestMergeValuesReportsAKeptEntrysOwnDependencies(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
@@ -758,9 +781,12 @@ func TestMergeValuesReportsAKeptEntrysOwnDependencies(t *testing.T) {
 	mergeTestExpire(b, p.cacheSharedResult())
 	pNew := persistedListTestResult(t, bctx, b, bsrv, "p", &transferTestValue{Text: "local p'"})
 	require.NotEqual(t, p.cacheSharedResult().id, pNew.cacheSharedResult().id)
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(r)), runTestID(sentR))
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(p)), runTestID(sentP))
 
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
+	require.Len(t, reply.Values, 1, "R alone: P's record is another run than P'")
 	for _, value := range reply.Values {
 		if value.Number == uint64(r.cacheSharedResult().id) {
 			require.Equal(t, []uint64{uint64(p.cacheSharedResult().id)}, value.Deps, "R's own dependency, the retired P")
@@ -1089,6 +1115,7 @@ func TestHeldValueStateRandomHistories(t *testing.T) {
 // that lacks the current entry's requirements publishes its own entry of the
 // recipe without indexing it; a record of that recipe still lands on the
 // indexed entry, and the unindexed one learns nothing of the Cloud's copy.
+// The record is the indexed entry's run, come back from the Cloud.
 func TestMergeValuesTargetsOnlyTheIndexedEntry(t *testing.T) {
 	t.Parallel()
 	bundle, _ := mergeTestSource(t, "root", "sent")
@@ -1118,6 +1145,7 @@ func TestMergeValuesTargetsOnlyTheIndexedEntry(t *testing.T) {
 	unindexed := publish(cCtx, "session-c", "unindexed")
 	indexedRow, unindexedRow := indexed.cacheSharedResult(), unindexed.cacheSharedResult()
 	require.NotEqual(t, indexedRow.id, unindexedRow.id, "session C lacks the requirements")
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(indexed)), bundle.Values[0].SenderNumber)
 
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
@@ -1267,15 +1295,16 @@ func TestApplyMergedReplyThenAPruneDrop(t *testing.T) {
 
 // The Cloud applies the merged reply of the R -> retired P case: R's holding
 // depends on B's retired P, which the Cloud holds nothing of, so the number
-// waits as an unknown dependency; P's record landed on the current P', whose
-// holding nothing owns and the collection pass collects.
+// waits as an unknown dependency. P's record is another run than the current
+// P' it landed on, so the reply names no holding of P' to collect.
 func TestApplyMergedReplyKeepsAKeptEntrysOwnDependencies(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
 	sentR := persistedListTestResult(t, actx, a, asrv, "r", &transferTestValue{Text: "r"})
 	sentP := persistedListTestResult(t, actx, a, asrv, "p", &transferTestValue{Text: "p"})
 	transferTestDependency(a, actx, sentR, sentP)
-	ctx, cloud, sent := mergeTestThroughTheCloud(t, exportTestBundle(t, actx, a, sentR))
+	exported := exportTestBundle(t, actx, a, sentR)
+	ctx, cloud, sent := mergeTestThroughTheCloud(t, exported)
 
 	bctx, b, bsrv := transferTestCache(t)
 	r := persistedListTestResult(t, bctx, b, bsrv, "r", &transferTestValue{Text: "local r"})
@@ -1283,6 +1312,9 @@ func TestApplyMergedReplyKeepsAKeptEntrysOwnDependencies(t *testing.T) {
 	transferTestDependency(b, bctx, r, p)
 	mergeTestExpire(b, p.cacheSharedResult())
 	pNew := persistedListTestResult(t, bctx, b, bsrv, "p", &transferTestValue{Text: "local p'"})
+	require.NotEqual(t, runTestID(p), runTestID(pNew))
+	sent = runTestRows(sent, testRunOf(b, runTestID(r)), mergeTestSentNumber(t, exported, sent, sentR))
+	sent = runTestRows(sent, testRunOf(b, runTestID(p)), mergeTestSentNumber(t, exported, sent, sentP))
 	reply, err := b.MergeValues(bctx, cloudCacheID, sent)
 	require.NoError(t, err)
 
@@ -1290,8 +1322,7 @@ func TestApplyMergedReplyKeepsAKeptEntrysOwnDependencies(t *testing.T) {
 	require.NoError(t, err)
 	collected, _, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
 	require.NoError(t, err)
-	pNewKey := HolderKey{Cache: "cache-b", Number: uint64(pNew.cacheSharedResult().id)}
-	require.Equal(t, []HolderKey{pNewKey}, collected, "P' is nobody's dependency")
+	require.Empty(t, collected, "no holding of P'")
 	h := mergeTestHolding(t, cloud, HolderKey{Cache: "cache-b", Number: uint64(r.cacheSharedResult().id)})
 	require.Empty(t, h.Deps)
 	require.Equal(t, []uint64{uint64(p.cacheSharedResult().id)}, h.UnknownDeps, "R's own dependency, the retired P")
@@ -1412,7 +1443,7 @@ func TestMergeValuesKeepsAnExpiredDependencysStoredPart(t *testing.T) {
 	reply, err := cloud.MergeValues(ctx, "cache-a", first)
 	require.NoError(t, err)
 	number := numberOf(reply, firstP)
-	stored, _, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, number, testRunOf(cloud, number), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 
@@ -1516,16 +1547,23 @@ func mergeTestTwoValues(t *testing.T, oldOffer, freshOffer string, expireFresh b
 	require.NoError(t, err)
 	require.NotEqual(t, old.cacheSharedResult().id, fresh.cacheSharedResult().id, "P is retired")
 	offer(fresh, freshOffer)
-	roots := []AnyResult{parent, fresh}
+	roots, values := []AnyResult{parent, fresh}, 3
 	if expireFresh {
 		both := persistedListTestResult(t, ctx, a, srv, "two-values-both", DynamicResultArrayOutput{Elem: &transferTestValue{}, Values: []AnyResult{old, fresh}})
 		mergeTestExpire(a, fresh.cacheSharedResult())
-		roots = []AnyResult{both}
+		roots, values = []AnyResult{parent, both}, 4
 	}
 	bundle := exportTestBundle(t, ctx, a, roots...)
-	require.Len(t, bundle.Values, 3)
+	require.Len(t, bundle.Values, values)
 	t.Cleanup(func() { require.NoError(t, a.ReleaseSession(ctx, "fresh-session")) })
 	return bundle, old.cacheSharedResult(), fresh.cacheSharedResult()
+}
+
+// mergeTestOneRun returns a copy of bundle whose records of the sender's
+// entries old and fresh name one run, fresh's: one run the sender holds on
+// two entries, whose records land on one entry.
+func mergeTestOneRun(bundle ValueBundle, old, fresh AnyResult) ValueBundle {
+	return runTestRows(bundle, RunName{Cache: "sender", Number: runTestID(fresh)}, runTestID(old), runTestID(fresh))
 }
 
 // mergeTestOrdinalOf returns the bundle ordinal of the sending cache's entry.
@@ -1553,11 +1591,12 @@ func mergeTestValueOf(t *testing.T, reply MergeReply, ordinal TransferOrdinal) M
 }
 
 // A bundle can carry two records of one recipe: a retired, expired P that a
-// live R depends on, and the current P'. The recipe is decided once, by its
-// best record, the first unexpired one: the recipe's entry stores the record
-// of P', with its expiry; P's record lands on the same entry and adds none of
-// its parts to that unexpired value; and R's dependency is that entry. On the
-// Cloud, the sending engine's holdings of both P and P' sit on it.
+// live R depends on, and the current P'. They are two runs. The recipe is
+// decided once, by its best record, the first unexpired one: the recipe's
+// entry stores the record of P', with its expiry. P's record is another run:
+// it adds none of its parts to the entry, the reply leaves it out, and R,
+// computed over P, is skipped, since it would land beside the run of P'. On
+// the Cloud, only the sending engine's holding of P' sits on the entry.
 func TestMergeValuesDecidesARecipeByItsBestRecord(t *testing.T) {
 	t.Parallel()
 	for _, cloud := range []bool{false, true} {
@@ -1577,20 +1616,18 @@ func TestMergeValuesDecidesARecipeByItsBestRecord(t *testing.T) {
 			}
 			reply, err := b.MergeValues(ctx, from, bundle)
 			require.NoError(t, err)
-			oldValue := mergeTestValueOf(t, reply, mergeTestOrdinalOf(t, bundle, old))
 			freshValue := mergeTestValueOf(t, reply, mergeTestOrdinalOf(t, bundle, fresh))
-			require.Equal(t, freshValue.Number, oldValue.Number, "one entry for the recipe")
+			require.Len(t, reply.Values, 1, "P' alone: P is another run, and R was computed over it")
+			require.NotEqual(t, mergeTestOrdinalOf(t, bundle, old), reply.Values[0].Ordinal)
 			require.Zero(t, freshValue.ExpiresAtUnix, "it stores the unexpired record of P'")
+			for _, root := range reply.Roots {
+				require.Equal(t, root.Ordinal != mergeTestOrdinalOf(t, bundle, fresh), root.OtherRun, "R is skipped")
+			}
 			b.egraphMu.RLock()
 			stored, err := json.Marshal(b.resultsByID[sharedResultID(freshValue.Number)].persistedEnvelope)
 			b.egraphMu.RUnlock()
 			require.NoError(t, err)
 			require.Contains(t, string(stored), "fresh value")
-			for _, value := range reply.Values {
-				if value.Number != freshValue.Number {
-					require.Equal(t, []uint64{freshValue.Number}, value.Deps, "R's dependency is the recipe's entry")
-				}
-			}
 			b.egraphMu.RLock()
 			entry := b.resultsByID[sharedResultID(freshValue.Number)]
 			offers := len(entry.testPartOffers())
@@ -1603,7 +1640,7 @@ func TestMergeValuesDecidesARecipeByItsBestRecord(t *testing.T) {
 				for _, h := range info.Holdings {
 					keys = append(keys, h.Key)
 				}
-				require.ElementsMatch(t, []HolderKey{{"cache-a", uint64(old.id)}, {"cache-a", uint64(fresh.id)}}, keys)
+				require.ElementsMatch(t, []HolderKey{{"cache-a", uint64(fresh.id)}}, keys)
 			}
 		})
 	}
@@ -1628,17 +1665,19 @@ func TestMergeValuesBestRecordReplacesAnUnusedExpiredEntry(t *testing.T) {
 	require.Zero(t, value.ExpiresAtUnix)
 }
 
-// When every record of a recipe has expired, the first decides and the others
-// add only what the entry lacks.
+// When every record of a recipe has expired, the first decides. The others
+// are other runs, and add nothing, not even a part the entry lacks. The bundle
+// is a list over the first, P, and a list over both P and P': the second holds
+// two runs of one recipe, and is skipped.
 func TestMergeValuesFirstOfExpiredRecordsDecides(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name            string
 		oldOffer, fresh string
-		want            string
+		want            []string
 	}{
-		{"the first's part stays", "/first", "/second", "/first"},
-		{"a part the entry lacks is added", "", "/second", "/second"},
+		{"the first's part stays", "/first", "/second", []string{"/first"}},
+		{"another run adds no part the entry lacks", "", "/second", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -1647,7 +1686,10 @@ func TestMergeValuesFirstOfExpiredRecordsDecides(t *testing.T) {
 			reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 			require.NoError(t, err)
 			oldValue := mergeTestValueOf(t, reply, mergeTestOrdinalOf(t, bundle, old))
-			require.Equal(t, oldValue.Number, mergeTestValueOf(t, reply, mergeTestOrdinalOf(t, bundle, fresh)).Number)
+			for _, value := range reply.Values {
+				require.NotEqual(t, mergeTestOrdinalOf(t, bundle, fresh), value.Ordinal, "P' is another run")
+			}
+			require.Len(t, reply.Imported(), 1, "the list over both is skipped")
 			b.egraphMu.RLock()
 			entry := b.resultsByID[sharedResultID(oldValue.Number)]
 			var paths []string
@@ -1656,7 +1698,7 @@ func TestMergeValuesFirstOfExpiredRecordsDecides(t *testing.T) {
 			}
 			env := entry.persistedEnvelope
 			b.egraphMu.RUnlock()
-			require.Equal(t, []string{tc.want}, paths)
+			require.Equal(t, tc.want, paths)
 			require.NotNil(t, env)
 			stored, err := json.Marshal(env)
 			require.NoError(t, err)
@@ -1687,7 +1729,8 @@ func TestMergeValuesReplyReportsAnInstalledRecordsCompleteParts(t *testing.T) {
 // An entry the merge creates that nothing owns is collected in the commit,
 // and the reply leaves it out. B keeps its R, whose own dependency is its
 // retired P; the current entry of P's recipe was pruned. The bundle's P, which
-// only the bundle's R needed, gets a new entry that nothing owns.
+// only the bundle's R needed, gets a new entry that nothing owns. The bundle
+// is B's R and P, come back from the Cloud.
 func TestMergeValuesCollectsAnUnusedCreatedEntry(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
@@ -1710,6 +1753,8 @@ func TestMergeValuesCollectsAnUnusedCreatedEntry(t *testing.T) {
 	entries := len(b.resultsByID)
 	b.egraphMu.RUnlock()
 	require.False(t, freshSurvived, "precondition: only R and its retired P remain")
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(r)), runTestID(ar))
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(old)), runTestID(ap))
 
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
@@ -1727,9 +1772,9 @@ func TestMergeValuesCollectsAnUnusedCreatedEntry(t *testing.T) {
 
 // A merge that would close a dependency cycle is refused, like any failed
 // check, and changes nothing. On the Cloud, which always replaces, a kept A
-// -> B and a new record B -> A would close one. On an engine, the two
-// records of one recipe on one entry can: P' -> R, and R -> P lands on the
-// entry of P'.
+// -> B and a new record B -> A over the same run of A would close one. On an
+// engine, the two records of one run on one entry can: P' -> R, and R -> P
+// lands on the entry of P'.
 func TestMergeValuesRefusesADependencyCycle(t *testing.T) {
 	t.Parallel()
 	t.Run("cloud", func(t *testing.T) {
@@ -1749,7 +1794,9 @@ func TestMergeValuesRefusesADependencyCycle(t *testing.T) {
 		qa := persistedListTestResult(t, bctx, b, bsrv, "cycle-a", String("a"))
 		qb := persistedListTestResult(t, bctx, b, bsrv, "cycle-b", String("new-b"))
 		require.NoError(t, b.AddExplicitDependency(bctx, qb, qa, "test"))
-		second := exportTestBundle(t, bctx, b, qb)
+		aRun, ok := cloud.EntryRun(uint64(aNumber))
+		require.True(t, ok)
+		second := runTestRows(exportTestBundle(t, bctx, b, qb), aRun, runTestID(qa))
 
 		cloud.egraphMu.RLock()
 		var bNumber sharedResultID
@@ -1782,7 +1829,7 @@ func TestMergeValuesRefusesADependencyCycle(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEqual(t, old.cacheSharedResult().id, fresh.cacheSharedResult().id)
 		require.NoError(t, a.AddExplicitDependency(ctx, fresh, r, "test"))
-		bundle := exportTestBundle(t, ctx, a, fresh)
+		bundle := mergeTestOneRun(exportTestBundle(t, ctx, a, fresh), old, fresh)
 		require.Len(t, bundle.Values, 3)
 
 		bctx, b, _ := transferTestCache(t)
@@ -1799,9 +1846,9 @@ func TestMergeValuesRefusesADependencyCycle(t *testing.T) {
 	})
 }
 
-// The same rule when one live list holds both values of the recipe, the
-// retired, expired one and the current one: the unexpired record is the
-// recipe's, into an engine and into the Cloud.
+// One live list can hold both values of the recipe, the retired, expired one
+// and the current one: two runs of it. An entry holds one run, so the list is
+// skipped, into an engine and into the Cloud.
 func TestMergeValuesDecidesARecipeHeldTwiceInAList(t *testing.T) {
 	t.Parallel()
 	ctx, a, srv := transferTestCache(t)
@@ -1816,7 +1863,6 @@ func TestMergeValuesDecidesARecipeHeldTwiceInAList(t *testing.T) {
 	root := persistedListTestResult(t, ctx, a, srv, "both-values", DynamicResultArrayOutput{Elem: String(""), Values: []AnyResult{old, fresh}})
 	bundle := exportTestBundle(t, ctx, a, root)
 	require.Len(t, bundle.Values, 3)
-	freshOrdinal := mergeTestOrdinalOf(t, bundle, fresh.cacheSharedResult())
 	for _, cloud := range []bool{false, true} {
 		t.Run(map[bool]string{false: "engine", true: "cloud"}[cloud], func(t *testing.T) {
 			bctx, b, _ := transferTestCache(t)
@@ -1827,16 +1873,18 @@ func TestMergeValuesDecidesARecipeHeldTwiceInAList(t *testing.T) {
 			}
 			reply, err := b.MergeValues(bctx, from, bundle)
 			require.NoError(t, err)
-			value := mergeTestValueOf(t, reply, freshOrdinal)
-			require.True(t, value.ExpiresAtUnix == 0 || value.ExpiresAtUnix > time.Now().Unix(), "the unexpired record decides: %+v", value)
+			require.Len(t, reply.Roots, 1)
+			require.True(t, reply.Roots[0].OtherRun, "the list holds two runs of one recipe")
+			require.Empty(t, reply.Imported())
 		})
 	}
 	require.NoError(t, a.ReleaseSession(ctx, "new-session"))
 }
 
 // Requirements follow the final graph. The export is P (expired, retired), R
-// -> P, a session resource H, and the current P' -> H. The merge maps R's
-// dependency to the entry of P', which comes after R in the bundle;
+// -> P, a session resource H, and the current P' -> H, P and P' of one run.
+// The merge maps R's dependency to the entry of P', which comes after R in
+// the bundle;
 // recomputed in the final graph's dependency order, R requires H, and a
 // session that hasn't bound H is refused R.
 func TestMergeValuesRecomputesRequirementsInFinalGraphOrder(t *testing.T) {
@@ -1861,7 +1909,7 @@ func TestMergeValuesRecomputesRequirementsInFinalGraphOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.AddExplicitDependency(newCtx, fresh, attachedLeaf, "test"))
 	require.NoError(t, cacheRequiredSessionResourcesError(a))
-	bundle := exportTestBundle(t, ctx, a, r, fresh)
+	bundle := mergeTestOneRun(exportTestBundle(t, ctx, a, r, fresh), old, fresh)
 
 	bctx, b, bsrv := transferTestCache(t)
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
@@ -1881,7 +1929,8 @@ func TestMergeValuesRecomputesRequirementsInFinalGraphOrder(t *testing.T) {
 
 // The graph check counts only the offers merge admits. A retired, expired P
 // holds an offer whose owner is the current P'; R -> P -(offer)-> P' is
-// acyclic. The merge maps P and P' to one entry, whose value is that of P', and
+// acyclic. P and P' are one run. The merge maps P and P' to one entry, whose
+// value is that of P', and
 // P's expired offer is not admitted there: it closes no cycle, and the merge
 // succeeds with no offer on the entry.
 func TestMergeValuesChecksOnlyTheAdmittedOffers(t *testing.T) {
@@ -1901,7 +1950,7 @@ func TestMergeValuesChecksOnlyTheAdmittedOffers(t *testing.T) {
 	out, err := a.testOfferParts(ctx, old, []PersistedPartOffer{offer})
 	require.NoError(t, err)
 	require.Equal(t, OfferAccepted, out[0].Outcome)
-	bundle := exportTestBundle(t, ctx, a, root)
+	bundle := mergeTestOneRun(exportTestBundle(t, ctx, a, root), old, fresh)
 	require.Len(t, bundle.Values, 3)
 
 	bctx, b, _ := transferTestCache(t)
@@ -1980,7 +2029,8 @@ func TestMergeValuesChecksNoDiscardedOffer(t *testing.T) {
 // offer owned by Y; the bundle admits an offer on Y owned by X. With the
 // bundle's X record replacing X's offer by one Y doesn't own, there is no
 // cycle and the merge succeeds. Without it, X -> Y -> X is a real cycle, and
-// the merge is refused.
+// the merge is refused. The bundle is the receiver's X and Y, come back from
+// the Cloud.
 func TestMergeValuesChecksTheOffersTheCommitLeaves(t *testing.T) {
 	t.Parallel()
 	for _, replaces := range []bool{true, false} {
@@ -2002,6 +2052,8 @@ func TestMergeValuesChecksTheOffersTheCommitLeaves(t *testing.T) {
 			keptX := persistedListTestResult(t, bctx, b, bsrv, "leaves-x", &transferTestValue{Text: "pending"})
 			keptY := persistedListTestResult(t, bctx, b, bsrv, "leaves-y", &transferTestValue{Text: "pending"})
 			mergeTestOfferOn(t, bctx, b, keptX, "/old", keptY)
+			bundle = runTestRows(bundle, testRunOf(b, runTestID(keptX)), runTestID(x))
+			bundle = runTestRows(bundle, testRunOf(b, runTestID(keptY)), runTestID(y))
 			_, err := b.MergeValues(bctx, cloudCacheID, bundle)
 			if !replaces {
 				require.ErrorContains(t, err, "cycle")
@@ -2025,7 +2077,8 @@ func TestMergeValuesChecksTheOffersTheCommitLeaves(t *testing.T) {
 // attach. The receiver keeps Z -> Y and Y's offer owned by X; the bundle
 // brings X's offer owned by Z and Y's new offer with no owner, X's row first.
 // The final graph X -> Z -> Y is acyclic, and Y's old edge to X must not
-// refuse X's offer on the way.
+// refuse X's offer on the way. The bundle is the receiver's X, Y and Z, come
+// back from the Cloud.
 func TestMergeValuesAppliesTheCheckedOfferGraph(t *testing.T) {
 	t.Parallel()
 	ctx, a, srv := transferTestCache(t)
@@ -2043,6 +2096,9 @@ func TestMergeValuesAppliesTheCheckedOfferGraph(t *testing.T) {
 	keptZ := persistedListTestResult(t, bctx, b, bsrv, "applied-z", String("z"))
 	require.NoError(t, b.AddExplicitDependency(bctx, keptZ, keptY, "test"))
 	mergeTestOfferOn(t, bctx, b, keptY, "/old-y", keptX)
+	for _, pair := range [][2]AnyResult{{x, keptX}, {y, keptY}, {z, keptZ}} {
+		bundle = runTestRows(bundle, testRunOf(b, runTestID(pair[1])), runTestID(pair[0]))
+	}
 
 	_, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err, "the checked final graph is acyclic")
@@ -2053,6 +2109,7 @@ func TestMergeValuesAppliesTheCheckedOfferGraph(t *testing.T) {
 // The same through a recipe's best record: the sender's retired X owns Y's
 // offer, and its current X' brings an offer that replaces the receiver's X
 // offer owned by Y. The final graph is Y -> X, whatever order the rows take.
+// X and X' are the receiver's X, and Y its Y, come back from the Cloud.
 func TestMergeValuesAppliesTheCheckedOfferGraphOfABestRecord(t *testing.T) {
 	t.Parallel()
 	ctx, a, srv := transferTestCache(t)
@@ -2074,6 +2131,8 @@ func TestMergeValuesAppliesTheCheckedOfferGraphOfABestRecord(t *testing.T) {
 	keptX := persistedListTestResult(t, bctx, b, bsrv, "applied-best-x", &transferTestValue{Text: "pending"})
 	keptY := persistedListTestResult(t, bctx, b, bsrv, "applied-best-y", &transferTestValue{Text: "pending"})
 	mergeTestOfferOn(t, bctx, b, keptX, "/old-x", keptY)
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(keptX)), runTestID(oldX), runTestID(freshX))
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(keptY)), runTestID(y))
 
 	_, err = b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err, "the final graph Y -> X is acyclic")
@@ -2103,7 +2162,8 @@ func mergeTestOfferPaths(c *Cache, res *sharedResult) []string {
 // the current entry's requirements can leave, both admit an offer for the
 // same part of the entry they land on. Only the final one attaches: the first
 // is owned by Y, which depends on X in the receiver, and would close X -> Y ->
-// X even briefly.
+// X even briefly. Both records are the receiver's X, and Y its Y, come back
+// from the Cloud.
 func TestMergeValuesAttachesOnlyTheFinalOfferOfAPart(t *testing.T) {
 	t.Parallel()
 	ctx, a, srv := transferTestCache(t)
@@ -2140,6 +2200,8 @@ func TestMergeValuesAttachesOnlyTheFinalOfferOfAPart(t *testing.T) {
 	keptX := persistedListTestResult(t, bctx, b, bsrv, "final-offer-x", &transferTestValue{Text: "pending"})
 	keptY := persistedListTestResult(t, bctx, b, bsrv, "final-offer-y", &transferTestValue{Text: "pending"})
 	require.NoError(t, b.AddExplicitDependency(bctx, keptY, keptX, "test"))
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(keptX)), runTestID(first), runTestID(second))
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(keptY)), runTestID(y))
 	_, err = b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
 	require.Equal(t, []string{"/second"}, mergeTestOfferPaths(b, keptX.cacheSharedResult()), "only the final offer of the part")
@@ -2147,7 +2209,7 @@ func TestMergeValuesAttachesOnlyTheFinalOfferOfAPart(t *testing.T) {
 	require.NoError(t, a.ReleaseSession(cCtx, "session-c"))
 }
 
-// A record that references two records of one recipe, which land on one
+// A record that references two records of one run, which land on one
 // entry, takes that entry once: it has one dependency, the entry counts one
 // unit of ownership from it, and each of its references names one of its
 // dependencies. The merge validates records at their provisional numbers,
@@ -2164,7 +2226,7 @@ func TestMergeValuesRelocationKeepsReferencesWithinDependencies(t *testing.T) {
 	})
 	require.NoError(t, err)
 	root := persistedListTestResult(t, ctx, a, srv, "both-relocated", DynamicResultArrayOutput{Elem: String(""), Values: []AnyResult{old, fresh}})
-	bundle := exportTestBundle(t, ctx, a, root)
+	bundle := mergeTestOneRun(exportTestBundle(t, ctx, a, root), old, fresh)
 	require.Len(t, bundle.Values, 3)
 	rootOrdinal := mergeTestOrdinalOf(t, bundle, root.cacheSharedResult())
 
@@ -2191,7 +2253,7 @@ func TestMergeValuesRelocationKeepsReferencesWithinDependencies(t *testing.T) {
 	require.NoError(t, a.ReleaseSession(ctx, "new-session"))
 }
 
-// An offer whose owner lists two records of one recipe, which land on one
+// An offer whose owner lists two records of one run, which land on one
 // entry, is admitted with that entry once in its owner, whether the offer's
 // receiver is created by the merge or is the engine's own entry.
 func TestMergeValuesOfferOwnerNamingOneEntryTwice(t *testing.T) {
@@ -2206,7 +2268,7 @@ func TestMergeValuesOfferOwnerNamingOneEntryTwice(t *testing.T) {
 	require.NoError(t, err)
 	root := persistedListTestResult(t, ctx, a, srv, "owned-twice", &transferTestValue{Text: "pending"})
 	mergeTestOfferOn(t, ctx, a, root, "/", old, fresh)
-	bundle := exportTestBundle(t, ctx, a, root)
+	bundle := mergeTestOneRun(exportTestBundle(t, ctx, a, root), old, fresh)
 	require.Len(t, bundle.Values, 3, "the root and the owner's two records")
 	rootOrdinal := mergeTestOrdinalOf(t, bundle, root.cacheSharedResult())
 	freshOrdinal := mergeTestOrdinalOf(t, bundle, fresh.cacheSharedResult())
@@ -2215,8 +2277,10 @@ func TestMergeValuesOfferOwnerNamingOneEntryTwice(t *testing.T) {
 		t.Run(map[bool]string{false: "a created receiver", true: "the engine's own receiver"}[own], func(t *testing.T) {
 			bctx, b, bsrv := transferTestCache(t)
 			var mine uint64
+			bundle := bundle
 			if own {
 				mine = uint64(persistedListTestResult(t, bctx, b, bsrv, "owned-twice", &transferTestValue{Text: "pending"}).cacheSharedResult().id)
+				bundle = runTestRows(bundle, testRunOf(b, mine), runTestID(root))
 			}
 			reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 			require.NoError(t, err)
@@ -2296,11 +2360,11 @@ func mergeTestReadList(t *testing.T, ctx context.Context, list AnyResult) []stri
 	return got
 }
 
-// A merge keeps the cache's own value for a list recipe and moves the
-// bundle's references to it, so an item read from the bundle's list value
-// comes to name the cache's list. Reads of that list must still return its
-// own items, and the imported item still loads as the value it was.
-func TestMergeValuesKeptListReadsItsOwnItems(t *testing.T) {
+// An item read from a list is computed over that list's run. A merge of an
+// item read from another run of a list the cache keeps is skipped: hung on
+// the cache's own list, it would read as an item of it. The list reads its
+// own items.
+func TestMergeValuesSkipsAnItemOfAnotherRunOfAList(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
 	source := persistedListTestResult(t, actx, a, asrv, "merge-kept-list", NewStringArray("a", "b", "c"))
@@ -2312,52 +2376,17 @@ func TestMergeValuesKeptListReadsItsOwnItems(t *testing.T) {
 	local := persistedListTestResult(t, bctx, b, bsrv, "merge-kept-list", NewStringArray("c", "a", "b"))
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
-	imported, err := b.LoadResultByResultID(bctx, "test-session", bsrv, reply.Imported()[0].ResultID)
-	require.NoError(t, err)
-	frame, err := imported.ResultCall()
-	require.NoError(t, err)
-	require.Equal(t, uint64(local.cacheSharedResult().id), frame.Receiver.ResultID)
-	require.Equal(t, "a", imported.Unwrap().(String).String())
+	require.Len(t, reply.Roots, 1)
+	require.True(t, reply.Roots[0].OtherRun, "the item was read from another run of the list")
+	require.Empty(t, reply.Imported())
 
 	require.Equal(t, []string{"c", "a", "b"}, mergeTestReadList(t, bctx, local))
 }
 
-// A bundle can carry a list and an item read from another value of the list's
-// recipe: the cache that exported it had merged the item beside its own
-// list, as above. A cache that takes both reads the list's own items.
-func TestMergeValuesTransferredItemOfAnotherValueIsNotRead(t *testing.T) {
-	t.Parallel()
-	actx, a, asrv := transferTestCache(t)
-	source := persistedListTestResult(t, actx, a, asrv, "merge-mixed-list", NewStringArray("a", "b", "c"))
-	sourceItem, err := source.NthValue(actx, 1)
-	require.NoError(t, err)
-
-	bctx, b, bsrv := transferTestCache(t)
-	persistedListTestResult(t, bctx, b, bsrv, "merge-mixed-list", NewStringArray("c", "a", "b"))
-	reply, err := b.MergeValues(bctx, cloudCacheID, exportTestBundle(t, actx, a, sourceItem))
-	require.NoError(t, err)
-	mixedItem, err := b.LoadResultByResultID(bctx, "test-session", bsrv, reply.Imported()[0].ResultID)
-	require.NoError(t, err)
-	mixed := exportTestBundle(t, bctx, b, mixedItem)
-
-	cctx, c, csrv := transferTestCache(t)
-	reply, err = c.MergeValues(cctx, cloudCacheID, mixed)
-	require.NoError(t, err)
-	item, err := c.LoadResultByResultID(cctx, "test-session", csrv, reply.Imported()[0].ResultID)
-	require.NoError(t, err)
-	frame, err := item.ResultCall()
-	require.NoError(t, err)
-	list, err := c.LoadResultByResultID(cctx, "test-session", csrv, frame.Receiver.ResultID)
-	require.NoError(t, err)
-	require.Equal(t, "a", item.Unwrap().(String).String())
-
-	require.Equal(t, []string{"c", "a", "b"}, mergeTestReadList(t, cctx, list))
-}
-
 // A recorded item can be retained past its reading session by a field that
 // returns it, and gain that field's expiry. Once it has expired and nothing
-// uses it, a merge replaces its value in place with an item of another value
-// of the list's recipe. The list it was read from must not read that value.
+// uses it, a merge of an item read from another run of the list would replace
+// its value in place. That item is skipped, and the list reads its own items.
 func TestMergeValuesReplacedItemLeavesItsList(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
@@ -2388,18 +2417,18 @@ func TestMergeValuesReplacedItemLeavesItsList(t *testing.T) {
 	mergeTestExpire(b, row)
 	reply, err := b.MergeValues(reader, cloudCacheID, bundle)
 	require.NoError(t, err)
-	require.Equal(t, uint64(row.id), reply.Imported()[0].ResultID)
+	require.True(t, reply.Roots[0].OtherRun, "the item was read from another run of the list")
 	b.egraphMu.RLock()
 	replacements := row.replacements
 	b.egraphMu.RUnlock()
-	require.Equal(t, uint64(1), replacements)
+	require.Zero(t, replacements)
 
 	require.Equal(t, []string{"c", "a", "b"}, mergeTestReadList(t, reader, local))
 }
 
-// The Cloud keeps its own value for a list recipe when an engine's export of
-// an item of another value arrives, so the item comes to name the Cloud's
-// list. An engine that takes both from the Cloud reads the list's own items.
+// The Cloud keeps cache-b's run of a list recipe, and skips cache-a's export
+// of an item read from cache-a's run of it: hung on the Cloud's list, the item
+// would read as an item of it.
 func TestMergeValuesItemThroughTheCloudIsNotRead(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
@@ -2414,24 +2443,8 @@ func TestMergeValuesItemThroughTheCloudIsNotRead(t *testing.T) {
 	require.NoError(t, err)
 	reply, err := cloud.MergeValues(cloudCtx, "cache-a", exportTestBundle(t, actx, a, sourceItem))
 	require.NoError(t, err)
-	cloud.egraphMu.RLock()
-	cloudItem := cloud.resultsByID[sharedResultID(reply.Imported()[0].ResultID)]
-	cloud.egraphMu.RUnlock()
-
-	cctx, c, csrv := transferTestCache(t)
-	sent, err := cloud.StoredBundle(cloudCtx, []uint64{uint64(cloudItem.id)}, time.Now().Unix(), nil)
-	require.NoError(t, err)
-	reply, err = c.MergeValues(cctx, cloudCacheID, sent.Bundle)
-	require.NoError(t, err)
-	item, err := c.LoadResultByResultID(cctx, "test-session", csrv, reply.Imported()[0].ResultID)
-	require.NoError(t, err)
-	frame, err := item.ResultCall()
-	require.NoError(t, err)
-	list, err := c.LoadResultByResultID(cctx, "test-session", csrv, frame.Receiver.ResultID)
-	require.NoError(t, err)
-	require.Equal(t, "a", item.Unwrap().(String).String())
-
-	require.Equal(t, []string{"c", "a", "b"}, mergeTestReadList(t, cctx, list))
+	require.True(t, reply.Roots[0].OtherRun, "the item was read from another run of the list")
+	require.Empty(t, reply.Imported())
 }
 
 // TestMergeCommitNamesItsHolder: a merge's commit takes the graph lock as
@@ -2910,7 +2923,10 @@ func TestEngineMergeStillReportsItsTargetsParts(t *testing.T) {
 	root := persistedListTestResult(t, ctx, c, srv, "root-0", &transferTestValue{Text: "sent"})
 	local := persistedListTestResult(t, bctx, b, bsrv, "root-0", &transferTestValue{Text: "local"})
 	local.cacheSharedResult().completeParts.Store(nil)
+	// The Cloud's record is of the run b holds (cache_run.go): a record of
+	// another run would be kept apart, with no value in the reply.
 	bundle := exportTestBundle(t, ctx, c, root)
+	bundle = runTestRows(bundle, testRunOf(b, runTestID(local)), bundle.Values[0].SenderNumber)
 	holds := 0
 	b.testCaptureWriteLock = func() { holds++ }
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)

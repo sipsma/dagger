@@ -30,11 +30,12 @@ func WithBlobStore() CacheOption {
 
 // SetStoredPart records that part's layer chain is in the cache's blob store,
 // for the entry with the number. The part was uploaded from a copy of the
-// entry's recipe that expires at copyExpiresAtUnix (0: never). It is admitted
-// against the value the entry holds now, by the rule for attaching parts to
-// values: a copy that has not expired is interchangeable with it, and an
-// expired copy's part attaches only while the entry's value has expired too,
-// as the same expired value. Storing a part adds the entries its owner and
+// entry's recipe that holds run and expires at copyExpiresAtUnix (0: never).
+// It is admitted against the value the entry holds now: only a part of the
+// run the entry holds, since a part of another run of the recipe would sit
+// beside a record it wasn't made with (cache_run.go); and, of that run, a
+// copy that has not expired, or an expired copy's part while the entry's
+// value has expired too, as the same expired value. Storing a part adds the entries its owner and
 // services name as the entry's dependencies, as installing a part does on an
 // engine, so they live as long as the value; a part that names an entry the
 // cache doesn't have, an entry with no value, or one that reaches the entry,
@@ -43,8 +44,8 @@ func WithBlobStore() CacheOption {
 // call: storing the part would leave a value whose bundle can never be built.
 // It reports whether the part was stored, and what it changed. A metadata
 // part carries no bytes and is never stored.
-func (c *Cache) SetStoredPart(ctx context.Context, number uint64, part PersistedPartOffer, copyExpiresAtUnix int64) (_ bool, change RemoteChange, _ error) {
-	got, change, err := c.SetStoredParts(ctx, []StoredPartWrite{{Number: number, Part: part, CopyExpiresAtUnix: copyExpiresAtUnix}})
+func (c *Cache) SetStoredPart(ctx context.Context, number uint64, run RunName, part PersistedPartOffer, copyExpiresAtUnix int64) (_ bool, change RemoteChange, _ error) {
+	got, change, err := c.SetStoredParts(ctx, []StoredPartWrite{{Number: number, Run: run, Part: part, CopyExpiresAtUnix: copyExpiresAtUnix}})
 	if err != nil {
 		return false, change, err
 	}
@@ -55,7 +56,10 @@ func (c *Cache) SetStoredPart(ctx context.Context, number uint64, part Persisted
 // the part, and the expiry of the copy it was uploaded from (0: never), as
 // SetStoredPart takes them.
 type StoredPartWrite struct {
-	Number            uint64
+	Number uint64
+	// Run is the run of the copy the part was uploaded from: the part is
+	// stored only on an entry that holds that run.
+	Run               RunName
 	Part              PersistedPartOffer
 	CopyExpiresAtUnix int64
 }
@@ -116,20 +120,23 @@ func (c *Cache) SetStoredParts(ctx context.Context, parts []StoredPartWrite) (_ 
 		if ready[i] == nil {
 			continue
 		}
-		results[i].Stored, results[i].Err = c.setStoredPartLocked(ctx, w.Number, ready[i].key, ready[i].stored, w.CopyExpiresAtUnix, now)
+		results[i].Stored, results[i].Err = c.setStoredPartLocked(ctx, w.Number, w.Run, ready[i].key, ready[i].stored, w.CopyExpiresAtUnix, now)
 	}
 	return results, change, nil
 }
 
 // setStoredPartLocked admits one part as SetStoredPart does, at now.
 // Requires egraphMu for writing.
-func (c *Cache) setStoredPartLocked(ctx context.Context, number uint64, key string, stored storedPart, copyExpiresAtUnix, now int64) (bool, error) {
+func (c *Cache) setStoredPartLocked(ctx context.Context, number uint64, run RunName, key string, stored storedPart, copyExpiresAtUnix, now int64) (bool, error) {
 	res := c.resultsByID[sharedResultID(number)]
 	if res == nil {
 		return false, fmt.Errorf("set stored part: no entry %d", number)
 	}
 	if res.noValueLocked() {
 		return false, fmt.Errorf("set stored part: entry %d has no value", number)
+	}
+	if c.runOfLocked(res) != run {
+		return false, nil
 	}
 	copyExpired := copyExpiresAtUnix != 0 && now >= copyExpiresAtUnix
 	if copyExpired && !c.resultExpiredAtLocked(res, now) {
@@ -189,16 +196,19 @@ func (res *sharedResult) storedPartsLocked() []storedPart {
 // restoreStoredPartsLocked takes a blob-backed cache's restored value's
 // stored parts out of its saved envelope, onto the entry, and sets the size
 // of its record as merge measured it: the call frame's JSON and the envelope's
-// without them. callFrameBytes and payloadBytes are the sizes of the row's
-// saved call frame and envelope. Requires egraphMu for writing.
+// without them or the run, which the import took onto the entry already.
+// callFrameBytes and payloadBytes are the sizes of the row's saved call frame
+// and envelope. Requires egraphMu for writing.
 func (c *Cache) restoreStoredPartsLocked(res *sharedResult, env *PersistedResultEnvelope, callFrameBytes, payloadBytes int) error {
 	res.storedRecordBytes = int64(callFrameBytes + payloadBytes)
-	if len(env.StoredParts) == 0 {
+	if len(env.StoredParts) == 0 && res.run == nil {
 		return nil
 	}
 	parts := env.StoredParts
 	env.StoredParts = nil
-	res.storedParts = make(map[string]storedPart, len(parts))
+	if len(parts) > 0 {
+		res.storedParts = make(map[string]storedPart, len(parts))
+	}
 	for _, part := range parts {
 		key, err := partAddressKey(part.Address)
 		if err != nil {

@@ -265,7 +265,8 @@ func TestMergeHeldRowStaleWhenTheEnginesValueExpired(t *testing.T) {
 
 // A held row can name a value the engine computed in a session, which only
 // the session holds: the merged root depends on it, so it outlives the
-// session. Without the merge, it goes with the session.
+// session. Without the merge, it goes with the session. The Cloud's P is that
+// value's run, from the engine's export.
 func TestMergeHeldRowKeepsASessionValueAlive(t *testing.T) {
 	t.Parallel()
 	cctx, control, csrv := transferTestCache(t)
@@ -281,6 +282,7 @@ func TestMergeHeldRowKeepsASessionValueAlive(t *testing.T) {
 	bctx, b, bsrv := transferTestCache(t)
 	pb := heldTestSessionValue(t, bctx, b, bsrv)
 	heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
+	runTestSetRun(cloud, p, testRunOf(b, pb))
 	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
 	require.NoError(t, err)
 	require.Equal(t, []uint64{p}, got.Held)
