@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dagger/dagger/dagql/call"
@@ -106,6 +107,31 @@ func storedBundleTestClassMember(t *testing.T, ctx context.Context, cloud *Cache
 		require.NoError(t, cloud.TeachContentDigest(ctx, Result[Typed]{shared: storedBundleTestEntry(cloud, number)}, testDigest("bundle-class-content")))
 	}
 	return member
+}
+
+// A stored record's declared parts are mapped once for each of its versions,
+// not again by every bundle that carries it: a second bundle of the same
+// root maps nothing, and carries the same outputs.
+func TestStoredBundleMapsDeclaredPartsOncePerRecord(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
+	member := storedBundleTestClassMember(t, ctx, cloud, r, "bundle-member")
+	stored, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	var mapped atomic.Int64
+	cloud.testStoredDeclaredPartsMapped = func() { mapped.Add(1) }
+
+	first, err := cloud.StoredBundle(ctx, []uint64{r}, nil)
+	require.NoError(t, err)
+	require.Len(t, first.Bundle.Outputs, 1, "the declared part is borrowed")
+	require.Equal(t, int64(len(first.Bundle.Values)), mapped.Load(), "each record's declared parts mapped once")
+
+	second, err := cloud.StoredBundle(ctx, []uint64{r}, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(first.Bundle.Values)), mapped.Load(), "and not again")
+	require.Equal(t, first.Bundle.Outputs, second.Bundle.Outputs)
+	require.Equal(t, first.Donors, second.Donors)
 }
 
 // A part the entry's record declares and it doesn't store is borrowed from
