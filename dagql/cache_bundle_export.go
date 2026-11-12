@@ -55,6 +55,12 @@ func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results
 	if len(results) == 0 {
 		return errors.New("export bundle: no results")
 	}
+	builder := CacheID(c.Identity().ID)
+	if builder == "" {
+		// Its rows' runs are named by this cache's identity (writeBundle):
+		// without one, two bundles' runs could share a name.
+		return errors.New("export bundle: the cache has no identity to name its runs by")
+	}
 	// Every read of a busy row, the setup's and the capture's, shares one
 	// backoff and one count of the pauses (bundleWait).
 	wait := &bundleWait{}
@@ -92,7 +98,7 @@ func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results
 	selection := ValueSelection{Roots: roots, Outputs: outputs, EveryRoot: true}
 	for {
 		err := c.WithExportedValues(ctx, selection, cfg, func(ctx context.Context, values *ExportedValues) error {
-			return writeBundle(ctx, values, w)
+			return writeBundle(ctx, builder, values, w)
 		})
 		left := leftOutOnly(err)
 		if left == nil {
@@ -232,12 +238,20 @@ const maxLoggedDroppedOffers = 8
 // key, which only that engine can use. The bundle carries what the engine
 // holds, as on an engine with no remote cache: a part the engine installed
 // goes as an output, and one it was only offered was never needed.
-func writeBundle(ctx context.Context, values *ExportedValues, w BundleWriter) error {
+func writeBundle(ctx context.Context, builder CacheID, values *ExportedValues, w BundleWriter) error {
 	bundle := values.Bundle
 	bundle.Values = slices.Clone(bundle.Values)
 	var offered int
 	var named []string
 	for i := range bundle.Values {
+		// Every engine merges a bundle directory's rows from one sender,
+		// imageCacheID, so a row's sender number alone would name the same
+		// run in every bundle built. Each row names its run by the cache that
+		// made it: builder, or the one a merge gave the entry.
+		if bundle.Values[i].Run == nil {
+			run := TransferredRun(builder, bundle.Values[i])
+			bundle.Values[i].Run = &run
+		}
 		offers := bundle.Values[i].Record.Envelope.PendingOffers
 		if len(offers) == 0 {
 			continue
