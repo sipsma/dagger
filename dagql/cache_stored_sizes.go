@@ -122,6 +122,7 @@ func (c *Cache) storedSizes(ctx context.Context, roots []uint64, held *HeldBy, m
 type storedSizeMiss struct {
 	res                *sharedResult
 	env                *PersistedResultEnvelope
+	body               []byte
 	call               *ResultCall
 	deps               []uint64
 	dependencyRevision uint64
@@ -302,7 +303,7 @@ func storedValueMeasuredLocked(res *sharedResult) (int64, bool) {
 // storedSizeMissLocked reads the value state of res that its size depends on.
 // Requires egraphMu.
 func storedSizeMissLocked(res *sharedResult) storedSizeMiss {
-	miss := storedSizeMiss{res: res, env: res.persistedEnvelope, call: res.loadResultCall(), dependencyRevision: res.dependencyOwnershipRevision, replacements: res.replacements, expiresAtUnix: res.expiresAtUnix}
+	miss := storedSizeMiss{res: res, env: res.persistedEnvelope, body: res.storedBody, call: res.loadResultCall(), dependencyRevision: res.dependencyOwnershipRevision, replacements: res.replacements, expiresAtUnix: res.expiresAtUnix}
 	for dep := range res.deps {
 		miss.deps = append(miss.deps, uint64(dep))
 	}
@@ -326,7 +327,11 @@ func (c *Cache) measureStoredValue(miss storedSizeMiss) (storedSizeMeasure, erro
 	if c.testStoredSizeMeasure != nil {
 		c.testStoredSizeMeasure()
 	}
-	kept, err := normalizeStoredTransfer(miss.res, miss.env, miss.call)
+	full, err := decodeStoredBody(miss.env, miss.body)
+	if err != nil {
+		return storedSizeMeasure{}, err
+	}
+	kept, err := normalizeStoredTransfer(miss.res, miss.env, full, miss.call)
 	if err != nil {
 		return storedSizeMeasure{}, err
 	}

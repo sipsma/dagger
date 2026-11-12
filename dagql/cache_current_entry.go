@@ -164,6 +164,7 @@ func (c *Cache) replaceResultValueInPlaceLocked(ctx context.Context, cur, fresh 
 	// A nil new value leaves hasValue false, as its fresh publication would.
 	cur.hasValue = fresh.hasValue
 	cur.persistedEnvelope = fresh.persistedEnvelope
+	cur.storedBody, cur.declaredParts, cur.declaredPartsErr = fresh.storedBody, fresh.declaredParts, fresh.declaredPartsErr
 	cur.payloadRevision++
 	c.setResultPayloadBytesLocked(cur, fresh.payloadBytes)
 	// fresh was never registered, so its own lease cleanup does nothing.

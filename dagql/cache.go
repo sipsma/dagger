@@ -2929,6 +2929,13 @@ type sharedResult struct {
 	// replacing the value releases. Builds hold egraphMu for reading, so it is set
 	// atomically.
 	storedTransfer              atomic.Pointer[storedTransferRecord]
+	// storedBody is, on a blob-backed cache, the entry's stored envelope as
+	// compressed JSON, and declaredParts the parts it declares absent or
+	// pending (cache_stored_body.go): persistedEnvelope then keeps only the
+	// envelope's small fields. Guarded by egraphMu.
+	storedBody       []byte
+	declaredParts    []declaredPart
+	declaredPartsErr error
 	transferRevision            uint64
 	dependencyOwnershipRevision uint64
 	// Reverse offer ownership does not propagate lookup requirements.

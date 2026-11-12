@@ -40,6 +40,7 @@ type persistResultSnapshot struct {
 	hasValue              bool
 	sessionResourceHandle SessionResourceHandle
 	persistedEnvelope     *PersistedResultEnvelope
+	storedBody            []byte
 	snapshotOwnerLinks    []PersistedSnapshotRefLink
 	row                   persistdb.MirrorResult
 	resultDeps            []persistdb.MirrorResultDep

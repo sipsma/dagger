@@ -644,7 +644,14 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 	}
 
-	return c.settleRestoredOffers(ctx, finalOffers)
+	if err := c.settleRestoredOffers(ctx, finalOffers); err != nil {
+		return err
+	}
+	// A blob-backed cache keeps its restored records' envelopes compressed
+	// (cache_stored_body.go).
+	c.egraphMu.Lock()
+	defer c.egraphMu.Unlock()
+	return c.lightenStoredValuesLocked()
 }
 
 // listMirrorRows lists one table of the persistence store into dst.

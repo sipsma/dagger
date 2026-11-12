@@ -1760,12 +1760,15 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, comm
 	res.hasValue = false
 	res.self = nil
 	res.persistedEnvelope = &rec.Envelope
+	res.storedBody, res.declaredParts, res.declaredPartsErr = nil, nil, nil
 	res.payloadRevision++
 	c.setResultPayloadBytesLocked(res, persistedEnvelopePayloadBytes(&rec.Envelope))
 	if res.createdAtUnixNano == 0 {
 		res.createdAtUnixNano = time.Now().UnixNano()
 	}
 	res.payloadMu.Unlock()
+	// A value that can't be lightened stays whole.
+	_ = c.lightenStoredValueLocked(res)
 	if c.blobBacked {
 		// On the Cloud, an export that stores a value uses it.
 		touchSharedResultLastUsed(res, time.Now().UnixNano())
@@ -1994,6 +1997,7 @@ func (c *Cache) failMergedEntryLocked(ctx context.Context, res *sharedResult, qu
 	if c.blobBacked {
 		res.storedRecordBytes = 0
 		res.storedTransfer.Store(nil)
+		res.storedBody, res.declaredParts, res.declaredPartsErr = nil, nil, nil
 		res.payloadMu.Lock()
 		res.persistedEnvelope = nil
 		res.hasValue = false

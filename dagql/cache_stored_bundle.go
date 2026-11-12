@@ -367,6 +367,9 @@ type storedTransferRecord struct {
 	// refs are the entries the record's child and call references name,
 	// which a bundle checks against the entry's dependencies.
 	refs []uint64
+	// sizeOnly marks a kept measure with no record: a light entry keeps
+	// only its references and size (cache_stored_body.go).
+	sizeOnly bool
 	// size is the entry's value's encoded size in a bundle, once StoredSizes
 	// has measured it (measureStoredValue), with what else it read.
 	size atomic.Pointer[storedValueSize]
@@ -402,7 +405,28 @@ func (c *Cache) storedTransferRecordLocked(res *sharedResult) (PersistedRecord, 
 // storedTransferLocked is storedTransferRecordLocked's kept record whole,
 // with the references it names. Requires egraphMu.
 func (c *Cache) storedTransferLocked(res *sharedResult) (*storedTransferRecord, error) {
-	normalized, err := normalizeStoredTransfer(res, res.persistedEnvelope, res.loadResultCall())
+	call := res.loadResultCall()
+	if res.isLightLocked() {
+		// A light entry's record is its stored envelope, decompressed, and
+		// its call: stored records are in transfer form. The entry keeps only
+		// the references the record names and its size.
+		full, err := res.fullStoredEnvelope()
+		if err != nil {
+			return nil, err
+		}
+		if kept := res.storedTransfer.Load(); kept != nil && kept.sizeOnly && kept.envelope == res.persistedEnvelope && kept.call == call {
+			rec := PersistedRecord{ResultID: uint64(res.id), Envelope: *full, Call: call}
+			rec.Envelope.PendingOffers = nil
+			return &storedTransferRecord{envelope: kept.envelope, call: call, record: rec, refs: kept.refs}, nil
+		}
+		normalized, err := normalizeStoredTransfer(res, res.persistedEnvelope, full, call)
+		if err != nil {
+			return nil, err
+		}
+		keepStoredTransfer(res, normalized)
+		return normalized, nil
+	}
+	normalized, err := normalizeStoredTransfer(res, res.persistedEnvelope, res.persistedEnvelope, call)
 	if err != nil {
 		return nil, err
 	}
@@ -419,6 +443,11 @@ func (c *Cache) storedTransferLocked(res *sharedResult) (*storedTransferRecord, 
 // The caller has checked, under egraphMu, that the envelope and call are
 // res's.
 func keepStoredTransfer(res *sharedResult, normalized *storedTransferRecord) *storedTransferRecord {
+	if res.isLightLocked() {
+		// A light entry keeps the record's references and size, not the
+		// record.
+		normalized = &storedTransferRecord{envelope: normalized.envelope, call: normalized.call, refs: normalized.refs, sizeOnly: true}
+	}
 	for {
 		kept := res.storedTransfer.Load()
 		if kept != nil && kept.envelope == normalized.envelope && kept.call == normalized.call {
@@ -437,11 +466,11 @@ func keepStoredTransfer(res *sharedResult, normalized *storedTransferRecord) *st
 // after releasing it, and keeps the record (keepStoredTransfer) under
 // egraphMu again only if they are still the entry's (StoredSizes'
 // publishStoredSizes).
-func normalizeStoredTransfer(res *sharedResult, env *PersistedResultEnvelope, call *ResultCall) (*storedTransferRecord, error) {
-	if kept := res.storedTransfer.Load(); kept != nil && kept.envelope == env && kept.call == call {
+func normalizeStoredTransfer(res *sharedResult, env, full *PersistedResultEnvelope, call *ResultCall) (*storedTransferRecord, error) {
+	if kept := res.storedTransfer.Load(); kept != nil && !kept.sizeOnly && kept.envelope == env && kept.call == call {
 		return kept, nil
 	}
-	rec, err := normalizeTransferRecord(PersistedRecord{ResultID: uint64(res.id), Envelope: *env, Call: call})
+	rec, err := normalizeTransferRecord(PersistedRecord{ResultID: uint64(res.id), Envelope: *full, Call: call})
 	if err != nil {
 		return nil, err
 	}
@@ -487,13 +516,13 @@ func (c *Cache) storedBundleOutputsLocked(build *storedBundleBuild, res *sharedR
 			return err
 		}
 	}
-	declared, err := mapTransferredOutputs(PersistedRecord{ResultID: uint64(res.id), Envelope: *res.persistedEnvelope, Call: res.loadResultCall()})
+	declared, err := res.declaredPartsLocked()
 	if err != nil {
 		return fmt.Errorf("stored bundle: entry %d: %w", res.id, err)
 	}
 	for _, output := range declared {
-		key, err := partAddressKey(output.Address)
-		if err != nil || output.State != "pending" {
+		key := output.key
+		if output.state != "pending" {
 			continue
 		}
 		if _, own := res.storedParts[key]; own {
