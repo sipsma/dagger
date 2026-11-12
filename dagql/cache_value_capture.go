@@ -1181,7 +1181,7 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 	bundle := ValueBundle{Version: valueBundleVersion, Roots: capture.roots}
 	for _, row := range capture.order {
 		if row.held {
-			value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: PersistedRecord{ResultID: uint64(row.ordinal)}, ExpiresAtUnix: row.expiry, Held: row.recipe}
+			value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: PersistedRecord{ResultID: uint64(row.shared.id)}, ExpiresAtUnix: row.expiry, Held: row.recipe}
 			// A row held at the walk has no dependencies here: it stands for
 			// its closure. One held after its copy keeps its links to the
 			// rows below it.
@@ -1191,10 +1191,25 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 			bundle.Values = append(bundle.Values, value)
 			continue
 		}
-		rec, err := VisitEncodedReferences(row.transfer, relocate)
-		if err != nil {
-			bundleOp.EndErr(err)
-			return err
+		// The record goes as the engine holds it, naming itself and its
+		// references by the engine's numbers, which the receiver maps
+		// (transferSenderNumbers); its references were checked against its
+		// dependencies when it was normalized (checkRecords), and every
+		// dependency is a row of the bundle. Its offers are the bundle's,
+		// which name rows by ordinal: they alone are relocated.
+		rec := row.transfer
+		if len(rec.Envelope.PendingOffers) > 0 {
+			offers, err := clonePartOffers(rec.Envelope.PendingOffers)
+			for i := range offers {
+				if err == nil {
+					err = visitPersistedPartOffer(&offers[i], nil, relocate)
+				}
+			}
+			if err != nil {
+				bundleOp.EndErr(err)
+				return err
+			}
+			rec.Envelope.PendingOffers = offers
 		}
 		value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: rec, ExpiresAtUnix: row.expiry}
 		for _, id := range row.deps {
