@@ -21,7 +21,9 @@ func storedRecordsInTransferForm(t *testing.T, cloud *Cache) int {
 		if res.persistedEnvelope == nil {
 			continue
 		}
-		stored := PersistedRecord{ResultID: uint64(id), Envelope: *res.persistedEnvelope, Call: res.loadResultCall()}
+		full, err := res.fullStoredEnvelope()
+		require.NoError(t, err, "entry %d", id)
+		stored := PersistedRecord{ResultID: uint64(id), Envelope: *full, Call: res.loadResultCall()}
 		stored.Envelope.PendingOffers = nil
 		normalized, err := normalizeTransferRecord(stored)
 		require.NoError(t, err, "entry %d", id)

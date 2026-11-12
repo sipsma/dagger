@@ -423,6 +423,9 @@ func (c *Cache) storedTransferLocked(res *sharedResult) (*storedTransferRecord, 
 		if err != nil {
 			return nil, err
 		}
+		if c.testStoredTransferNormalized != nil {
+			c.testStoredTransferNormalized()
+		}
 		keepStoredTransfer(res, normalized)
 		return normalized, nil
 	}
