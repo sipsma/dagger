@@ -298,9 +298,16 @@ type adapterTestEngine struct {
 
 func newAdapterTestEngine(t *testing.T) *adapterTestEngine {
 	t.Helper()
+	return newAdapterTestEngineAt(t, "")
+}
+
+// newAdapterTestEngineAt is newAdapterTestEngine with its cache saved at
+// path, which gives the cache an identity of its own; "" keeps it in memory.
+func newAdapterTestEngineAt(t *testing.T, path string) *adapterTestEngine {
+	t.Helper()
 	store := testutil.NewStore(t)
 	ctx := engine.ContextWithClientMetadata(t.Context(), &engine.ClientMetadata{ClientID: "adapter", SessionID: "adapter"})
-	cache, err := dagql.NewCache(ctx, "", store.Manager, nil)
+	cache, err := dagql.NewCache(ctx, path, store.Manager, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cache.CloseDiscardingPersistence()) })
 	bodies := &pausingManager{SnapshotManager: store.Manager, entered: make(chan struct{}), release: make(chan struct{})}

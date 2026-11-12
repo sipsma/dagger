@@ -42,10 +42,11 @@ func (d testImageDir) WriteBlob(_ context.Context, dgst digest.Digest, r content
 }
 
 // imageEntriesDir exports one evaluated file of a source engine as an engine
-// image's entries, and returns their directory and bundle.
+// image's entries, and returns their directory and bundle. The source's cache
+// is saved, as an engine's is, and so has an identity.
 func imageEntriesDir(t *testing.T) (string, dagql.ValueBundle) {
 	t.Helper()
-	src := newAdapterTestEngine(t)
+	src := newAdapterTestEngineAt(t, filepath.Join(t.TempDir(), "cache.db"))
 	shipped := src.file(t, "shipped")
 	require.NoError(t, src.cache.Evaluate(src.ctx, shipped))
 	dir := t.TempDir()
@@ -57,6 +58,17 @@ func imageEntriesDir(t *testing.T) (string, dagql.ValueBundle) {
 	require.Len(t, bundle.Roots, 1)
 	require.NotEmpty(t, bundle.Outputs, "the file's part is an output")
 	return dir, bundle
+}
+
+// Two engine images built alike number their entries alike, and every engine
+// merges an image's entries from one sender. Each entry names its run by the
+// cache that built it, so one image's entry is never taken for the other's.
+func TestImageEntriesNameTheirBuildersRuns(t *testing.T) {
+	_, first := imageEntriesDir(t)
+	_, second := imageEntriesDir(t)
+	root := func(b dagql.ValueBundle) dagql.TransferredValue { return b.Values[int(b.Roots[0].Ordinal)-1] }
+	require.Equal(t, root(first).SenderNumber, root(second).SenderNumber, "the builds number their entries alike")
+	require.NotEqual(t, dagql.TransferredRun(dagql.ImageCacheID, root(first)), dagql.TransferredRun(dagql.ImageCacheID, root(second)), "each names its builder's run")
 }
 
 // An engine merges its image's entries at start. An image without entries
@@ -119,7 +131,8 @@ func TestRemoteCacheAdapterExportRefusesImageEntries(t *testing.T) {
 // a row the export needs. The export waits for a result whose closure
 // reaches a row that's busy now, and exports every result once the row is
 // free, as on an idle engine. A result it refuses fails the export at once,
-// and a wait ends with the export's context.
+// and a wait ends with the export's context. Each engine's cache is saved,
+// as an engine's is, and so has an identity to name its runs by.
 func TestExportBundleWaitsForBusyResults(t *testing.T) {
 	export := func(e *adapterTestEngine, ctx context.Context, dir string, results ...dagql.AnyResult) <-chan error {
 		exported := make(chan error, 1)
@@ -127,7 +140,7 @@ func TestExportBundleWaitsForBusyResults(t *testing.T) {
 		return exported
 	}
 	t.Run("busy", func(t *testing.T) {
-		e := newAdapterTestEngine(t)
+		e := newAdapterTestEngineAt(t, filepath.Join(t.TempDir(), "cache.db"))
 		ready := e.file(t, "ready")
 		require.NoError(t, e.cache.Evaluate(e.ctx, ready))
 		busy := e.busyFile(t, "busy")
@@ -146,7 +159,7 @@ func TestExportBundleWaitsForBusyResults(t *testing.T) {
 		require.ElementsMatch(t, []uint64{entryNumber(t, ready), entryNumber(t, on)}, bundleRoots(&bundle), "every result is exported")
 	})
 	t.Run("refused", func(t *testing.T) {
-		e := newAdapterTestEngine(t)
+		e := newAdapterTestEngineAt(t, filepath.Join(t.TempDir(), "cache.db"))
 		ready := e.file(t, "ready")
 		require.NoError(t, e.cache.Evaluate(e.ctx, ready))
 		refused := e.refusedFile(t, "refused")
@@ -157,7 +170,7 @@ func TestExportBundleWaitsForBusyResults(t *testing.T) {
 		require.NotErrorIs(t, err, dagql.ErrPersistStateNotReady)
 	})
 	t.Run("canceled", func(t *testing.T) {
-		e := newAdapterTestEngine(t)
+		e := newAdapterTestEngineAt(t, filepath.Join(t.TempDir(), "cache.db"))
 		busy := e.busyFile(t, "busy")
 		on, _ := e.publishFile(t, "on-busy", busy)
 		require.NoError(t, e.cache.Evaluate(e.ctx, on))
