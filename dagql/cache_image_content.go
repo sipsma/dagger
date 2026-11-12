@@ -245,9 +245,10 @@ type ImageBundleWriter interface {
 // there, such as the remote cache's, can hold a row of the closure for a
 // moment, and a capture never waits for a row (WithExportedValues). So when
 // a result's closure reaches a row that's busy now, the export lets go of
-// the capture, waits, and captures again, until every result is captured or
-// ctx ends. A result refused for any other reason, or one whose row stays
-// busy until a later evaluation (BusyBookkeeping), fails the export. It is
+// the capture, waits, and captures again, until every result is captured,
+// ctx ends, or it has waited imageBundleBusyLimit in all. A result refused
+// for any other reason, or one whose row stays busy until a later
+// evaluation (BusyBookkeeping), fails the export at once. It is
 // built for the image's build, and nothing in the engine's runtime calls it.
 func (c *Cache) ExportImageBundle(ctx context.Context, outputs []SelectedValueOutput, cfg config.RefConfig, w ImageBundleWriter) error {
 	if len(outputs) == 0 {
@@ -290,6 +291,10 @@ func (c *Cache) ExportImageBundle(ctx context.Context, outputs []SelectedValueOu
 		if waits == 0 {
 			waitStart = time.Now()
 		}
+		if waited := time.Since(waitStart); waited+pause > imageBundleBusyLimit {
+			slog.Warn("export image bundle: results still busy, giving up", "left_out", len(left.Roots), "results", len(results), "row", first.Row, "kind", first.Kind, "error", first.Err, "waits", waits, "waited", waited)
+			return err
+		}
 		waits++
 		slog.Info("export image bundle: results busy, capturing again", "left_out", len(left.Roots), "results", len(results), "row", first.Row, "kind", first.Kind, "error", first.Err, "pause", pause)
 		select {
@@ -306,6 +311,14 @@ const (
 	imageBundleBusyPause    = 10 * time.Millisecond
 	maxImageBundleBusyPause = time.Second
 )
+
+// imageBundleBusyLimit is how long the export waits for busy results in
+// all before it fails, so that a row that never frees fails the image's
+// build instead of hanging it. The longest busy stretch seen was about a
+// second: on a remote-cache engine, the cache's own captures held rows for
+// 86 to 364 ms, and 156 rows one held were clear 975 ms later. Tests lower
+// it.
+var imageBundleBusyLimit = 2 * time.Minute
 
 // leftOutOnly is the RootsLeftOutError err is when it is nothing more, such
 // as joined with the capture's release error: nil otherwise.

@@ -253,3 +253,31 @@ func TestExportImageBundleFailsOnARowBusyUntilALaterEvaluation(t *testing.T) {
 	require.NoError(t, ctx.Err(), "the export failed at once, without waiting")
 	require.ErrorContains(t, err, "export image bundle: 1 of 1 results left out")
 }
+
+// An image export's wait for busy results has a limit: a row that never
+// frees fails the export with the busy error once the limit has passed,
+// rather than hanging the image's build until its context ends. It isn't
+// parallel: it lowers the package's limit.
+func TestExportImageBundleStopsWaitingAtItsLimit(t *testing.T) {
+	limit := imageBundleBusyLimit
+	imageBundleBusyLimit = 300 * time.Millisecond
+	t.Cleanup(func() { imageBundleBusyLimit = limit })
+	ctx, c, srv := transferTestCache(t)
+	rows := newLeftOutTestRows(t, ctx, c, srv)
+	running := rows.shared.cacheSharedResult()
+	running.lazyMu.Lock()
+	running.lazyWhole.attempt = &lazyEvalAttempt{done: make(chan struct{}), waiters: 1}
+	running.lazyMu.Unlock()
+	t.Cleanup(func() {
+		running.lazyMu.Lock()
+		running.lazyWhole.attempt = nil
+		running.lazyMu.Unlock()
+	})
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	err := c.ExportImageBundle(ctx, []SelectedValueOutput{{Result: rows.first, Address: PersistedPartAddress{Part: "snapshot"}}}, config.RefConfig{}, nil)
+	require.ErrorIs(t, err, ErrPersistStateNotReady)
+	require.NoError(t, ctx.Err(), "the export stopped at its limit, not at its context's end")
+	require.ErrorContains(t, err, "export image bundle: 1 of 1 results left out")
+}
