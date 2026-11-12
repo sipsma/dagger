@@ -268,7 +268,7 @@ func (c *Cache) measureStoredValue(miss storedSizeMiss) (storedSizeMeasure, erro
 	if c.testStoredSizeMeasure != nil {
 		c.testStoredSizeMeasure()
 	}
-	kept, err := normalizeStoredTransfer(miss.res, miss.env, miss.call)
+	kept, err := c.normalizeStoredTransfer(miss.res, miss.env, miss.call)
 	if err != nil {
 		return storedSizeMeasure{}, err
 	}
