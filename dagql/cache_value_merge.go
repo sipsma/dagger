@@ -310,9 +310,6 @@ func (r MergeReply) Imported() []ImportedValue {
 // in a private cache under provisional numbers. A record that becomes a new
 // entry keeps its provisional number, firstID + ordinal - 1.
 type valueMergePrep struct {
-	// withBytes are the records that came with bytes of their own: parts
-	// with chains, or offers.
-	withBytes map[uint64]bool
 	// from is the cache the bundle is from.
 	from    CacheID
 	bundle  ValueBundle
@@ -421,20 +418,6 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 	if c.blobBacked {
 		heldParts = heldRowOutputs(bundle)
 	}
-	// Which records came with bytes of their own, read before the Cloud
-	// drops the parts: a record without them is tied to the runs it was
-	// computed over (keepRunsApartLocked).
-	withBytes := map[uint64]bool{}
-	for _, output := range bundle.Outputs {
-		if output.Chain != nil || output.Prefix != nil {
-			withBytes[uint64(output.Ordinal)] = true
-		}
-	}
-	for _, value := range bundle.Values {
-		if len(value.Record.Envelope.PendingOffers) > 0 {
-			withBytes[uint64(value.Ordinal)] = true
-		}
-	}
 	c.embedMergedParts(&bundle)
 	var recordBytes map[uint64]int64
 	if c.blobBacked {
@@ -445,7 +428,7 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 		}
 		recordBytes = map[uint64]int64{}
 	}
-	prep := &valueMergePrep{withBytes: withBytes, from: from, bundle: bundle, order: order, index: map[uint64]*TransferredValue{}, plans: map[uint64]transferIdentityPlan{}, records: map[uint64]PersistedRecord{}, refs: map[uint64][]uint64{}, recordBytes: recordBytes, completeParts: map[uint64][]string{}, held: map[uint64]bool{}, heldParts: heldParts}
+	prep := &valueMergePrep{from: from, bundle: bundle, order: order, index: map[uint64]*TransferredValue{}, plans: map[uint64]transferIdentityPlan{}, records: map[uint64]PersistedRecord{}, refs: map[uint64][]uint64{}, recordBytes: recordBytes, completeParts: map[uint64][]string{}, held: map[uint64]bool{}, heldParts: heldParts}
 	for i := range prep.bundle.Values {
 		row := &prep.bundle.Values[i]
 		prep.index[uint64(row.Ordinal)] = row

@@ -201,9 +201,11 @@ func TestAMergedRunTravelsAndSurvivesARestart(t *testing.T) {
 	require.Equal(t, made, run, "the run survives a restart")
 }
 
-// A result that came with its bytes stands alone: B keeps its own r, takes
-// none of A's parts for it, and takes A's d, whose bytes came with it.
-func TestMergeKeepsAResultThatCameWithItsBytes(t *testing.T) {
+// A result that came with its bytes is tied to its runs too: its bytes don't
+// cover what its references read, as a container's mounted files are read at
+// its next exec, and the Cloud can still decline to store them. B keeps its
+// own r, and A's d, computed over A's r, is skipped with none of its parts.
+func TestMergeTiesAResultThatCameWithItsBytes(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
 	r := persistedListTestResult(t, actx, a, asrv, "r", &transferTestValue{Text: "a's r"})
@@ -218,9 +220,9 @@ func TestMergeKeepsAResultThatCameWithItsBytes(t *testing.T) {
 	own := persistedListTestResult(t, bctx, b, bsrv, "r", &transferTestValue{Text: "b's r"})
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
-	require.False(t, reply.Roots[0].OtherRun)
-	require.Len(t, reply.Imported(), 1, "B takes A's d, which came with its bytes")
-	require.Zero(t, mergeTestOffers(b, own.cacheSharedResult()), "and none of A's parts for its own r")
+	require.True(t, reply.Roots[0].OtherRun, "A's d was computed over another run of r")
+	require.Empty(t, reply.Imported())
+	require.Zero(t, mergeTestOffers(b, own.cacheSharedResult()), "and B takes none of A's parts for its own r")
 }
 
 // runTestRows returns a copy of bundle whose rows sent for the sender's

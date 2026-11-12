@@ -245,6 +245,11 @@ func (c *Cache) ExportImageBundle(ctx context.Context, outputs []SelectedValueOu
 	if len(outputs) == 0 {
 		return errors.New("export image bundle: no results")
 	}
+	if c.Identity().ID == "" {
+		// Its rows' runs are named by this cache's identity, below: without
+		// one, two images' runs could share a name.
+		return errors.New("export image bundle: the cache has no identity to name its runs by")
+	}
 	// Each result is one root, though several of its parts are outputs.
 	var results []AnyResult
 	seen := map[*sharedResult]bool{}
@@ -263,6 +268,16 @@ func (c *Cache) ExportImageBundle(ctx context.Context, outputs []SelectedValueOu
 			return fmt.Errorf("export image bundle: %d of %d results left out, the first (row %d): %w", len(values.LeftOut), len(results), left.Row, left.Err)
 		}
 		bundle := values.Bundle
+		// Every engine merges an image's rows from one sender, imageCacheID,
+		// so a row's sender number alone would name the same run in every
+		// image built. Each row names its run by the cache that made it: this
+		// builder's own, or the one a merge gave the entry.
+		for i := range bundle.Values {
+			if bundle.Values[i].Run == nil {
+				run := TransferredRun(CacheID(c.Identity().ID), bundle.Values[i])
+				bundle.Values[i].Run = &run
+			}
+		}
 		address := func(addresses map[digest.Digest]BlobAddress, layers []snapshots.ExportLayer) map[digest.Digest]BlobAddress {
 			if addresses == nil {
 				addresses = map[digest.Digest]BlobAddress{}

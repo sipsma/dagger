@@ -1332,7 +1332,7 @@ func TestApplyMergedReplyKeepsAKeptEntrysOwnDependencies(t *testing.T) {
 // Offer owners are relocated to the targets: an offer whose owner names a
 // dependency's record names, after the merge, the entry that record landed
 // on, here B's own entry of the recipe under its own number, which the offer
-// now owns.
+// now owns. The dependency's record is B's own run, come back from the Cloud.
 func TestMergeValuesRelocatesOfferOwnersToTheTargets(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
@@ -1347,6 +1347,7 @@ func TestMergeValuesRelocatesOfferOwnersToTheTargets(t *testing.T) {
 	}
 	local := persistedListTestResult(t, bctx, b, bsrv, "dep", String("dep")).cacheSharedResult()
 	require.NotEqual(t, dep.cacheSharedResult().id, local.id)
+	bundle = runTestRows(bundle, testRunOf(b, uint64(local.id)), runTestID(dep))
 	b.egraphMu.RLock()
 	before := local.incomingOwnershipCount.Load()
 	b.egraphMu.RUnlock()
