@@ -56,6 +56,10 @@ engineVersion = "v1.0.0"
   non-null type its arm binds (`c: Cat! =>`, `e: Error! =>` in `rescue`).
   Don't bump an old module's `engineVersion` without checking its syntax
   (`dang migrate` rewrites it), or pin `dang = "X.Y"`.
+- The dang-language skill describes the newest Dang, 2.5, which no
+  `engineVersion` picks yet: a double-quoted string interpolates (`"${a}"`)
+  only under `dang = "2.5"`. Up to Dang 2.4 it is literal text, with no error;
+  interpolate in a backtick template there (`` `${a}` ``).
 - Dependencies are `[[dependencies]]` tables (`name = "gochild"`,
   `source = "./gochild"`), managed with `dagger module client add/rm/update`
   from the module directory. Deps may use any SDK (Go, Python, TypeScript,
