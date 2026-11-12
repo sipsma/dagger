@@ -246,6 +246,10 @@ const (
 	SkipRefused SkipReason = "refused"
 	// SkipExpired: a merged root had expired when the merge decided.
 	SkipExpired SkipReason = "expired"
+	// SkipOtherRun: a merged root was computed over another run of an input
+	// than the engine holds, and came without its bytes
+	// (dagql.MergedRoot.OtherRun).
+	SkipOtherRun SkipReason = "other_run"
 )
 
 // Exported answers Export. Bundle is nil when no root survived. The engine

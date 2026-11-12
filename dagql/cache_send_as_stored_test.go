@@ -46,7 +46,7 @@ func storedRecordsInTransferForm(t *testing.T, cloud *Cache) int {
 func TestStoredRecordsAreInTransferForm(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
-	stored, _, err := cloud.SetStoredPart(ctx, r, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, testRunOf(cloud, r), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.Equal(t, 2, storedRecordsInTransferForm(t, cloud))

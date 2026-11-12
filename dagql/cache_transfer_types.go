@@ -96,6 +96,12 @@ type TransferredValue struct {
 	// held rows to an engine (StoredBundle's HeldBy), with no dependencies
 	// and no outputs, and an engine sends them to the Cloud in an export.
 	Held digest.Digest `json:"held,omitempty"`
+	// Run names the run that made the value, when it isn't the sending entry
+	// itself: a value the sender merged from another cache names the run it
+	// merged (RunName). A held row names the run the sender knows the
+	// recipient holds. With no Run, the run is the sending entry, by
+	// SenderNumber and SenderReplacements (TransferredRun).
+	Run *RunName `json:"run,omitempty"`
 
 	// storedEnvelope is, in a bundle a blob-backed cache built, the record's
 	// envelope as the cache holds it, compressed (storedBody), in place of
@@ -140,6 +146,7 @@ func (v TransferredValue) MarshalJSON() ([]byte, error) {
 		DependencyIDs:      v.DependencyIDs,
 		ExpiresAtUnix:      v.ExpiresAtUnix,
 		Held:               v.Held,
+		Run:                v.Run,
 	})
 }
 
@@ -153,6 +160,7 @@ type storedValueJSON struct {
 	DependencyIDs      []uint64         `json:"dependencyIDs,omitempty"`
 	ExpiresAtUnix      int64            `json:"expiresAtUnix,omitempty"`
 	Held               digest.Digest    `json:"held,omitempty"`
+	Run                *RunName         `json:"run,omitempty"`
 }
 
 // storedRecordJSON is a PersistedRecord with its envelope and call as

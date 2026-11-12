@@ -518,6 +518,8 @@ func mergedReply(reply dagql.MergeReply) protocol.Merged {
 		switch {
 		case root.Expired:
 			merged.Skipped = append(merged.Skipped, protocol.SkippedValue{Ordinal: root.Ordinal, Reason: protocol.SkipExpired})
+		case root.OtherRun:
+			merged.Skipped = append(merged.Skipped, protocol.SkippedValue{Ordinal: root.Ordinal, Reason: protocol.SkipOtherRun})
 		case root.Retained:
 			merged.Retained = append(merged.Retained, protocol.RetainedRoot{Ordinal: root.Ordinal, ExpiresAtUnix: root.RetentionExpiresAtUnix})
 		}

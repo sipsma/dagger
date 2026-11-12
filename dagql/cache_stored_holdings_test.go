@@ -125,7 +125,7 @@ func TestDropStoredParts(t *testing.T) {
 		{q, storedPruneTestPart("snapshot", map[string]int64{"gone-base": 10})},
 		{p, storedPruneTestPart("snapshot", map[string]int64{"p-layer": 3})},
 	} {
-		ok, _, err := cloud.SetStoredPart(ctx, stored.number, stored.part, 0)
+		ok, _, err := cloud.SetStoredPart(ctx, stored.number, testRunOf(cloud, stored.number), stored.part, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
@@ -173,13 +173,13 @@ func TestDropStoredPack(t *testing.T) {
 		{q, packed(storedPruneTestPart("snapshot", map[string]int64{"q-top": 4}), "q-top", "gone-pack")},
 		{p, storedPruneTestPart("snapshot", map[string]int64{"gone-pack": 3})},
 	} {
-		ok, _, err := cloud.SetStoredPart(ctx, stored.number, stored.part, 0)
+		ok, _, err := cloud.SetStoredPart(ctx, stored.number, testRunOf(cloud, stored.number), stored.part, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
 
 	// A layer two parts store in different packs maps to the lowest pack.
-	ok, _, err := cloud.SetStoredPart(ctx, r, packed(storedPruneTestPart("mount:/twice", map[string]int64{"kept-layer": 7}), "kept-layer", "other-pack"), 0)
+	ok, _, err := cloud.SetStoredPart(ctx, r, testRunOf(cloud, r), packed(storedPruneTestPart("mount:/twice", map[string]int64{"kept-layer": 7}), "kept-layer", "other-pack"), 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 	members, err := cloud.LivePackMembers()
@@ -226,7 +226,7 @@ func TestStoredQueries(t *testing.T) {
 		{p, storedPruneTestPart("snapshot", map[string]int64{"shared": 100})},
 		{service, packed(storedPruneTestPart("snapshot", map[string]int64{"outside-pool": 1000}), map[string]string{"outside-pool": "pack-outside"})},
 	} {
-		ok, _, err := cloud.SetStoredPart(ctx, stored.number, stored.part, 0)
+		ok, _, err := cloud.SetStoredPart(ctx, stored.number, testRunOf(cloud, stored.number), stored.part, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
@@ -266,7 +266,7 @@ func TestStoredQueries(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 	require.Equal(t, want, usage)
 	require.Equal(t, 4, usage.Entries, "R, P, the service and the holdings-only entry")
-	require.Equal(t, 5, usage.Holdings, "cache-a's on R and P, cache-b's on R and the service, cache-x's")
+	require.Equal(t, 4, usage.Holdings, "cache-a's on R and P, cache-b's on the service, cache-x's")
 
 	_, c := storedPartTestCache(t)
 	_, err = c.StoredState()

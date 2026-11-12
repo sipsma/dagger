@@ -105,7 +105,7 @@ func storedSizesBenchCloud(b *testing.B) (context.Context, *Cache, []uint64) {
 	var batch []uint64
 	for _, root := range bundle.Roots {
 		number := numbers[root.Ordinal]
-		ok, _, err := cloud.SetStoredPart(ctx, number, storedBenchPart(number), 0)
+		ok, _, err := cloud.SetStoredPart(ctx, number, testRunOf(cloud, number), storedBenchPart(number), 0)
 		require.NoError(b, err)
 		require.True(b, ok)
 		batch = append(batch, number)
