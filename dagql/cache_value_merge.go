@@ -333,7 +333,11 @@ type MergedRoot struct {
 	Ordinal TransferOrdinal
 	// Expired marks a root that had expired when the merge decided: it was
 	// skipped, with whatever only it needed.
-	Expired                bool
+	Expired bool
+	// OtherRun marks a root computed over another run of an input than the
+	// cache holds, which came without its bytes: it was skipped
+	// (keepRunsApartLocked).
+	OtherRun               bool
 	Number                 uint64
 	Retained               bool
 	RetentionExpiresAtUnix int64
@@ -343,7 +347,7 @@ type MergedRoot struct {
 func (r MergeReply) Imported() []ImportedValue {
 	out := make([]ImportedValue, 0, len(r.Roots))
 	for _, root := range r.Roots {
-		if !root.Expired {
+		if !root.Expired && !root.OtherRun {
 			out = append(out, ImportedValue{Ordinal: root.Ordinal, ResultID: root.Number})
 		}
 	}
@@ -357,6 +361,9 @@ func (r MergeReply) Imported() []ImportedValue {
 type valueMergePrep struct {
 	// payloadPreparing is the cache's testRecordPayloadPreparing.
 	payloadPreparing func(uint64) error
+	// withBytes are the records that came with bytes of their own: parts
+	// with chains, or offers.
+	withBytes map[uint64]bool
 	// from is the cache the bundle is from.
 	from   CacheID
 	bundle ValueBundle
@@ -470,6 +477,20 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 	if c.blobBacked {
 		heldParts = heldRowOutputs(bundle)
 	}
+	// Which records came with bytes of their own, read before the Cloud
+	// drops the parts: a record without them is tied to the runs it was
+	// computed over (keepRunsApartLocked).
+	withBytes := map[uint64]bool{}
+	for _, output := range bundle.Outputs {
+		if output.Chain != nil || output.Prefix != nil {
+			withBytes[uint64(output.Ordinal)] = true
+		}
+	}
+	for _, value := range bundle.Values {
+		if len(value.Record.Envelope.PendingOffers) > 0 {
+			withBytes[uint64(value.Ordinal)] = true
+		}
+	}
 	c.embedMergedParts(&bundle)
 	var recordBytes map[uint64]int64
 	if c.blobBacked {
@@ -480,7 +501,7 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 		}
 		recordBytes = map[uint64]int64{}
 	}
-	prep := &valueMergePrep{payloadPreparing: c.testRecordPayloadPreparing, from: from, bundle: bundle, order: order, index: map[uint64]*TransferredValue{}, plans: map[uint64]transferIdentityPlan{}, records: map[uint64]PersistedRecord{}, refs: map[uint64][]uint64{}, recordBytes: recordBytes, completeParts: map[uint64][]string{}, held: map[uint64]bool{}, heldParts: heldParts}
+	prep := &valueMergePrep{payloadPreparing: c.testRecordPayloadPreparing, withBytes: withBytes, from: from, bundle: bundle, order: order, index: map[uint64]*TransferredValue{}, plans: map[uint64]transferIdentityPlan{}, records: map[uint64]PersistedRecord{}, refs: map[uint64][]uint64{}, recordBytes: recordBytes, completeParts: map[uint64][]string{}, held: map[uint64]bool{}, heldParts: heldParts}
 	prep.rows = make(map[uint64]uint64, len(prep.bundle.Values))
 	for i := range prep.bundle.Values {
 		row := &prep.bundle.Values[i]
@@ -1072,8 +1093,10 @@ func (a mergeAction) installs() bool {
 type mergeRow struct {
 	ordinal uint64
 	value   *TransferredValue
-	plan    transferIdentityPlan
-	action  mergeAction
+	// run is the run the row's value comes from (TransferredRun).
+	run    RunName
+	plan   transferIdentityPlan
+	action mergeAction
 	// target is the recipe's entry before the merge, if any.
 	target *sharedResult
 	// res is the entry that holds the record's value after the merge: the
@@ -1083,6 +1106,10 @@ type mergeRow struct {
 	expired bool
 	// keptExpired marks a kept value that had expired.
 	keptExpired bool
+	// otherRun marks a row whose entry keeps another run than the row's
+	// (keepRunsApartLocked): the row teaches its entry nothing and gives it
+	// no part, and the reply leaves it out.
+	otherRun bool
 	// rec and deps are the record relocated to the final numbers, for an
 	// action that installs it.
 	rec  PersistedRecord
@@ -1160,7 +1187,7 @@ func (c *Cache) planValueMergeLocked(ctx context.Context, from CacheID, prep *va
 			continue
 		}
 		value := prep.index[id]
-		row := &mergeRow{ordinal: id, value: value, plan: prep.plans[id]}
+		row := &mergeRow{ordinal: id, value: value, plan: prep.plans[id], run: TransferredRun(from, *value)}
 		row.expired = value.ExpiresAtUnix != 0 && value.ExpiresAtUnix <= now
 		commit.rows = append(commit.rows, row)
 		commit.byOrdinal[id] = row
@@ -1184,6 +1211,7 @@ func (c *Cache) planValueMergeLocked(ctx context.Context, from CacheID, prep *va
 		row.action, row.target, row.res = mergeKeep, b.res, b.res
 		row.keptExpired = b.keptExpired || b.action.installs() && b.expired
 	}
+	c.keepRunsApartLocked(commit)
 	// Everything after the decisions reads the payloads and parts of the
 	// records merge installs, which a light record doesn't have: the cache
 	// changed since the preparation.
@@ -1406,7 +1434,7 @@ func (c *Cache) relocateMergeRowsLocked(commit *valueMergeCommit) error {
 	for _, row := range commit.rows {
 		source := prep.records[row.ordinal]
 		if !row.action.installs() {
-			if !c.blobBacked {
+			if !c.blobBacked && !row.otherRun {
 				offers, err := clonePartOffers(source.Envelope.PendingOffers)
 				if err != nil {
 					return err
@@ -1715,7 +1743,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 
 	// Retention: an engine's retention edge, or the Cloud's stored root.
 	for i, root := range commit.prep.bundle.Roots {
-		if commit.roots[i].Expired {
+		if commit.roots[i].Expired || commit.roots[i].OtherRun {
 			continue
 		}
 		row := commit.byOrdinal[uint64(root.Ordinal)]
@@ -1789,6 +1817,10 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 		joined = c.trackJoinsLocked()
 	}
 	for _, row := range commit.rows {
+		if row.otherRun {
+			// The entry holds another run: the row is not a copy of it.
+			continue
+		}
 		if commit.prep.held[row.ordinal] {
 			// A held row teaches its entry nothing: it is the entry's own
 			// value. On the Cloud, the sender's holding of it is the one its
@@ -1814,7 +1846,7 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 	}
 	for _, merged := range commit.prep.calls {
 		row := commit.byOrdinal[merged.value]
-		if row == nil || row.res == nil {
+		if row == nil || row.res == nil || row.otherRun {
 			continue
 		}
 		// The row's expiry is the earliest of its calls', the Cloud's
@@ -1864,6 +1896,8 @@ type mergeReplacement struct {
 func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, committedAt int64) {
 	rec := row.rec
 	res.imported = true
+	run := row.run
+	res.run = &run
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil
 	if !c.blobBacked {
@@ -1955,7 +1989,7 @@ func (c *Cache) selectMergedOffersLocked(commit *valueMergeCommit) error {
 	}
 	for _, row := range commit.rows {
 		row.admitted = nil
-		if len(row.offers) == 0 || !row.action.installs() && row.expired && !row.keptExpired {
+		if row.otherRun || len(row.offers) == 0 || !row.action.installs() && row.expired && !row.keptExpired {
 			continue
 		}
 		complete := map[string]bool{}
@@ -2168,6 +2202,9 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 	for _, row := range commit.rows {
 		reply.Rows.count(row)
 		res := row.res
+		if row.otherRun {
+			continue
+		}
 		if c.resultsByID[res.id] != res {
 			// The commit's collection removed an entry the merge created
 			// that nothing owns: there is no target to report.
@@ -2192,7 +2229,7 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 		reply.Values = append(reply.Values, value)
 	}
 	for _, root := range commit.roots {
-		if !root.Expired {
+		if !root.Expired && !root.OtherRun {
 			res := commit.byOrdinal[uint64(root.Ordinal)].res
 			root.Number = uint64(res.id)
 			if edge, ok := c.persistedEdgesByResult[res.id]; ok {

@@ -160,7 +160,7 @@ func TestRemoteCacheAdapterReexportLeavesOutTheCloudsOffers(t *testing.T) {
 		if value.Ordinal == first.Roots[0].Ordinal {
 			cloudRoot = value.Number
 		}
-		stored, _, err := cloud.SetStoredPart(t.Context(), value.Number, dagql.PersistedPartOffer{Address: snapshotPart, Value: dagql.SnapshotValue{Kind: "file", Path: "/pending"}, Chain: reexportTestChain(i)}, 0)
+		stored, _, err := cloud.SetStoredPart(t.Context(), value.Number, testEntryRun(cloud, value.Number), dagql.PersistedPartOffer{Address: snapshotPart, Value: dagql.SnapshotValue{Kind: "file", Path: "/pending"}, Chain: reexportTestChain(i)}, 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -213,4 +213,11 @@ func TestRemoteCacheAdapterReexportLeavesOutTheCloudsOffers(t *testing.T) {
 
 func mib(n int) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", float64(n)/(1<<20)), "0"), ".") + " MiB"
+}
+
+// testEntryRun returns the run the entry with the number holds in c, for a
+// test that stores a part of the entry's own run.
+func testEntryRun(c *dagql.Cache, number uint64) dagql.RunName {
+	run, _ := c.EntryRun(number)
+	return run
 }

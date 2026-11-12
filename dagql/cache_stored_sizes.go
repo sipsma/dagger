@@ -130,6 +130,7 @@ type storedSizeMiss struct {
 	dependencyRevision uint64
 	replacements       uint64
 	expiresAtUnix      int64
+	run                *RunName
 }
 
 // storedSizesRLock takes egraphMu for reading and returns its release, which
@@ -313,7 +314,7 @@ func storedValueMeasuredLocked(res *sharedResult) (int64, bool) {
 // storedSizeMissLocked reads the value state of res that its size depends on.
 // Requires egraphMu.
 func storedSizeMissLocked(res *sharedResult) storedSizeMiss {
-	miss := storedSizeMiss{res: res, env: res.persistedEnvelope, body: res.stored, call: res.loadResultCall(), dependencyRevision: res.dependencyOwnershipRevision, replacements: res.replacements, expiresAtUnix: res.expiresAtUnix}
+	miss := storedSizeMiss{res: res, env: res.persistedEnvelope, body: res.stored, call: res.loadResultCall(), dependencyRevision: res.dependencyOwnershipRevision, replacements: res.replacements, expiresAtUnix: res.expiresAtUnix, run: sentRunLocked(res)}
 	for dep := range res.deps {
 		miss.deps = append(miss.deps, uint64(dep))
 	}
@@ -337,7 +338,7 @@ func (c *Cache) measureStoredValue(miss storedSizeMiss) (storedSizeMeasure, erro
 	if c.testStoredSizeMeasure != nil {
 		c.testStoredSizeMeasure()
 	}
-	value := TransferredValue{Ordinal: TransferOrdinal(miss.res.id), SenderNumber: uint64(miss.res.id), SenderReplacements: miss.replacements, DependencyIDs: miss.deps, ExpiresAtUnix: miss.expiresAtUnix}
+	value := TransferredValue{Ordinal: TransferOrdinal(miss.res.id), SenderNumber: uint64(miss.res.id), SenderReplacements: miss.replacements, DependencyIDs: miss.deps, ExpiresAtUnix: miss.expiresAtUnix, Run: miss.run}
 	var kept *storedTransferRecord
 	var bytes int64
 	if miss.body != nil {
@@ -442,13 +443,13 @@ func heldRowSizeLocked(res *sharedResult) int64 {
 	if len(res.recipeKeys) > 0 {
 		recipe = res.recipeKeys[0]
 	}
-	return heldRowSize(uint64(res.id), res.replacements, res.expiresAtUnix, recipe)
+	return heldRowSize(uint64(res.id), res.replacements, res.expiresAtUnix, recipe, sentRunLocked(res))
 }
 
 // heldRowEncoding is what a held row's json.Marshal encoding is made of:
 // a row with every field zero, and what a nonzero replacement count, expiry
 // and recipe each add beyond their digits or characters.
-var heldRowEncoding = func() (enc struct{ base, replacements, expires, held int64 }) {
+var heldRowEncoding = func() (enc struct{ base, replacements, expires, held, run, runReplacements int64 }) {
 	size := func(v TransferredValue) int64 {
 		data, err := json.Marshal(v)
 		if err != nil {
@@ -460,14 +461,19 @@ var heldRowEncoding = func() (enc struct{ base, replacements, expires, held int6
 	enc.replacements = size(TransferredValue{SenderReplacements: 1}) - enc.base - 1
 	enc.expires = size(TransferredValue{ExpiresAtUnix: 1}) - enc.base - 1
 	enc.held = size(TransferredValue{Held: "x"}) - enc.base - 1
+	// A run with an empty cache and number 0, then what a nonzero
+	// replacement count adds beyond its digits.
+	enc.run = size(TransferredValue{Run: &RunName{}}) - enc.base
+	enc.runReplacements = size(TransferredValue{Run: &RunName{Replacements: 1}}) - enc.base - enc.run - 1
 	return enc
 }()
 
 // heldRowSize returns the length of the json.Marshal encoding of the held row
-// StoredBundle builds for entry number with the replacement count, expiry and
-// recipe, without encoding it: its ordinal, sender number and record's
-// result ID are the number, and a recipe has no character JSON escapes.
-func heldRowSize(number, replacements uint64, expiresAtUnix int64, recipe digest.Digest) int64 {
+// StoredBundle builds for entry number with the replacement count, expiry,
+// recipe and run, without encoding it: its ordinal, sender number and
+// record's result ID are the number, and neither a recipe nor a cache ID has
+// a character JSON escapes.
+func heldRowSize(number, replacements uint64, expiresAtUnix int64, recipe digest.Digest, run *RunName) int64 {
 	size := heldRowEncoding.base + 3*(decimalDigits(number)-1) + heldRowEncoding.held + int64(len(recipe))
 	if replacements != 0 {
 		size += heldRowEncoding.replacements + decimalDigits(replacements)
@@ -476,6 +482,12 @@ func heldRowSize(number, replacements uint64, expiresAtUnix int64, recipe digest
 		size += heldRowEncoding.expires + 1 + decimalDigits(uint64(-expiresAtUnix))
 	} else if expiresAtUnix > 0 {
 		size += heldRowEncoding.expires + decimalDigits(uint64(expiresAtUnix))
+	}
+	if run != nil {
+		size += heldRowEncoding.run + int64(len(run.Cache)) + decimalDigits(run.Number) - 1
+		if run.Replacements != 0 {
+			size += heldRowEncoding.runReplacements + decimalDigits(run.Replacements)
+		}
 	}
 	return size
 }

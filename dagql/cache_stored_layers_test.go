@@ -73,7 +73,7 @@ func TestStoredPartsHoldSharedLayersOnce(t *testing.T) {
 
 	before := storedLayersTestLiveHeap()
 	for i := range parts {
-		stored, _, err := c.SetStoredPart(ctx, numbers[i], offers[i], 0)
+		stored, _, err := c.SetStoredPart(ctx, numbers[i], testRunOf(c, numbers[i]), offers[i], 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -122,7 +122,7 @@ func TestStoredPartOffersAreAsStored(t *testing.T) {
 	for _, name := range slices.Sorted(maps.Keys(want)) {
 		res := storedPartTestPublish(t, ctx, c, "s", "as-stored-"+name, &captureTestValue{text: name})
 		numbers[name] = uint64(res.cacheSharedResult().id)
-		stored, _, err := c.SetStoredPart(ctx, numbers[name], want[name], 0)
+		stored, _, err := c.SetStoredPart(ctx, numbers[name], testRunOf(c, numbers[name]), want[name], 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -195,7 +195,7 @@ func TestStoredLayersForgetLayersNoPartNames(t *testing.T) {
 	ctx, c := storedPartTestCache(t, WithBlobStore())
 	res := storedPartTestPublish(t, ctx, c, "s", "forgotten-layers", &captureTestValue{text: "v"})
 	number := uint64(res.cacheSharedResult().id)
-	stored, _, err := c.SetStoredPart(ctx, number, storedLayersTestPart("snapshot", []snapshots.ExportLayer{storedLayersTestLayer("forgotten", "")}, nil), 0)
+	stored, _, err := c.SetStoredPart(ctx, number, testRunOf(c, number), storedLayersTestPart("snapshot", []snapshots.ExportLayer{storedLayersTestLayer("forgotten", "")}, nil), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	blobs := func() int {
@@ -224,7 +224,7 @@ func TestClosedCacheWithStoredPartsIsFreed(t *testing.T) {
 		require.NoError(t, err)
 		if store {
 			res := storedPartTestPublish(t, ctx, c, "s", "freed-cache", &captureTestValue{text: "v"})
-			stored, _, err := c.SetStoredPart(ctx, uint64(res.cacheSharedResult().id), storedLayersTestPart("snapshot", []snapshots.ExportLayer{storedLayersTestLayer("freed", "")}, nil), 0)
+			stored, _, err := c.SetStoredPart(ctx, uint64(res.cacheSharedResult().id), testRunOf(c, uint64(res.cacheSharedResult().id)), storedLayersTestPart("snapshot", []snapshots.ExportLayer{storedLayersTestLayer("freed", "")}, nil), 0)
 			require.NoError(t, err)
 			require.True(t, stored)
 		}

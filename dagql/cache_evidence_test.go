@@ -470,9 +470,9 @@ func TestCacheEvidenceLookupTime(t *testing.T) {
 
 // A hit records whether the value it chose came from the remote cache: a
 // value a Cloud merge installed does, with the merge's commit time. A value
-// the engine computed does not, even when a merge of the same recipe kept it
-// and gave it a Cloud holding, and neither does a merged value that local work
-// replaced in place.
+// the engine computed does not, even when a merge of its own run, come back
+// from the Cloud, kept it and gave it a Cloud holding, and neither does a
+// merged value that local work replaced in place.
 func TestCacheEvidenceRemoteHit(t *testing.T) {
 	t.Parallel()
 	frame := func() *ResultCall {
@@ -513,6 +513,7 @@ func TestCacheEvidenceRemoteHit(t *testing.T) {
 		bundle, _ := mergeTestSource(t, "root", "sent")
 		ctx, c, srv := transferTestCache(t)
 		local := persistedListTestResult(t, ctx, c, srv, "root", &transferTestValue{Text: "local"})
+		bundle = runTestRows(bundle, testRunOf(c, runTestID(local)), bundle.Values[0].SenderNumber)
 		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
 		assert.NilError(t, err)
 		assert.Equal(t, uint64(local.cacheSharedResult().id), reply.Imported()[0].ResultID, "the merge kept the local value")

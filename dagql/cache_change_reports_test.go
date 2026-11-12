@@ -366,7 +366,7 @@ func TestChangeReportsNameEveryChangedAnswer(t *testing.T) {
 
 	setPart := func(number uint64, part PersistedPartOffer) func() RemoteChange {
 		return func() RemoteChange {
-			stored, change, err := cloud.SetStoredPart(ctx, number, part, 0)
+			stored, change, err := cloud.SetStoredPart(ctx, number, testRunOf(cloud, number), part, 0)
 			require.NoError(t, err)
 			require.True(t, stored)
 			return change
