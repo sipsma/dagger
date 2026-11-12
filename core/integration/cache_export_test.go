@@ -141,12 +141,20 @@ func (CacheSuite) TestCacheExportCarriesAModuleSourceCheckout(ctx context.Contex
 		}
 	}
 	require.NotEmpty(t, rootRecord, "the bundle holds the module source's record")
-	// The source's record names its checkout by its ordinal in the bundle.
+	// The source's record names its checkout by the sender's number for it,
+	// which the bundle maps to the checkout's ordinal.
 	checkout := findJSONKey(gjson.ParseBytes(rootRecord), "gitUnfilteredContextDirResultID")
 	require.True(t, checkout.Exists(), "the module source's record names its checkout: %s", rootRecord)
+	var checkoutOrdinal uint64
+	for _, value := range bundle.Values {
+		if value.SenderNumber == checkout.Uint() {
+			checkoutOrdinal = uint64(value.Ordinal)
+		}
+	}
+	require.NotZero(t, checkoutOrdinal, "the bundle holds the checkout the source's record names")
 	carried := false
 	for _, output := range bundle.Outputs {
-		if uint64(output.Ordinal) == checkout.Uint() && output.Address.Part == "snapshot" && (output.Chain != nil || output.Prefix != nil) {
+		if uint64(output.Ordinal) == checkoutOrdinal && output.Address.Part == "snapshot" && (output.Chain != nil || output.Prefix != nil) {
 			carried = true
 		}
 	}
