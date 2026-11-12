@@ -1579,8 +1579,10 @@ func TestMergeValuesDecidesARecipeByItsBestRecord(t *testing.T) {
 			require.Equal(t, freshValue.Number, oldValue.Number, "one entry for the recipe")
 			require.Zero(t, freshValue.ExpiresAtUnix, "it stores the unexpired record of P'")
 			b.egraphMu.RLock()
-			stored, err := json.Marshal(b.resultsByID[sharedResultID(freshValue.Number)].persistedEnvelope)
+			full, err := b.resultsByID[sharedResultID(freshValue.Number)].fullStoredEnvelope()
 			b.egraphMu.RUnlock()
+			require.NoError(t, err)
+			stored, err := json.Marshal(full)
 			require.NoError(t, err)
 			require.Contains(t, string(stored), "fresh value")
 			for _, value := range reply.Values {
@@ -2272,8 +2274,10 @@ func TestMergeValuesInstalledRecordNamesItsEntry(t *testing.T) {
 			number := reply.Imported()[0].ResultID
 			into.egraphMu.RLock()
 			res := into.resultsByID[sharedResultID(number)]
-			envelope, frame := *res.persistedEnvelope, res.loadResultCall()
+			full, err := res.fullStoredEnvelope()
+			envelope, frame := *full, res.loadResultCall()
 			into.egraphMu.RUnlock()
+			require.NoError(t, err)
 			require.Equal(t, number, envelope.ResultID, "the record names its entry")
 			_, err = normalizeTransferRecord(PersistedRecord{ResultID: number, Envelope: envelope, Call: frame})
 			require.NoError(t, err, "the entry exports")
