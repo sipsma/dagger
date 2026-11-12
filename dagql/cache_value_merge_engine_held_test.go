@@ -138,9 +138,9 @@ func TestCloudRefusesAHeldRowItsSenderDoesntHold(t *testing.T) {
 	held := engineHeldTestBundle(t, engine, exportTestBundle(t, ctx, engine, root), child)
 
 	cctx, cloud := storedPartTestCache(t, WithBlobStore())
-	reply, err := cloud.MergeValues(cctx, "other-engine", childOnly)
+	reply, err := cloud.MergeValues(cctx, "other-engine", runTestNamed(childOnly, "engine"))
 	require.NoError(t, err)
-	require.True(t, reply.Committed, "another engine's copy gives the recipe a live value")
+	require.True(t, reply.Committed, "another engine's copy of the run gives the recipe a live value")
 
 	reply, err = cloud.MergeValues(cctx, "engine", held)
 	require.NoError(t, err)
@@ -277,7 +277,7 @@ func TestCloudStoresAnUploadOnAHeldRowNamingAHeldRow(t *testing.T) {
 	require.True(t, ok, "the named held row lands on an entry")
 	part := PersistedPartOffer{Address: output.Address, Value: *output.Value, Chain: *output.Chain, Owner: PersistedOfferOwner{DependencyIDs: []uint64{svcNumber}}}
 	part.Value.Services = []TransferredServiceBinding{{ServiceResultID: svcNumber, Hostname: "svc"}}
-	stored, err := cloud.SetStoredPart(cctx, numbers[outOrdinal], part, 0)
+	stored, err := cloud.SetStoredPart(cctx, numbers[outOrdinal], testRunOf(cloud, numbers[outOrdinal]), part, 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	_, deps = cloudEntryOfRecipe(t, cloud, engine, out)

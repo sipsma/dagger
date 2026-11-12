@@ -2910,6 +2910,11 @@ type sharedResult struct {
 	// replacement in place installs another. Guarded by egraphMu once
 	// indexed.
 	persistDeclined bool
+	// run is the run the entry's value comes from, when a merge installed it
+	// from another cache; nil for a value this cache computed, whose run is
+	// the entry itself (runOfLocked). It goes with the value. Guarded by
+	// egraphMu.
+	run *RunName
 	// mergedAtUnixNano is when the Cloud merge that installed the entry's
 	// value committed, on an engine; 0 for a value the engine computed, and
 	// for one restored after a restart. It goes with the value. Guarded by

@@ -172,7 +172,7 @@ func (c *Cache) storedBundle(roots []uint64, held *HeldBy) (StoredBundleResult, 
 	for _, res := range build.order {
 		if build.held[res.id] {
 			ordinal := build.ordinals[res.id]
-			build.bundle.Values = append(build.bundle.Values, TransferredValue{Ordinal: ordinal, SenderNumber: uint64(res.id), SenderReplacements: res.replacements, Record: PersistedRecord{ResultID: uint64(ordinal)}, ExpiresAtUnix: res.expiresAtUnix})
+			build.bundle.Values = append(build.bundle.Values, TransferredValue{Ordinal: ordinal, SenderNumber: uint64(res.id), SenderReplacements: res.replacements, Record: PersistedRecord{ResultID: uint64(ordinal)}, ExpiresAtUnix: res.expiresAtUnix, Run: sentRunLocked(res)})
 			if frames == nil {
 				frames = map[TransferOrdinal]*ResultCall{}
 			}
@@ -325,7 +325,7 @@ func (c *Cache) storedBundleValueLocked(build *storedBundleBuild, res *sharedRes
 	if err != nil {
 		return fmt.Errorf("stored bundle: entry %d: %w", res.id, err)
 	}
-	value := TransferredValue{Ordinal: build.ordinals[res.id], SenderNumber: uint64(res.id), SenderReplacements: res.replacements, ExpiresAtUnix: res.expiresAtUnix}
+	value := TransferredValue{Ordinal: build.ordinals[res.id], SenderNumber: uint64(res.id), SenderReplacements: res.replacements, ExpiresAtUnix: res.expiresAtUnix, Run: sentRunLocked(res)}
 	direct := make(map[uint64]bool, len(res.deps))
 	for dep := range res.deps {
 		ordinal := uint64(build.ordinals[dep])
@@ -520,7 +520,7 @@ func (c *Cache) storedPartDonorLocked(res *sharedResult, key string, now int64) 
 	for root := range c.outputEqClassRootsLocked(res.id) {
 		for id := range c.outputEqClassResults[root] {
 			member := c.resultsByID[id]
-			if member == nil || member == res || c.resultExpiredAtLocked(member, now) {
+			if member == nil || member == res || c.resultExpiredAtLocked(member, now) || c.otherRunOfRecipeLocked(member, res) {
 				continue
 			}
 			if _, ok := member.storedParts[key]; ok && (best == nil || member.id < best.id) {

@@ -159,10 +159,14 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			// envelope a record of it is captured from.
 			persistDeclined := env.PersistDeclined
 			env.PersistDeclined = false
+			// So does the merged run.
+			run := env.Run
+			env.Run = nil
 			res := &sharedResult{
 				id:                    resultID,
 				imported:              env.Imported,
 				persistDeclined:       persistDeclined,
+				run:                   run,
 				isObject:              env.Kind == persistedResultKindObject,
 				sessionResourceHandle: env.SessionResourceHandle,
 				expiresAtUnix:         row.ExpiresAtUnix,

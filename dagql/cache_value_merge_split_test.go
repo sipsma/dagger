@@ -191,16 +191,16 @@ func TestCommitValueMergeDecidesByTheCacheAtCommit(t *testing.T) {
 		require.False(t, imported)
 	})
 
-	// Another sender's merge of the same records commits after the
-	// preparation: the commit lands on the entries it created, and adds its
-	// own sender's holdings.
+	// Another sender's merge of the same records, of the same runs, commits
+	// after the preparation: the commit lands on the entries it created, and
+	// adds its own sender's holdings.
 	t.Run("merged-meanwhile", func(t *testing.T) {
 		t.Parallel()
 		bundle := splitTestSource(t)
 		ctx, cloud := storedPartTestCache(t, WithBlobStore())
 		p, err := cloud.PrepareValueMerge(ctx, "cache-a", bundle)
 		require.NoError(t, err)
-		first, err := cloud.MergeValues(ctx, "cache-b", bundle)
+		first, err := cloud.MergeValues(ctx, "cache-b", runTestNamed(bundle, "cache-a"))
 		require.NoError(t, err)
 		entries := splitTestEntries(cloud)
 		reply, err := cloud.CommitValueMerge(ctx, p)

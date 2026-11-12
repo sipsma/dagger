@@ -86,6 +86,12 @@ type TransferredValue struct {
 	// held rows to an engine (StoredBundle's HeldBy), with no dependencies
 	// and no outputs, and an engine sends them to the Cloud in an export.
 	Held digest.Digest `json:"held,omitempty"`
+	// Run names the run that made the value, when it isn't the sending entry
+	// itself: a value the sender merged from another cache names the run it
+	// merged (RunName). A held row names the run the sender knows the
+	// recipient holds. With no Run, the run is the sending entry, by
+	// SenderNumber and SenderReplacements (TransferredRun).
+	Run *RunName `json:"run,omitempty"`
 }
 type TransferredRoot struct {
 	Ordinal       TransferOrdinal `json:"ordinal"`
