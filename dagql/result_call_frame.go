@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"strings"
 	"context"
 	"fmt"
 	"slices"
@@ -104,6 +105,13 @@ func (mod *ResultCallModule) cloneWith(memo resultCallCloneMemo) *ResultCallModu
 	}
 }
 
+// atrestDiagCopy is a diagnostic that never ships: a call frame's clone
+// copies its strings, so that a heap profile charges what a stored frame
+// keeps to this function rather than to whatever allocated the original.
+//
+//go:noinline
+func atrestDiagCopy(s string) string { return strings.Clone(s) }
+
 type ResultCallArg struct {
 	Name        string             `json:"name,omitempty"`
 	IsSensitive bool               `json:"isSensitive,omitempty"`
@@ -115,7 +123,7 @@ func (arg *ResultCallArg) cloneWith(memo resultCallCloneMemo) *ResultCallArg {
 		return nil
 	}
 	return &ResultCallArg{
-		Name:        arg.Name,
+		Name:        atrestDiagCopy(arg.Name),
 		IsSensitive: arg.IsSensitive,
 		Value:       arg.Value.cloneWith(memo),
 	}
@@ -164,10 +172,10 @@ func (lit *ResultCallLiteral) cloneWith(memo resultCallCloneMemo) *ResultCallLit
 		BoolValue:            lit.BoolValue,
 		IntValue:             lit.IntValue,
 		FloatValue:           lit.FloatValue,
-		StringValue:          lit.StringValue,
+		StringValue:          atrestDiagCopy(lit.StringValue),
 		BytesValue:           slices.Clone(lit.BytesValue),
-		EnumValue:            lit.EnumValue,
-		DigestedStringValue:  lit.DigestedStringValue,
+		EnumValue:            atrestDiagCopy(lit.EnumValue),
+		DigestedStringValue:  atrestDiagCopy(lit.DigestedStringValue),
 		DigestedStringDigest: lit.DigestedStringDigest,
 		ResultRef:            lit.ResultRef.cloneWith(memo),
 	}
@@ -266,7 +274,7 @@ func (frame *ResultCall) cloneWith(memo resultCallCloneMemo) *ResultCall {
 	cp := &ResultCall{
 		Kind:         frame.Kind,
 		Type:         frame.Type.clone(),
-		Field:        frame.Field,
+		Field:        atrestDiagCopy(frame.Field),
 		SyntheticOp:  frame.SyntheticOp,
 		View:         frame.View,
 		Nth:          frame.Nth,
