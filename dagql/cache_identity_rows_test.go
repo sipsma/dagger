@@ -720,14 +720,38 @@ func TestStandInOfAnotherRecipeLeavesTheFrame(t *testing.T) {
 	require.Equal(t, rRecipe, got, "R's recipe is unchanged")
 }
 
-// Settlement reads what the decode loaded, not an encoding of the installed
-// value: a value another caller is using, which can't be encoded for now,
-// still gives up the identity-only entry for its stand-in, and an export
-// once it is free carries nothing held.
-func TestDecodedParentSettlesAValueThatCannotBeEncodedYet(t *testing.T) {
+// A value that keeps naming the identity-only entry after its decode loaded
+// the stand-in, as a transferred container keeps its record's payload, keeps
+// that entry: settlement goes by what the value's encoding names, not by
+// what its decode loaded, so nothing the value names is collected.
+func TestDecodedParentKeepsTheRowItsPayloadStillNames(t *testing.T) {
 	t.Parallel()
 	d := newDecodedParentTest(t)
-	var decoded *transferTestValue
+	transferDecodeHooks.Store(d.rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
+		child, err := dec.ResultRef(ctx, value.Child)
+		if err != nil {
+			return err
+		}
+		require.Equal(t, sharedResultID(d.own), child.cacheSharedResult().id, "the decode loads the stand-in")
+		// value.Child stays the record's: the payload is kept as it came.
+		return nil
+	})
+	t.Cleanup(func() { transferDecodeHooks.Delete(d.rNumber) })
+	_, err := d.b.LoadResultByResultID(d.bctx, "", d.bsrv, d.rNumber)
+	require.NoError(t, err)
+	d.b.egraphMu.RLock()
+	defer d.b.egraphMu.RUnlock()
+	rEntry := d.b.resultsByID[sharedResultID(d.rNumber)]
+	require.Contains(t, rEntry.deps, d.identity, "R keeps the entry its payload names")
+	require.NotNil(t, d.b.resultsByID[d.identity], "which stays on the engine")
+	require.Contains(t, rEntry.deps, sharedResultID(d.own), "and owns the stand-in its live value uses")
+}
+
+// A decoded value that can't be encoded keeps every row: settlement can't
+// tell what it names.
+func TestDecodedParentKeepsItsRowsWhenItsValueCannotBeEncoded(t *testing.T) {
+	t.Parallel()
+	d := newDecodedParentTest(t)
 	transferDecodeHooks.Store(d.rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
 		child, err := dec.ResultRef(ctx, value.Child)
 		if err != nil {
@@ -735,17 +759,14 @@ func TestDecodedParentSettlesAValueThatCannotBeEncodedYet(t *testing.T) {
 		}
 		value.Child = uint64(child.cacheSharedResult().id)
 		value.busy.Store(true)
-		decoded = value
 		return nil
 	})
 	t.Cleanup(func() { transferDecodeHooks.Delete(d.rNumber) })
 	_, err := d.b.LoadResultByResultID(d.bctx, "", d.bsrv, d.rNumber)
 	require.NoError(t, err)
 	d.b.egraphMu.RLock()
+	defer d.b.egraphMu.RUnlock()
 	rEntry := d.b.resultsByID[sharedResultID(d.rNumber)]
-	require.Contains(t, rEntry.deps, sharedResultID(d.own), "R owns the stand-in")
-	require.Len(t, rEntry.deps, 1, "and no longer the identity-only entry")
-	d.b.egraphMu.RUnlock()
-	decoded.busy.Store(false)
-	d.exportsWhole(t)
+	require.Contains(t, rEntry.deps, d.identity, "R keeps the identity-only entry")
+	require.Contains(t, rEntry.deps, sharedResultID(d.own), "and the stand-in")
 }

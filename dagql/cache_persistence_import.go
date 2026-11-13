@@ -567,6 +567,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		decodeCtx := ContextWithCall(ctx, call)
 		decodeCtx = context.WithValue(decodeCtx, copiedDecodeRolesKey{}, &copiedDecodeRoles{ResultID: uint64(res.id), Links: cloneSnapshotRefLinks(state.snapshotOwnerLinks), Imported: state.imported, ArmRecipe: c.decodeArmsRecipe(res, state.imported), Host: c.partHostFor(res)})
 		if decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, nil, uint64(resultID), call, *state.persistedEnvelope); err == nil && decoded != nil {
+			named := c.decodedValueNames(ctx, res, call, decoded)
 			res.payloadMu.Lock()
 			if res.hasValue || res.persistedEnvelope == nil || res.payloadRevision != state.payloadRevision {
 				res.payloadMu.Unlock()
@@ -600,7 +601,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			installedRevision := res.payloadRevision
 			res.payloadMu.Unlock()
 			c.updateDecodedPayloadBytes(ctx, res, decoded.Unwrap(), installedRevision)
-			c.settleStandIns(ctx, res)
+			c.settleStandIns(ctx, res, named)
 			if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
 				return err
 			}
@@ -1135,6 +1136,7 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 				return nil, err
 			}
 
+			named := c.decodedValueNames(ctx, res, call, decoded)
 			wcprof.WriteLock(ctx, &res.payloadMu, resultPayloadLockIdent)
 			if res.hasValue || res.persistedEnvelope == nil || res.payloadRevision != state.payloadRevision {
 				res.payloadMu.Unlock()
@@ -1171,7 +1173,7 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			installedRevision := res.payloadRevision
 			res.payloadMu.Unlock()
 			c.updateDecodedPayloadBytes(ctx, res, decoded.Unwrap(), installedRevision)
-			c.settleStandIns(ctx, res)
+			c.settleStandIns(ctx, res, named)
 
 			resolver = decodeResolver
 		}
