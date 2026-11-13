@@ -129,3 +129,30 @@ func TestPushSendsInFullAKnownRowTheCloudLacks(t *testing.T) {
 	require.Equal(t, 2, full, "the known child goes in full, as the Cloud asked")
 	require.Zero(t, held)
 }
+
+// A push says its roots are retained, so a root whose retention edge is gone
+// by the capture, though another result keeps it alive, is left out as not
+// retained.
+func TestPushLeavesOutARootNoLongerRetained(t *testing.T) {
+	t.Parallel()
+	ctx, engine, srv := transferTestCache(t)
+	child := persistedListTestResult(t, ctx, engine, srv, "pruned-child", String("child"))
+	parent := persistedListTestResult(t, ctx, engine, srv, "pruned-parent", String("parent"))
+	transferTestDependency(engine, ctx, parent, child)
+	_, removed, err := engine.removePersistedEdge(ctx, child.cacheSharedResult().id)
+	require.NoError(t, err)
+	require.True(t, removed)
+
+	err = engine.WithExportedValues(ctx, ValueSelection{Roots: []AnyResult{child}, Known: NewKnownRows(), Push: &PushRows{List: true}}, config.RefConfig{}, func(context.Context, *ExportedValues) error {
+		t.Fatal("nothing to push")
+		return nil
+	})
+	var left *RootsLeftOutError
+	require.ErrorAs(t, err, &left)
+	require.Len(t, left.Roots, 1)
+	require.ErrorIs(t, left.Roots[0].Err, ErrNotRetained)
+
+	// An export the service asks for still captures it.
+	bundle := exportTestBundle(t, ctx, engine, child)
+	require.NotEmpty(t, bundle.Values)
+}

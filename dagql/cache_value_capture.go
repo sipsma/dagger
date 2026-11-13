@@ -392,10 +392,15 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 			continue
 		}
 		selected.expiry = res.expiresAtUnix
-		if edge, ok := c.persistedEdgesByResult[res.id]; ok {
+		edge, retained := c.persistedEdgesByResult[res.id]
+		if retained {
 			selected.expiry = edge.expiresAtUnix
 		}
-		if selected.expiry != 0 && selected.expiry <= now {
+		if push != nil && !retained {
+			// A push says its roots are retained (protocol.Push): one whose
+			// retention edge is gone isn't pushed.
+			selected.err = &blockedRow{row: res.id, err: fmt.Errorf("%w: root %d", ErrNotRetained, res.id)}
+		} else if selected.expiry != 0 && selected.expiry <= now {
 			selected.err = &blockedRow{row: res.id, err: fmt.Errorf("expired retention edge for root %d", res.id)}
 		}
 		capture.selected = append(capture.selected, selected)
