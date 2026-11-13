@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -137,4 +138,40 @@ func TestIdentityEntryFetchFailsUnavailable(t *testing.T) {
 			require.Equal(t, int64(1), b.IdentityRowCounts().FetchFailed)
 		})
 	}
+}
+
+// An engine saves an identity-only entry as its recipe and Cloud holding,
+// and restores it identity-only: never as an absent value a lookup could
+// serve. Its dependent is saved with it.
+func TestIdentityEntrySavedAndRestored(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, p := heldTestChainedCloud(t)
+	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "b.db")
+	bctx, b, _ := persistedListTestCache(t, path)
+	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	require.NoError(t, err)
+	rMerged := heldTestMerged(t, reply, heldTestRow(t, got.Bundle, r).Ordinal)
+	require.Len(t, rMerged.Deps, 1)
+	require.NoError(t, b.Close(bctx))
+
+	_, b, _ = persistedListTestCache(t, path)
+	require.Equal(t, CachePersistenceResetNone, b.PersistenceResetReason())
+	pRecipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p))
+	b.egraphMu.RLock()
+	defer b.egraphMu.RUnlock()
+	rEntry := b.resultsByID[sharedResultID(rMerged.Number)]
+	require.NotNil(t, rEntry, "the root came back")
+	pEntry := b.resultsByID[sharedResultID(rMerged.Deps[0])]
+	require.NotNil(t, pEntry)
+	require.Contains(t, rEntry.deps, pEntry.id)
+	require.True(t, pEntry.identityOnly)
+	require.Equal(t, pRecipe, pEntry.identityRecipe)
+	require.Nil(t, b.servableCandidateLocked(pEntry.id, time.Now().Unix(), nil))
+	key, h := pEntry.cloudHoldingLocked()
+	require.NotNil(t, h)
+	require.Equal(t, p, key.Number)
+	require.Equal(t, pEntry.id, b.entriesByRecipe[pRecipe])
 }
