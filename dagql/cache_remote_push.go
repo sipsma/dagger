@@ -114,7 +114,9 @@ func (b *RemoteCacheBridge) TakeRemotePushes(ctx context.Context) (numbers []uin
 		}
 		if len(p.queued) > 0 || p.flush && len(p.busy) > 0 {
 			flushed = p.flush
-			numbers = append(p.busy, p.queued...)
+			numbers = make([]uint64, 0, len(p.busy)+len(p.queued))
+			numbers = append(numbers, p.busy...)
+			numbers = append(numbers, p.queued...)
 			p.busy, p.queued, p.flush = nil, nil, false
 			clear(p.in)
 			p.taken += len(numbers)

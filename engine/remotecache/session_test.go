@@ -258,12 +258,12 @@ type fakePushQueue struct {
 	// afterFlush, when set, runs once after a flush, outside the lock.
 	afterFlush func()
 	mu         sync.Mutex
-	queued  []uint64
-	busy    []uint64
-	taken   int
-	flush   bool
-	notify  chan struct{}
-	changed chan struct{}
+	queued     []uint64
+	busy       []uint64
+	taken      int
+	flush      bool
+	notify     chan struct{}
+	changed    chan struct{}
 }
 
 func newFakePushQueue() *fakePushQueue {
@@ -290,7 +290,10 @@ func (q *fakePushQueue) TakeRemotePushes(ctx context.Context) ([]uint64, bool, e
 	for {
 		q.mu.Lock()
 		if len(q.queued) > 0 || q.flush && len(q.busy) > 0 {
-			numbers, flushed := append(q.busy, q.queued...), q.flush
+			numbers := make([]uint64, 0, len(q.busy)+len(q.queued))
+			numbers = append(numbers, q.busy...)
+			numbers = append(numbers, q.queued...)
+			flushed := q.flush
 			q.busy, q.queued, q.flush = nil, nil, false
 			q.taken += len(numbers)
 			q.mu.Unlock()
