@@ -433,3 +433,29 @@ func TestWriteBehindUpdatesALastUseAlone(t *testing.T) {
 	require.Equal(t, WriteBehindReport{Used: 1}, report)
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a last use")
 }
+
+// A holding that teaches the cache nothing it didn't know, as every engine
+// that holds a stored entry reports it again, changes no identity row, and
+// the write after it writes none.
+func TestWriteBehindWritesNoIdentityAHoldingDoesntChange(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	stored := storedPruneTestRoot(t, ctx, cloud, "wb-held-again")
+	h := holdingOf("wb-held-again-holding")
+	h.Recipe = writeBehindTestRecipe(cloud, stored)
+	h.Request = h.Recipe
+	h.ContentDigest = testDigest("wb-held-again-content")
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-h", Number: 1}, h)
+	require.NoError(t, err)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored entry an engine holds")
+	for i := 2; i <= 4; i++ {
+		_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: CacheID(fmt.Sprintf("cache-h%d", i)), Number: 1}, h)
+		require.NoError(t, err)
+	}
+	report, err := cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	require.Zero(t, report.Classes, "no class changed")
+	require.Zero(t, report.Terms, "no term changed")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "three more engines hold it")
+}
