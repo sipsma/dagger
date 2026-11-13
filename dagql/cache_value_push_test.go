@@ -110,3 +110,22 @@ func TestPushSendsTheCloudOnlyTheRecordsItLacks(t *testing.T) {
 	require.Equal(t, 0, full)
 	require.Equal(t, 1, held, "a known root stands for its closure")
 }
+
+// A row the Cloud says it lacks goes in full, though the engine knew it as
+// merged: the Cloud may have dropped it since.
+func TestPushSendsInFullAKnownRowTheCloudLacks(t *testing.T) {
+	t.Parallel()
+	ctx, engine, srv := transferTestCache(t)
+	child := persistedListTestResult(t, ctx, engine, srv, "known-child", String("child"))
+	root := persistedListTestResult(t, ctx, engine, srv, "known-root", String("root"))
+	transferTestDependency(engine, ctx, root, child)
+	known := NewKnownRows()
+	_, rows := pushTestCapture(t, ctx, engine, known, &PushRows{Full: map[uint64]bool{uint64(child.cacheSharedResult().id): true}}, child)
+	known.Merged(rows)
+	require.Equal(t, 1, known.Len(), "the engine knows the child as merged")
+
+	push, _ := pushTestCapture(t, ctx, engine, known, &PushRows{Full: map[uint64]bool{uint64(root.cacheSharedResult().id): true, uint64(child.cacheSharedResult().id): true}}, root)
+	full, held := pushTestFull(push)
+	require.Equal(t, 2, full, "the known child goes in full, as the Cloud asked")
+	require.Zero(t, held)
+}
