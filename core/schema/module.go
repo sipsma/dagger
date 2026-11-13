@@ -2350,7 +2350,7 @@ func (s *moduleSchema) serveModule(ctx context.Context, self *core.Query, args s
 			// The source may have been fetched with the credentials the
 			// session lent, which the key of the function call this serves
 			// doesn't name: its result requires them.
-			fnCall, err := self.Server.ModuleParentFunctionCall(ctx)
+			fnCall, err := self.Server.EnclosingFunctionCall(ctx)
 			if err == nil {
 				err = fnCall.BorrowSessionResourcesOf(src)
 			}
