@@ -536,6 +536,11 @@ type CheckedRows struct {
 // Cloud has teaches it the engine's holding of the row.
 type Push struct {
 	Bundle dagql.ValueBundle `json:"bundle"`
+	// EngineTimeUnixNano is the engine's clock just before it captured the
+	// bundle. Its roots are retained there, each until its root's
+	// ExpiresAtUnix, as of that moment: the Cloud records it as the
+	// engine's telemetry would, so a later observation wins.
+	EngineTimeUnixNano int64 `json:"engineTimeUnixNano"`
 }
 
 // Pushed answers Push. With no Stale, the Cloud has committed the bundle:
