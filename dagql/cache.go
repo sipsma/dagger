@@ -2761,6 +2761,8 @@ type Cache struct {
 	// behind is the writer behind's state of a blob-backed cache's store
 	// (cache_write_behind.go), nil without one. Guarded by checkpointMu.
 	behind *writeBehindState
+	// testWriteBehindBudget, when set, replaces writeBehindBudget in tests.
+	testWriteBehindBudget int
 
 	persistenceResetReason CachePersistenceResetReason
 	// identity names the cache's persistence database across the engine
@@ -2783,6 +2785,13 @@ type Cache struct {
 	// live one, which new classes take before a new number. A slot whose
 	// parent is 0 is free.
 	freeEqClassIDs []eqClassID
+	// eqClassReuses counts, on a blob-backed cache, how often each class
+	// number was taken again after its class died, so the writer behind can
+	// tell whether a number its store names still names the class it meant
+	// (writeBehindState.births). eqClassSlotsEver is the most slots the
+	// e-graph has had, so a number taken again past a trimmed end counts too.
+	eqClassReuses    map[eqClassID]uint32
+	eqClassSlotsEver int
 
 	// map of eqClassID -> all digests in that class
 	eqClassToDigests map[eqClassID]map[string]struct{}

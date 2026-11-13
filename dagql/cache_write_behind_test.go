@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -65,8 +66,7 @@ func writeBehindTestTables(t *testing.T, ctx context.Context, c *Cache) map[stri
 // and reads them again.
 func writeBehindTestMatchesWholeSave(t *testing.T, ctx context.Context, c *Cache, step string) {
 	t.Helper()
-	_, err := c.WriteBehind(ctx)
-	require.NoError(t, err, step)
+	writeBehindTestDrain(t, ctx, c, step, nil)
 	behind := writeBehindTestTables(t, ctx, c)
 	require.NoError(t, c.Checkpoint(ctx), step)
 	whole := writeBehindTestTables(t, ctx, c)
@@ -159,6 +159,23 @@ func TestWriteBehindWritesWhatAWholeSaveWrites(t *testing.T) {
 	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
 	defer func() { require.NoError(t, cloud.Close(ctx)) }()
 	writeBehindTestScenario(t, ctx, cloud, func(step string) {
+		writeBehindTestMatchesWholeSave(t, ctx, cloud, step)
+	})
+}
+
+// Written one mark at a time, a store restores after every write, and holds
+// what a whole save writes once the marks drain, through every change the
+// scenario makes.
+func TestWriteBehindOneMarkAtATime(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	cloud.testWriteBehindBudget = 1
+	writeBehindTestScenario(t, ctx, cloud, func(step string) {
+		writeBehindTestDrain(t, ctx, cloud, step, func(WriteBehindReport) {
+			writeBehindTestRestorable(t, ctx, cloud, path, step)
+		})
 		writeBehindTestMatchesWholeSave(t, ctx, cloud, step)
 	})
 }
@@ -505,4 +522,149 @@ func TestWriteBehindFollowsATaughtContentDigest(t *testing.T) {
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root, compressed")
 	require.NoError(t, cloud.TeachContentDigest(ctx, Result[Typed]{shared: storedBundleTestEntry(cloud, root)}, testDigest("wb-taught-content")))
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a content digest taught")
+}
+
+// writeBehindTestDrain writes behind until no marks are left, calling each,
+// if set, after every write.
+func writeBehindTestDrain(t *testing.T, ctx context.Context, c *Cache, step string, each func(WriteBehindReport)) {
+	t.Helper()
+	for range 10_000 {
+		report, err := c.WriteBehind(ctx)
+		require.NoError(t, err, step)
+		if each != nil {
+			each(report)
+		}
+		if !report.More {
+			return
+		}
+	}
+	t.Fatalf("%s: marks never drained", step)
+}
+
+// writeBehindTestRestorable requires that the store, as it is now, restores
+// as it is: a copy of it opens with nothing wiped, as after a crash.
+func writeBehindTestRestorable(t *testing.T, ctx context.Context, c *Cache, path, step string) {
+	t.Helper()
+	dir := t.TempDir()
+	copyPath := filepath.Join(dir, "copy.db")
+	for _, sfx := range []string{"", "-wal"} {
+		data, err := os.ReadFile(path + sfx)
+		if sfx != "" && os.IsNotExist(err) {
+			continue
+		}
+		require.NoError(t, err, step)
+		require.NoError(t, os.WriteFile(copyPath+sfx, data, 0o600), step)
+	}
+	copied, err := NewCache(ctx, copyPath, nil, nil, WithBlobStore())
+	require.NoError(t, err, step)
+	require.Equal(t, CachePersistenceResetNone, copied.PersistenceResetReason(), "%s: the store as written so far restores", step)
+	// Each restored entry is an output of the class of its own recipe: no
+	// row names a class number another class has taken since.
+	copied.egraphMu.RLock()
+	for id, res := range copied.resultsByID {
+		if len(res.recipeKeys) == 0 {
+			continue
+		}
+		recipe := res.recipeKeys[0].String()
+		var own bool
+		for eqID := range copied.outputEqClassRootsLocked(id) {
+			if _, ok := copied.eqClassToDigests[copied.eqClassRootLocked(eqID)][recipe]; ok {
+				own = true
+			}
+		}
+		require.True(t, own, "%s: restored entry %d is an output of its recipe's class", step, id)
+	}
+	copied.egraphMu.RUnlock()
+	require.NoError(t, copied.CloseDiscardingPersistence())
+}
+
+// A write takes a bounded count of marked entries and says when marks are
+// left; the next takes the rest. After each budgeted write the store
+// restores as it is, and once the marks drain it holds what a whole save
+// writes: across a join of stored classes, and across a prune that lands
+// between two budgeted writes.
+func TestWriteBehindBudgetedWrites(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	cloud.testWriteBehindBudget = 2
+	actx, a, asrv := transferTestCache(t)
+	var roots []uint64
+	for i := range 4 {
+		r := persistedListTestResult(t, actx, a, asrv, fmt.Sprintf("wb-budget-%d", i), &transferTestValue{Text: fmt.Sprintf("root-%d", i)})
+		p := persistedListTestResult(t, actx, a, asrv, fmt.Sprintf("wb-budget-dep-%d", i), &transferTestValue{Text: fmt.Sprintf("dep-%d", i)})
+		transferTestDependency(a, actx, r, p)
+		roots = append(roots, storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0])
+	}
+	report, err := cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	require.True(t, report.More, "marks are left after the first budgeted write")
+	require.LessOrEqual(t, report.Entries, 2*2, "two marked entries, each with what joins the saved set with it")
+	writeBehindTestRestorable(t, ctx, cloud, path, "after the first budgeted write")
+	writeBehindTestDrain(t, ctx, cloud, "four stored roots", func(WriteBehindReport) {
+		writeBehindTestRestorable(t, ctx, cloud, path, "during the drain")
+	})
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "four stored roots, drained")
+
+	// Two classes of two stored entries join, one budgeted write lands,
+	// a prune follows, and the rest drains.
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-budget-01"), roots[0], roots[1])
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-budget-23"), roots[2], roots[3])
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "two joined classes")
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-budget-12"), roots[1], roots[2])
+	report, err = cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	require.True(t, report.More, "the join's marks take more than one write")
+	writeBehindTestRestorable(t, ctx, cloud, path, "midway through a join's marks")
+	_, removed, _, err := cloud.removePrunedEdge(ctx, sharedResultID(roots[3]))
+	require.NoError(t, err)
+	require.True(t, removed)
+	writeBehindTestDrain(t, ctx, cloud, "a prune between budgeted writes", func(WriteBehindReport) {
+		writeBehindTestRestorable(t, ctx, cloud, path, "draining after the prune")
+	})
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the join and the prune, drained")
+}
+
+// A class that dies while a row the store holds still names it, and whose
+// number compaction then gives a new class, never has the new class's
+// identity in the store under the old rows: the write that takes the new
+// class's mark writes again every row that names the number, however many
+// marks are left.
+func TestWriteBehindBudgetNeverNamesATakenClassNumber(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	cloud.testWriteBehindBudget = 1
+	actx, a, asrv := transferTestCache(t)
+	r := persistedListTestResult(t, actx, a, asrv, "wb-reuse-old", &transferTestValue{Text: "old"})
+	reply, err := cloud.MergeValues(ctx, "cache-r", exportTestBundle(t, actx, a, r))
+	require.NoError(t, err)
+	old := reply.Imported()[0].ResultID
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root")
+
+	// Marks ahead of the old root's, so its leaving waits past a write.
+	storedPruneTestRoot(t, ctx, cloud, "wb-reuse-ahead-1")
+	storedPruneTestRoot(t, ctx, cloud, "wb-reuse-ahead-2")
+	_, removed, _, err := cloud.removePrunedEdge(ctx, sharedResultID(old))
+	require.NoError(t, err)
+	require.True(t, removed)
+	_, _, err = cloud.CollectRemoteHoldings(ctx, cloud.ReleaseRemoteCache(ctx, "cache-r").Candidates)
+	require.NoError(t, err)
+	cloud.egraphMu.RLock()
+	require.Nil(t, cloud.resultsByID[sharedResultID(old)], "the old root is collected")
+	cloud.egraphMu.RUnlock()
+	_, _, err = cloud.CompactEqClasses(ctx)
+	require.NoError(t, err)
+	storedPruneTestRoot(t, ctx, cloud, "wb-reuse-new")
+	cloud.egraphMu.RLock()
+	reused := len(cloud.eqClassReuses)
+	cloud.egraphMu.RUnlock()
+	require.Positive(t, reused, "the new root's classes take numbers the old root's had")
+
+	writeBehindTestDrain(t, ctx, cloud, "a taken class number", func(WriteBehindReport) {
+		writeBehindTestRestorable(t, ctx, cloud, path, "draining after a class number is taken")
+	})
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a taken class number, drained")
 }
