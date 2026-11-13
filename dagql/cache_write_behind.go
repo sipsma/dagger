@@ -264,8 +264,10 @@ func (c *Cache) settleUncleanLocked(b *writeBehindState) (turned []sharedResultI
 		case resultAttachmentOpen:
 			open = true
 		case resultAttachmentClean:
+			// Closing cleanly changes what the store keeps only for an
+			// entry the closure left out, which the invalid set's change
+			// below names.
 			delete(b.unclean, id)
-			turned = append(turned, id)
 		default:
 			failed = append(failed, id)
 		}
@@ -313,9 +315,11 @@ func (c *Cache) ownersOfLocked(ids []sharedResultID) map[sharedResultID]struct{}
 // the children it owns while it is saved. It returns the entries to look at
 // again: those whose being saved may have turned, an entry no longer saved
 // that lost an owner, and, when id isn't saved, its stored owners, whose
-// rows name it and are written again in the same write. Requires egraphMu
+// rows name it and are written again in the same write. It also reports
+// whether id gained a child while a stored owner that this write hasn't
+// written (written reports which it has) still names it. Requires egraphMu
 // for reading.
-func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID) []sharedResultID {
+func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID, written func(sharedResultID) bool) (turned []sharedResultID, gained bool) {
 	res := c.resultsByID[id]
 	if _, edge := c.persistedEdgesByResult[id]; edge && res != nil {
 		b.edges[id] = struct{}{}
@@ -323,7 +327,6 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID) []shar
 		delete(b.edges, id)
 	}
 	saved := c.savedLocked(b, id)
-	var turned []sharedResultID
 	var want []sharedResultID
 	if saved {
 		for child := range c.ownedResultIDsLocked(res) {
@@ -354,6 +357,14 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID) []shar
 			turned = append(turned, child)
 		}
 	}
+	if len(wanted) > 0 {
+		for owner := range b.ownedBy[id] {
+			if !written(owner) {
+				gained = true
+				break
+			}
+		}
+	}
 	for child := range wanted {
 		before := b.owned(child)
 		owners := b.ownedBy[child]
@@ -371,7 +382,7 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID) []shar
 	} else {
 		b.children[id] = want
 	}
-	return turned
+	return turned, gained
 }
 
 // classTermsLocked returns the terms whose output is the class rooted at
@@ -515,13 +526,36 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 
 	// The counts: each entry once, and each entry whose being saved turns,
 	// again each time it turns, until none turns.
+	//
+	// The rows of marks left for later are older than the rows this write
+	// writes, so the two could name a dependency cycle no cache ever had: an
+	// entry gains a child that reaches, through older rows, the owner whose
+	// older row names the entry. So when an entry that an owner this write
+	// doesn't write names gains a child, the write takes every mark left, as
+	// a write without a budget does. Without that, the store's dependencies
+	// stay acyclic: a cycle would have to enter a written entry through an
+	// older row, and every row it follows from there is the store's already.
 	changed := map[sharedResultID]struct{}{}
+	written := func(id sharedResultID) bool {
+		_, ok := changed[id]
+		return ok
+	}
 	for len(pending) > 0 {
 		for id := range pending {
 			delete(pending, id)
 			changed[id] = struct{}{}
-			for _, turned := range c.countOwnersLocked(b, id) {
-				pending[turned] = struct{}{}
+			turned, gained := c.countOwnersLocked(b, id, written)
+			for _, more := range turned {
+				pending[more] = struct{}{}
+			}
+			if gained && plan.more {
+				for _, more := range c.changes.saveEntries {
+					pending[more] = struct{}{}
+				}
+				for _, more := range c.changes.saveTerms {
+					terms[more] = struct{}{}
+				}
+				c.changes.saveEntries, c.changes.saveTerms, plan.more = nil, nil, false
 			}
 		}
 	}
@@ -536,6 +570,8 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Non-nil, so the entry counts as held with no outputs too.
+			outputs = make([]eqClassID, 0, len(rows.outputs))
 			for _, row := range rows.outputs {
 				outputs = append(outputs, eqClassID(row.EqClassID))
 			}
