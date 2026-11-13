@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/dagql"
@@ -111,4 +112,71 @@ func TestRemoteCacheAdapterExportRefusesImageEntries(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, calls)
+}
+
+// A cache export, such as an engine image's entries, runs on an engine busy
+// with other work, whose own captures, such as the remote cache's, can hold
+// a row the export needs. The export waits for a result whose closure
+// reaches a row that's busy now, and exports every result once the row is
+// free, as on an idle engine. A result it refuses fails the export at once,
+// and a wait ends with the export's context.
+func TestExportBundleWaitsForBusyResults(t *testing.T) {
+	export := func(e *adapterTestEngine, ctx context.Context, dir string, results ...dagql.AnyResult) <-chan error {
+		exported := make(chan error, 1)
+		go func() { exported <- e.cache.ExportBundle(ctx, e.srv, results, exportRefConfig, testImageDir{dir}) }()
+		return exported
+	}
+	t.Run("busy", func(t *testing.T) {
+		e := newAdapterTestEngine(t)
+		ready := e.file(t, "ready")
+		require.NoError(t, e.cache.Evaluate(e.ctx, ready))
+		busy := e.busyFile(t, "busy")
+		on, _ := e.publishFile(t, "on-busy", busy)
+		require.NoError(t, e.cache.Evaluate(e.ctx, on))
+		dir := t.TempDir()
+		exported := export(e, e.ctx, dir, ready, on)
+		// Give the export time to find the busy row before its body ends.
+		time.Sleep(200 * time.Millisecond)
+		e.bodies.unpause()
+		require.NoError(t, exportErr(t, exported))
+		raw, err := os.ReadFile(filepath.Join(dir, dagql.BundleFile))
+		require.NoError(t, err)
+		var bundle dagql.ValueBundle
+		require.NoError(t, json.Unmarshal(raw, &bundle))
+		require.ElementsMatch(t, []uint64{entryNumber(t, ready), entryNumber(t, on)}, bundleRoots(&bundle), "every result is exported")
+	})
+	t.Run("refused", func(t *testing.T) {
+		e := newAdapterTestEngine(t)
+		ready := e.file(t, "ready")
+		require.NoError(t, e.cache.Evaluate(e.ctx, ready))
+		refused := e.refusedFile(t, "refused")
+		on, _ := e.publishFile(t, "on-refused", refused)
+		require.NoError(t, e.cache.Evaluate(e.ctx, on))
+		err := exportErr(t, export(e, e.ctx, t.TempDir(), ready, on))
+		require.ErrorContains(t, err, "export bundle: 1 of 2 results left out")
+		require.NotErrorIs(t, err, dagql.ErrPersistStateNotReady)
+	})
+	t.Run("canceled", func(t *testing.T) {
+		e := newAdapterTestEngine(t)
+		busy := e.busyFile(t, "busy")
+		on, _ := e.publishFile(t, "on-busy", busy)
+		require.NoError(t, e.cache.Evaluate(e.ctx, on))
+		ctx, cancel := context.WithCancel(e.ctx)
+		exported := export(e, ctx, t.TempDir(), on)
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+		require.ErrorIs(t, exportErr(t, exported), context.Canceled)
+	})
+}
+
+// exportErr is the error an export sends on exported, within 10 seconds.
+func exportErr(t *testing.T, exported <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-exported:
+		return err
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the export")
+		return nil
+	}
 }
