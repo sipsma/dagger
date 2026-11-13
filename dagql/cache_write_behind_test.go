@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -236,4 +237,104 @@ func TestWriteBehindNeedsABlobBackedStore(t *testing.T) {
 	_, err = inMemory.WriteBehind(ctx)
 	require.ErrorContains(t, err, "no persistence database")
 	require.NoError(t, inMemory.Close(ctx))
+}
+
+// writeBehindTestJoin attaches, from engine cache-j, a holding of each
+// entry's recipe with the content digest content, which joins their
+// classes.
+func writeBehindTestJoin(t *testing.T, ctx context.Context, cloud *Cache, content digest.Digest, numbers ...uint64) {
+	t.Helper()
+	for _, number := range numbers {
+		h := holdingOf(fmt.Sprintf("wb-join-%s-%d", content, number))
+		h.Recipe = writeBehindTestRecipe(cloud, number)
+		h.Request = h.Recipe
+		h.ContentDigest = content
+		_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-j", Number: number}, h)
+		require.NoError(t, err)
+	}
+}
+
+// A join moves every stored entry of the class it absorbs: each one's
+// output-class rows name the class that survives, however many stored
+// entries the absorbed class held.
+func TestWriteBehindFollowsAJoinOfStoredClasses(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	var roots []uint64
+	for i := range 4 {
+		roots = append(roots, storedPruneTestRoot(t, ctx, cloud, fmt.Sprintf("wb-joined-%d", i)))
+	}
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "four stored roots")
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-content-01"), roots[0], roots[1])
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-content-23"), roots[2], roots[3])
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "two classes of two stored entries each")
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-content-12"), roots[1], roots[2])
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the two classes joined")
+}
+
+// A stored class that absorbs an engine's class takes its terms, and with
+// them their input classes, which a whole save writes once a term of a
+// stored class takes them.
+func TestWriteBehindFollowsTermsAJoinMoves(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	stored := storedPruneTestRoot(t, ctx, cloud, "wb-stored")
+	// The stored entry's class first joins another digest, so that it isn't
+	// the smaller class of the join below.
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-stored-content"), stored)
+	// An engine's entry, which the Cloud doesn't store, with a term over an
+	// input no stored class names, and its content.
+	engine := holdingOf("wb-engine")
+	engine.Term.Inputs = []digest.Digest{testDigest("wb-engine-input")}
+	engine.ContentDigest = testDigest("wb-engine-content")
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-e", Number: 1}, engine)
+	require.NoError(t, err)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored class and an engine's class")
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-engine-content"), stored)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the stored class absorbs the engine's")
+}
+
+// A replacement in flight leaves the store as it was: a write while the
+// replaced value's release runs writes nothing of it. A replacement that
+// failed takes the entry out of the store, as a whole save leaves it out.
+func TestWriteBehindFollowsAReplacement(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	bundle, _ := mergeTestSource(t, "wb-replaced", "value")
+	first, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	require.NoError(t, err)
+	number := first.Imported()[0].ResultID
+	storedPruneTestRoot(t, ctx, cloud, "wb-bystander")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root")
+
+	cloud.egraphMu.Lock()
+	entry := cloud.resultsByID[sharedResultID(number)]
+	entry.expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	releasing, release := make(chan struct{}), make(chan struct{})
+	entry.onRelease = func(context.Context) error {
+		close(releasing)
+		<-release
+		return errors.New("wb-release-failed")
+	}
+	cloud.egraphMu.Unlock()
+	merged := make(chan error, 1)
+	go func() {
+		_, err := cloud.MergeValues(ctx, "cache-a", bundle)
+		merged <- err
+	}()
+	<-releasing
+	before := writeBehindTestTables(t, ctx, cloud)
+	report, err := cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	require.Equal(t, WriteBehindReport{}, report, "nothing is written while a replacement is in flight")
+	require.Equal(t, before, writeBehindTestTables(t, ctx, cloud))
+	close(release)
+	require.ErrorContains(t, <-merged, "wb-release-failed")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a failed replacement")
+	for _, row := range writeBehindTestTables(t, ctx, cloud)["results"] {
+		require.False(t, strings.HasPrefix(row, fmt.Sprintf("id=%d|", number)), "the failed entry isn't saved")
+	}
 }
