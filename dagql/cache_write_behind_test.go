@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -314,6 +315,9 @@ func TestWriteBehindFollowsAReplacement(t *testing.T) {
 	entry := cloud.resultsByID[sharedResultID(number)]
 	entry.expiresAtUnix = time.Now().Add(-time.Hour).Unix()
 	releasing, release := make(chan struct{}), make(chan struct{})
+	// The release is let go before the cache closes, whatever fails first.
+	letGo := sync.OnceFunc(func() { close(release) })
+	defer letGo()
 	entry.onRelease = func(context.Context) error {
 		close(releasing)
 		<-release
@@ -331,10 +335,59 @@ func TestWriteBehindFollowsAReplacement(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, WriteBehindReport{}, report, "nothing is written while a replacement is in flight")
 	require.Equal(t, before, writeBehindTestTables(t, ctx, cloud))
-	close(release)
+	letGo()
 	require.ErrorContains(t, <-merged, "wb-release-failed")
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a failed replacement")
 	for _, row := range writeBehindTestTables(t, ctx, cloud)["results"] {
 		require.False(t, strings.HasPrefix(row, fmt.Sprintf("id=%d|", number)), "the failed entry isn't saved")
 	}
+}
+
+// A whole save while a replacement is in flight leaves out the replaced
+// entry and the stored root that depends on it. Once the replacement ends
+// cleanly, the writes behind bring both back, as a whole save would.
+func TestWriteBehindAfterAWholeSaveDuringAReplacement(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	actx, a, asrv := transferTestCache(t)
+	r := persistedListTestResult(t, actx, a, asrv, "wb-parent", &transferTestValue{Text: "parent"})
+	p := persistedListTestResult(t, actx, a, asrv, "wb-child", &transferTestValue{Text: "child"})
+	transferTestDependency(a, actx, r, p)
+	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0]
+	child := storedPartTestDeps(cloud, root)[0]
+	// The child alone is sent again, so that the replacement marks the child
+	// and nothing marks its parent.
+	childBundle := exportTestBundle(t, actx, a, p)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root with a dependency")
+
+	cloud.egraphMu.Lock()
+	entry := cloud.resultsByID[sharedResultID(child)]
+	entry.expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	releasing, release := make(chan struct{}), make(chan struct{})
+	letGo := sync.OnceFunc(func() { close(release) })
+	defer letGo()
+	entry.onRelease = func(context.Context) error {
+		close(releasing)
+		<-release
+		return nil
+	}
+	cloud.egraphMu.Unlock()
+	merged := make(chan error, 1)
+	go func() {
+		_, err := cloud.MergeValues(ctx, "cache-a", childBundle)
+		merged <- err
+	}()
+	<-releasing
+	require.NoError(t, cloud.Checkpoint(ctx), "a whole save while the replacement is in flight")
+	letGo()
+	require.NoError(t, <-merged)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the replacement ended")
+	tables := writeBehindTestTables(t, ctx, cloud)
+	var ids []string
+	for _, row := range tables["results"] {
+		ids = append(ids, strings.SplitN(row, "|", 2)[0])
+	}
+	require.Contains(t, ids, fmt.Sprintf("id=%d", root), "the stored root is back")
+	require.Contains(t, ids, fmt.Sprintf("id=%d", child), "its dependency is back")
 }
