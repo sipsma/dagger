@@ -133,7 +133,7 @@ func (ms *mockServer) CurrentFunctionCall(context.Context) (*FunctionCall, error
 	return ms.functionCall, nil
 }
 
-func (ms *mockServer) ModuleParentFunctionCall(ctx context.Context) (*FunctionCall, error) {
+func (ms *mockServer) EnclosingFunctionCall(ctx context.Context) (*FunctionCall, error) {
 	return ms.CurrentFunctionCall(ctx)
 }
 

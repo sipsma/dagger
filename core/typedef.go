@@ -2708,27 +2708,56 @@ type functionCallReturn struct {
 
 func newFunctionCall(fnCall FunctionCall) *FunctionCall {
 	fnCall.returnState = &functionCallReturnState{}
-	fnCall.borrowed = &functionCallBorrowed{}
 	return &fnCall
 }
 
+// functionCallBorrowed holds what a call's work used that may hold
+// resources the session lent it, for a call whose result must require them.
 type functionCallBorrowed struct {
 	mu      sync.Mutex
 	results []dagql.AnyResult
 }
 
-// BorrowSessionResourcesOf records that the call's work used res, which may
-// hold resources the session lent it, such as its git credentials, that the
-// call's key doesn't name. The call's result then requires the session
-// resources res requires (dagql.RequireSessionResourcesOf).
+// trackBorrowing has the call record what its work borrows, so its result
+// can require it. A call of a module that declares git clients does: its
+// code may be lent the session's git credentials, which its key doesn't
+// name.
+func (fnCall *FunctionCall) trackBorrowing() {
+	fnCall.borrowed = &functionCallBorrowed{}
+}
+
+func (fnCall *FunctionCall) tracksBorrowing() bool {
+	return fnCall != nil && fnCall.borrowed != nil
+}
+
+// BorrowSessionResourcesOf records that the call's work fetched res with
+// resources the session lent it. The call's result then requires the
+// session resources res requires (dagql.RequireSessionResourcesOf). A call
+// that doesn't track borrowing can't be lent anything, so it is an error.
 func (fnCall *FunctionCall) BorrowSessionResourcesOf(res dagql.AnyResult) error {
-	if fnCall == nil || fnCall.borrowed == nil {
-		return errors.New("the function call can't record what its work borrows")
+	if !fnCall.tracksBorrowing() {
+		return errors.New("the function call doesn't record what its work borrows")
 	}
-	fnCall.borrowed.mu.Lock()
-	defer fnCall.borrowed.mu.Unlock()
-	fnCall.borrowed.results = append(fnCall.borrowed.results, res)
+	fnCall.borrowed.add(res)
 	return nil
+}
+
+// NoteWorkResult records a module function's result that the call's work
+// obtained, executed or from cache, if the call tracks borrowing: that
+// result may have been computed with credentials lent to its own call, and
+// what the work derives from it, a string for one, carries no dependency on
+// it.
+func (fnCall *FunctionCall) NoteWorkResult(res dagql.AnyResult) {
+	if !fnCall.tracksBorrowing() {
+		return
+	}
+	fnCall.borrowed.add(res)
+}
+
+func (b *functionCallBorrowed) add(res dagql.AnyResult) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.results = append(b.results, res)
 }
 
 func (fnCall *FunctionCall) borrowedResults() []dagql.AnyResult {
