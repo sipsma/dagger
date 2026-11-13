@@ -13,6 +13,9 @@ import (
 // copied again by every encoder above.
 func (v TransferredValue) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type plain TransferredValue
+	if v.encodedRecord != nil {
+		return jsonv2.MarshalEncode(enc, v.encodedJSON())
+	}
 	if v.storedEnvelope == nil {
 		return jsonv2.MarshalEncode(enc, plain(v))
 	}

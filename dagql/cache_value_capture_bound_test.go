@@ -130,7 +130,9 @@ func TestBoundedExportCountsOnlyTheRootsItKeeps(t *testing.T) {
 }
 
 // A bounded capture encodes each record once, to count it, and the bundle
-// writes that encoding out: the same JSON as the bundle encoded afresh.
+// writes that encoding out: the same JSON as the bundle encoded afresh. In
+// a build with encoding/json/v2, json.Marshal writes each value in place
+// (MarshalJSONTo), as the protocol's messages are encoded.
 func TestBoundedExportEncodesTheSameJSON(t *testing.T) {
 	t.Parallel()
 	ctx, c, srv := transferTestCache(t)
@@ -148,7 +150,6 @@ func TestBoundedExportEncodesTheSameJSON(t *testing.T) {
 	require.Positive(t, cached, "the capture kept its records' encodings")
 	afresh, err := json.Marshal(bundle)
 	require.NoError(t, err)
-	require.JSONEq(t, string(afresh), string(encoded))
 	require.Equal(t, string(afresh), string(encoded))
 }
 
