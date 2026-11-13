@@ -8,14 +8,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// queuedPushes returns the results queued for a push now, without waiting.
+// queuedPushes takes the results queued for a push now, without waiting,
+// and says they were pushed.
 func queuedPushes(t *testing.T, bridge *RemoteCacheBridge) []uint64 {
 	t.Helper()
-	if !bridge.RemotePushesQueued() {
+	if idle, _ := bridge.RemotePushesIdle(); idle {
 		return nil
 	}
-	numbers, err := bridge.TakeRemotePushes(t.Context())
+	numbers, _, err := bridge.TakeRemotePushes(t.Context())
 	require.NoError(t, err)
+	bridge.RemotePushesDone(len(numbers))
 	return numbers
 }
 
@@ -49,29 +51,67 @@ func TestRemotePushQueuesComputedResultsAsTheyAreRetained(t *testing.T) {
 	require.Empty(t, queuedPushes(t, bridge), "a merged result is the Cloud's own")
 
 	require.True(t, c.DetachRemoteCacheBridge(bridge))
-	_, err = bridge.TakeRemotePushes(t.Context())
+	_, _, err = bridge.TakeRemotePushes(t.Context())
 	require.ErrorIs(t, err, ErrRemoteCacheBridgeClosed)
 }
 
 // Results put back go ahead of those queued since, in their order, and a
-// result waits once.
-func TestRemotePushRequeueGoesFirst(t *testing.T) {
+// result waits once. A busy result waits for a take that has something else
+// to push, or that a flush asks for. The queue is idle only once every
+// result taken has been pushed or dropped.
+func TestRemotePushQueueTracksEveryResultUntilPushed(t *testing.T) {
 	t.Parallel()
 	ctx := cacheTestContext(t.Context())
 	c, err := NewCache(ctx, "", nil, nil)
 	require.NoError(t, err)
 	bridge, _, err := c.AttachRemoteCacheBridge()
 	require.NoError(t, err)
-	bridge.pushes.add(3, 4)
-	bridge.RequeueRemotePushes([]uint64{1, 2, 3})
-	require.Equal(t, []uint64{1, 2, 3, 4}, queuedPushes(t, bridge))
+	idle := func() bool {
+		idle, _ := bridge.RemotePushesIdle()
+		return idle
+	}
+	require.True(t, idle())
 
-	// A take waits for the first result queued.
-	got := make(chan []uint64, 1)
-	go func() {
-		numbers, _ := bridge.TakeRemotePushes(context.WithoutCancel(t.Context()))
-		got <- numbers
-	}()
+	bridge.pushes.add(1, 2, 3)
+	numbers, flushed, err := bridge.TakeRemotePushes(ctx)
+	require.NoError(t, err)
+	require.False(t, flushed)
+	require.Equal(t, []uint64{1, 2, 3}, numbers)
+	require.False(t, idle(), "taken and not yet pushed")
+	bridge.pushes.add(4)
+	bridge.RequeueRemotePushes([]uint64{1, 2, 3})
+	numbers, _, err = bridge.TakeRemotePushes(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 2, 3, 4}, numbers, "put back first, in order, each once")
+
+	bridge.WaitRemotePushesBusy([]uint64{2})
+	bridge.RemotePushesDone(3)
+	require.False(t, idle(), "a busy result still waits")
 	bridge.pushes.add(5)
-	require.Equal(t, []uint64{5}, <-got)
+	numbers, flushed, err = bridge.TakeRemotePushes(ctx)
+	require.NoError(t, err)
+	require.False(t, flushed)
+	require.Equal(t, []uint64{2, 5}, numbers, "a busy result goes with the next take")
+
+	bridge.WaitRemotePushesBusy([]uint64{2})
+	bridge.RemotePushesDone(1)
+	_, changed := bridge.RemotePushesIdle()
+	type take struct {
+		numbers []uint64
+		flushed bool
+	}
+	got := make(chan take, 1)
+	go func() {
+		numbers, flushed, _ := bridge.TakeRemotePushes(context.WithoutCancel(ctx))
+		got <- take{numbers, flushed}
+	}()
+	bridge.FlushRemotePushes()
+	require.Equal(t, take{[]uint64{2}, true}, <-got, "a flush takes the busy results alone")
+	bridge.RemotePushesDone(1)
+	select {
+	case <-changed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the queue's change wakes its waiters")
+	}
+	require.True(t, idle())
 }
