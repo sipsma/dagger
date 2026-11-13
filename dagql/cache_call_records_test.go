@@ -364,10 +364,11 @@ func TestCallRecordWithAnUnplaceableInputIsNotSent(t *testing.T) {
 }
 
 // Two engines made the same call on their own equivalent receivers, A and B,
-// and the Cloud stores both and keeps both calls. For a recipient that holds
-// B, the bundle sends the call on B, which it can place without anything
-// added; f(A) alone would teach it nothing about B.
-func TestCallRecordPrefersAnInputTheRecipientHolds(t *testing.T) {
+// and the Cloud stores both and keeps both calls. The bundle sends one of
+// them, with its receiver as an identity row naming the receiver's content:
+// a recipient with an equivalent receiver of its own hits the call on it,
+// whichever call was sent.
+func TestCallRecordOnEquivalentInputsHitsForARecipientOfEither(t *testing.T) {
 	t.Parallel()
 	test := newReceiverCallTest(t)
 	cloud := test.cloud
@@ -395,24 +396,12 @@ func TestCallRecordPrefersAnInputTheRecipientHolds(t *testing.T) {
 	require.Len(t, entry.calls, 2)
 	cloud.egraphMu.RUnlock()
 
-	// The recipient holds B.
-	recipeB, err := receiverTestFrame("b").deriveRecipeDigest(nil)
-	require.NoError(t, err)
-	_, err = cloud.AttachRemoteHolding(test.ctx, HolderKey{Cache: "cache-fresh", Number: 1}, RemoteHolding{Recipe: recipeB, Request: recipeB, Field: "receiver"})
-	require.NoError(t, err)
 	built, err := cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Calls, 1)
-	require.Empty(t, built.CallInputs)
-	encodedB, err := func() (string, error) {
-		pb, err := callB.callPB(b)
-		if err != nil {
-			return "", err
-		}
-		return pb.Encode()
-	}()
-	require.NoError(t, err)
-	require.Equal(t, encodedB, built.Bundle.Calls[0].Call)
+	require.Len(t, built.CallInputs, 1)
+	require.Equal(t, built.CallInputs, built.Held, "the call's receiver travels as an identity row")
+	require.True(t, test.freshReceiverHits(t, built.Bundle))
 }
 
 // Keeping a call on a stored entry, or giving it a call's expiry, is a change
@@ -581,7 +570,8 @@ func TestCallRecordOnAnExpiredRowLeavesTheEnginesValueAlone(t *testing.T) {
 	}
 	cloud.egraphMu.Unlock()
 	require.NotZero(t, innerNumber)
-	built, err := cloud.StoredBundle(cloudCtx, numbers, time.Now().Unix())
+	// Inner goes as a root too: an identity row carries no calls.
+	built, err := cloud.StoredBundle(cloudCtx, storedTestEveryEntry(cloud), time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Calls, 1)
 
@@ -643,7 +633,8 @@ func TestCallRecordExpiredCallIsNotTaughtOnAValueTheEngineKept(t *testing.T) {
 	expires := time.Now().Add(2 * time.Second).Unix()
 	test.attach(t, ctx, test.span(t, true, expires))
 	time.Sleep(time.Until(time.Unix(expires+1, 0)))
-	built, err := cloud.StoredBundle(ctx, numbers, time.Now().Unix())
+	// Inner goes as a root too: an identity row carries no calls.
+	built, err := cloud.StoredBundle(ctx, storedTestEveryEntry(cloud), time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Calls, 1)
 	_, err = fresh.MergeValues(fctx, CloudCacheID, built.Bundle)
