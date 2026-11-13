@@ -18,7 +18,7 @@ import (
 // names it, as a capture for a push sends them.
 func pushTestBundle(root, child uint64, full map[uint64]bool) (dagql.ValueBundle, dagql.ExportedRows) {
 	rows := dagql.ExportedRows{Full: map[uint64]dagql.RowRevision{}, Pushed: map[uint64]dagql.RowRevision{}}
-	bundle := dagql.ValueBundle{Version: 9, Roots: []dagql.TransferredRoot{{Ordinal: 1}}}
+	bundle := dagql.ValueBundle{Version: 8, Roots: []dagql.TransferredRoot{{Ordinal: 1}}}
 	for i, number := range []uint64{root, child} {
 		row := dagql.TransferredValue{Ordinal: dagql.TransferOrdinal(i + 1), SenderNumber: number, Record: dagql.PersistedRecord{ResultID: number}}
 		if full[number] {
