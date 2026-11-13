@@ -134,6 +134,9 @@ func checkValueBundle(bundle ValueBundle, shapeOnly bool, stored map[uint64][]de
 		if row.Record.ResultID != row.SenderNumber {
 			return nil, fmt.Errorf("row %d: record %d is not its sender number %d", id, row.Record.ResultID, row.SenderNumber)
 		}
+		if row.Held == "" && len(row.Extra) > 0 {
+			return nil, fmt.Errorf("row %d: extra digests on a row that isn't held", id)
+		}
 		if row.Held != "" {
 			if err := validateHeldRow(row); err != nil {
 				return nil, fmt.Errorf("row %d: %w", id, err)
@@ -348,6 +351,11 @@ func checkValueBundle(bundle ValueBundle, shapeOnly bool, stored map[uint64][]de
 func validateHeldRow(row TransferredValue) error {
 	if algorithm, encoded, ok := strings.Cut(string(row.Held), ":"); !ok || algorithm == "" || encoded == "" {
 		return fmt.Errorf("held recipe %q is not a digest", row.Held)
+	}
+	for _, extra := range row.Extra {
+		if algorithm, encoded, ok := strings.Cut(string(extra.Digest), ":"); !ok || algorithm == "" || encoded == "" || extra.Label == "" {
+			return fmt.Errorf("held extra digest %q (%q) is not a labelled digest", extra.Digest, extra.Label)
+		}
 	}
 	if row.Record.Call != nil || len(row.Record.SnapshotLinks) > 0 || !reflect.ValueOf(row.Record.Envelope).IsZero() {
 		return fmt.Errorf("held row carries a record")
