@@ -77,6 +77,18 @@ type CachePrunePolicy struct {
 	// evaluate MinFreeSpace. When unset, MinFreeSpace behaves as if free space
 	// were zero.
 	CurrentFreeSpace int64
+
+	// OvershootAllowance, when positive, keeps a prune from freeing far more
+	// than it needs. Candidates still go oldest first, but one whose removal
+	// would take what the prune has freed past the bytes it needs plus this
+	// allowance is passed over, and the next is tried instead: removing one
+	// result can release a closure that most of the cache shares. If passing
+	// over can't free what the policy requires (the bytes over its maximum or
+	// reserved space, or under its minimum free space), the prune runs plain
+	// oldest first, so nothing is ever left unprunable. Zero is plain oldest
+	// first. PruneMetadataEstimate takes the same allowance through
+	// WithOvershootAllowance.
+	OvershootAllowance int64
 }
 
 type CachePruneReport struct {
@@ -87,6 +99,9 @@ type CachePruneReport struct {
 	// DroppedValues counts the values a blob-backed cache's run dropped:
 	// those that only holdings kept once their stored roots went.
 	DroppedValues int
+	// Change is what a blob-backed cache's run changed, its holdings and
+	// entries (RemoteChange).
+	Change RemoteChange
 }
 
 // CacheRetentionDrop is one retention edge a prune run dropped: the entry's
@@ -172,6 +187,9 @@ type CacheMetadataPruneReport struct {
 	// DroppedValues counts the values a blob-backed cache's pass dropped:
 	// those that only holdings kept once their stored roots went.
 	DroppedValues int
+	// Change is what a blob-backed cache's pass changed, its holdings and
+	// entries (RemoteChange).
+	Change RemoteChange
 
 	SnapshotGCAttempted bool
 	SnapshotGCSucceeded bool
@@ -217,7 +235,12 @@ type persistedEdge struct {
 // (Query._builtinContainer) is gone: the built-in SDKs' files come through the
 // image's entries. Older stores holding its records cannot decode them, so
 // they are wiped on import.
-const cachePersistenceSchemaVersion = "24"
+//
+// 25: a Module records the core view its dependencies were built with, which
+// its source's engine version chose. Older stores rebuilt them at the view of
+// whichever client loaded the Module, so a module could be served another
+// view than it declares; they are wiped on import.
+const cachePersistenceSchemaVersion = "25"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 var ErrCacheSessionReleased = errors.New("cache session released")
@@ -616,6 +639,11 @@ func NewCache(
 		return nil, errors.Join(err, closeCacheDBs(db, c.pdb))
 	}
 	c.countBootRestored()
+	// The import changed every entry it restored, and no reader keeps answers
+	// from before an open: nothing is handed back for it.
+	c.egraphMu.Lock()
+	c.clearChangesLocked()
+	c.egraphMu.Unlock()
 	return c, nil
 }
 
@@ -1117,18 +1145,69 @@ func (c *Cache) captureSessionLazySpanContext(ctx context.Context, sessionID str
 	c.sessionMu.Unlock()
 }
 
-func (c *Cache) sessionLazySpanContext(sessionID string, resultID sharedResultID) (trace.SpanContext, bool) {
+func (c *Cache) sessionLazySpanContext(ctx context.Context, sessionID string, resultID sharedResultID) (trace.SpanContext, bool) {
 	if c == nil || sessionID == "" || resultID == 0 {
 		return trace.SpanContext{}, false
 	}
 
-	c.sessionMu.Lock()
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
 	spanCtx := c.sessionLazySpansBySession[sessionID][resultID]
 	c.sessionMu.Unlock()
 	if !spanCtx.IsValid() {
 		return trace.SpanContext{}, false
 	}
 	return spanCtx, true
+}
+
+// sessionLazyAnchor is the evaluation of a lazy result in a session that
+// carries the result's cause links, and the install spans it links. Later
+// evaluations of the result in the session link only the anchor.
+type sessionLazyAnchor struct {
+	spanCtx  trace.SpanContext
+	installs []trace.SpanContext // sorted by compareSpanContexts
+}
+
+// sessionLazyAnchorFor returns the session's anchor for resultID if it links
+// every one of installCtxs, sorted by compareSpanContexts.
+func (c *Cache) sessionLazyAnchorFor(ctx context.Context, sessionID string, resultID sharedResultID, installCtxs []trace.SpanContext) (trace.SpanContext, bool) {
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
+	anchor, ok := c.sessionLazyAnchors[sessionID][resultID]
+	c.sessionMu.Unlock()
+	if !ok || !spanContextsCover(anchor.installs, installCtxs) {
+		return trace.SpanContext{}, false
+	}
+	return anchor.spanCtx, true
+}
+
+func (c *Cache) recordSessionLazyAnchor(ctx context.Context, sessionID string, resultID sharedResultID, spanCtx trace.SpanContext, installCtxs []trace.SpanContext) {
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
+	defer c.sessionMu.Unlock()
+	// Same released-session refusal as the other session telemetry writers.
+	if c.sessionLifecycle(sessionID).lifecycle.Load()&cacheSessionReleasedBit != 0 {
+		return
+	}
+	if c.sessionLazyAnchors == nil {
+		c.sessionLazyAnchors = make(map[string]map[sharedResultID]sessionLazyAnchor)
+	}
+	if c.sessionLazyAnchors[sessionID] == nil {
+		c.sessionLazyAnchors[sessionID] = make(map[sharedResultID]sessionLazyAnchor)
+	}
+	c.sessionLazyAnchors[sessionID][resultID] = sessionLazyAnchor{spanCtx: spanCtx, installs: installCtxs}
+}
+
+// spanContextsCover reports whether have holds every span context in want.
+// Both are sorted by compareSpanContexts.
+func spanContextsCover(have, want []trace.SpanContext) bool {
+	i := 0
+	for _, w := range want {
+		for i < len(have) && compareSpanContexts(have[i], w) < 0 {
+			i++
+		}
+		if i == len(have) || compareSpanContexts(have[i], w) != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // captureSessionResultInstallSpan records the current span context as an
@@ -1353,7 +1432,7 @@ func (m *ancestorMarks) unvisit(id sharedResultID) {
 // given session — i.e. the API spans whose call returned (or owns) this
 // result. Used to attribute later runtime failures (e.g. a service exiting
 // early) back to the API span that installed the value.
-func (c *Cache) ResultInstallSpans(sessionID string, res AnyResult) []trace.SpanContext {
+func (c *Cache) ResultInstallSpans(ctx context.Context, sessionID string, res AnyResult) []trace.SpanContext {
 	if c == nil || sessionID == "" || res == nil {
 		return nil
 	}
@@ -1361,7 +1440,7 @@ func (c *Cache) ResultInstallSpans(sessionID string, res AnyResult) []trace.Span
 	if shared == nil || shared.id == 0 {
 		return nil
 	}
-	return c.sessionResultInstallSpanContexts(sessionID, shared.id)
+	return c.sessionResultInstallSpanContexts(ctx, sessionID, shared.id)
 }
 
 // sessionResultInstallSpanContexts returns the install span contexts for
@@ -1369,16 +1448,16 @@ func (c *Cache) ResultInstallSpans(sessionID string, res AnyResult) []trace.Span
 // plus closure-owning install spans (module API call returns) recorded for
 // any result that transitively depends on it. The upward walk happens here,
 // on demand, instead of eagerly materializing the closure at install time.
-func (c *Cache) sessionResultInstallSpanContexts(sessionID string, resultID sharedResultID) []trace.SpanContext {
+func (c *Cache) sessionResultInstallSpanContexts(ctx context.Context, sessionID string, resultID sharedResultID) []trace.SpanContext {
 	if c == nil || sessionID == "" || resultID == 0 {
 		return nil
 	}
 
-	c.egraphMu.RLock()
+	wcprof.ReadLock(ctx, &c.egraphMu, egraphLockIdent)
 	ancestorIDs := c.installAncestorIDsLocked(resultID)
 	c.egraphMu.RUnlock()
 
-	c.sessionMu.Lock()
+	wcprof.Lock(ctx, &c.sessionMu, sessionsLockIdent)
 	defer c.sessionMu.Unlock()
 	byResult := c.sessionResultInstallSpans[sessionID]
 	if byResult == nil {
@@ -1658,7 +1737,7 @@ func (c *Cache) cleanupReleasedSession(plan *cacheSessionReleasePlan) error {
 		rerr       error
 		onReleases []OnReleaseFunc
 	)
-	c.egraphMu.Lock()
+	step := c.lockGraphAs(ctx, "dagql.releaseSession")
 	queue := make([]*sharedResult, 0, len(plan.resultIDs))
 	for resultID := range plan.resultIDs {
 		var err error
@@ -1668,7 +1747,7 @@ func (c *Cache) cleanupReleasedSession(plan *cacheSessionReleasePlan) error {
 	collectReleases, collectErr := c.collectUnownedResultsLocked(ctx, queue)
 	onReleases = append(onReleases, collectReleases...)
 	rerr = errors.Join(rerr, collectErr)
-	c.egraphMu.Unlock()
+	c.unlockGraphAs(step)
 
 	rerr = errors.Join(rerr, runOnReleaseFuncs(ctx, onReleases))
 	for callKey := range plan.arbitraryCallKeys {
@@ -1704,6 +1783,7 @@ func (c *Cache) cleanupReleasedSession(plan *cacheSessionReleasePlan) error {
 	delete(c.sessionArbitraryCallKeysBySession, plan.sessionID)
 	delete(c.sessionLazySpansBySession, plan.sessionID)
 	delete(c.sessionResultInstallSpans, plan.sessionID)
+	delete(c.sessionLazyAnchors, plan.sessionID)
 	delete(c.sessionResourcesBySession, plan.sessionID)
 	delete(c.sessionVolatileVarsBySession, plan.sessionID)
 	delete(c.sessionHandlesBySession, plan.sessionID)
@@ -1804,6 +1884,7 @@ func (c *Cache) upsertPersistedEdgeLocked(ctx context.Context, res *sharedResult
 		edge.unpruneable = true
 		edge.expiresAtUnix = 0
 		res.expiresAtUnix = 0
+		c.markEntryClassLocked(res.id)
 	} else if !edge.unpruneable {
 		edge.expiresAtUnix = mergeSharedResultExpiryUnix(edge.expiresAtUnix, expiresAtUnix)
 	}
@@ -1829,6 +1910,9 @@ func (c *Cache) resultState(ctx context.Context, res *sharedResult, pendingEdge 
 		Parts:         parts,
 		PartSizes:     sizes,
 		Replacements:  res.replacements,
+	}
+	if _, image := res.imageHoldingLocked(); image != nil {
+		state.Image = true
 	}
 	edge, found := c.persistedEdgesByResult[res.id]
 	pending := pendingEdge != nil && !pendingEdge.created
@@ -1894,10 +1978,10 @@ func (c *Cache) removePrunedEdge(ctx context.Context, resultID sharedResultID) (
 		onReleases []OnReleaseFunc
 		rerr       error
 	)
-	c.egraphMu.Lock()
+	step := c.lockGraphAs(ctx, "dagql.prune.removeEdge")
 	edge, found := c.persistedEdgesByResult[resultID]
 	if !found || edge.unpruneable {
-		c.egraphMu.Unlock()
+		c.unlockGraphAs(step)
 		return time.Time{}, false, 0, nil
 	}
 	delete(c.persistedEdgesByResult, resultID)
@@ -1920,7 +2004,7 @@ func (c *Cache) removePrunedEdge(ctx context.Context, resultID sharedResultID) (
 		// The Cloud compacts its classes on collection, not in a prune.
 		c.eqClassRemoved = true
 	}
-	c.egraphMu.Unlock()
+	c.unlockGraphAs(step)
 	if c.testAfterRetentionDrop != nil {
 		c.testAfterRetentionDrop(resultID)
 	}
@@ -2398,6 +2482,45 @@ const (
 	resultPayloadLockIdent = "dagql.result.payload"
 )
 
+// lockGraphAs takes the graph lock for writing as a profile step of its
+// own, name, for a caller whose context may carry no op of its own, such as
+// a pass the engine starts by itself: a wait behind the hold names the step,
+// and the step's op spans the wait and the hold. unlockGraphAs releases the
+// lock and ends the step. When nothing records, the step is empty and costs
+// a nil check.
+func (c *Cache) lockGraphAs(ctx context.Context, name string) Step {
+	ctx, step := BeginStep(ctx, name)
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	return step
+}
+
+// unlockGraphAs releases the graph lock lockGraphAs took as step, and ends
+// the step.
+func (c *Cache) unlockGraphAs(step Step) {
+	c.egraphMu.Unlock()
+	step.End(nil)
+}
+
+// readLockGraphAs takes the graph lock for reading as a profile step of its
+// own, name, for a reader that may hold it long, such as a walk of the
+// graph: a writer that waits behind readers names only the readers, and the
+// step's op spans this reader's wait and hold, which a recording's analysis
+// lines up with that writer's wait. runlockGraphAs releases the lock and
+// ends the step. When nothing records, the step is empty and costs a nil
+// check.
+func (c *Cache) readLockGraphAs(ctx context.Context, name string) Step {
+	ctx, step := BeginStep(ctx, name)
+	wcprof.ReadLock(ctx, &c.egraphMu, egraphLockIdent)
+	return step
+}
+
+// runlockGraphAs releases the graph lock readLockGraphAs took as step, and
+// ends the step.
+func (c *Cache) runlockGraphAs(step Step) {
+	c.egraphMu.RUnlock()
+	step.End(nil)
+}
+
 type Cache struct {
 	testTransferCopied       func(uint64)
 	testTransferPlanPrepared func(int) error
@@ -2442,6 +2565,9 @@ type Cache struct {
 	// blobBacked marks a cache that keeps parts in a blob store: only it
 	// accepts SetStoredPart (WithBlobStore).
 	blobBacked bool
+	// storedLayers holds each distinct layer of the stored parts' chains
+	// once. Set with blobBacked.
+	storedLayers *storedLayers
 	// holderEntries maps each holding's key to the entry it sits on, and
 	// entriesByRecipe each recipe digest to its entry. remoteCaches keeps each
 	// held engine cache's own indexes. All guarded by egraphMu. See
@@ -2454,6 +2580,10 @@ type Cache struct {
 	// (trackJoinsLocked). It is nil at every other time, so no class ID it
 	// could name outlives the hold. Guarded by egraphMu.
 	joinedEntries map[sharedResultID]struct{}
+	// changes are the holdings and entries changed since the last write
+	// handed them back, on a blob-backed cache only: nil on any other
+	// (cache_change_marks.go). Guarded by egraphMu.
+	changes *changeMarks
 
 	closing                atomic.Bool
 	activeGlobalOperations atomic.Int64
@@ -2511,7 +2641,10 @@ type Cache struct {
 	// indexes for eq classes, which are disjoint sets of digests considered equivalent and interchangeable
 	//
 
-	nextEgraphClassID eqClassID
+	// freeEqClassIDs are the class numbers compaction freed below the highest
+	// live one, which new classes take before a new number. A slot whose
+	// parent is 0 is free.
+	freeEqClassIDs []eqClassID
 
 	// map of eqClassID -> all digests in that class
 	eqClassToDigests map[eqClassID]map[string]struct{}
@@ -2622,7 +2755,10 @@ type Cache struct {
 	// module API call returns are recorded once on the returned result with
 	// ownsClosure set, and lookups resolve closure ownership on demand by
 	// walking dep edges upward via depParents.
-	sessionResultInstallSpans    map[string]map[sharedResultID]*sessionResultInstalls
+	sessionResultInstallSpans map[string]map[sharedResultID]*sessionResultInstalls
+	// sessionLazyAnchors holds, per session and result, the evaluation that
+	// carries the result's cause links; see beginOTelLazyOp.
+	sessionLazyAnchors           map[string]map[sharedResultID]sessionLazyAnchor
 	sessionResourcesBySession    map[string]map[SessionResourceHandle]*sessionResourceBindings
 	sessionHandlesBySession      map[string]*set.TreeSet[SessionResourceHandle]
 	sessionVolatileVarsBySession map[string]map[string]string
@@ -2844,9 +2980,10 @@ type sharedResult struct {
 	// egraphMu.
 	mergedAtUnixNano int64
 	// storedParts are the parts whose layer chains are in this cache's own
-	// blob store, by part address key. Only a blob-backed cache (the Cloud)
-	// sets them. Guarded by egraphMu.
-	storedParts map[string]PersistedPartOffer
+	// blob store, by part address key, their layers the cache's
+	// (storedLayers). Only a blob-backed cache (the Cloud) sets them. Guarded
+	// by egraphMu.
+	storedParts map[string]storedPart
 	// storedRecordBytes is the size of the record a blob-backed cache stores
 	// for the entry, as persistence writes it (encodedRecordBytes), or 0.
 	// Guarded by egraphMu.
@@ -4816,6 +4953,12 @@ func (r ObjectResult[T]) NullableWrapped() AnyResult {
 	return r.Result.resultNullableWrapped()
 }
 
+// onSharedResult is res as an object of r's class. It reads nothing from res,
+// so it is safe while res's payload is being installed.
+func (r ObjectResult[T]) onSharedResult(res *sharedResult) AnyObjectResult {
+	return ObjectResult[T]{Result: Result[T]{shared: res}, class: r.class}
+}
+
 func (r ObjectResult[T]) cacheSharedResult() *sharedResult {
 	return r.shared
 }
@@ -5153,7 +5296,7 @@ func (c *Cache) EvaluateParts(ctx context.Context, res AnyResult, parts ...PartK
 // groups: the whole-result group for plain lazy values, the resolved
 // named groups for parts values. nil or empty parts means "everything".
 func (c *Cache) evaluateResolved(ctx context.Context, res AnyResult, shared *sharedResult, parts []PartKey) error {
-	if c.usesPartAcquisition(res, shared) {
+	if c.usesPartAcquisition(ctx, res, shared) {
 		return c.evaluateAcquiredParts(ctx, res, shared, parts)
 	}
 	shared.lazyMu.Lock()
@@ -5897,10 +6040,7 @@ func (c *Cache) MetadataEstimate() CacheMetadataEstimate {
 
 // cacheMetadataEstimateLocked requires egraphMu for reading or writing.
 func (c *Cache) cacheMetadataEstimateLocked() CacheMetadataEstimate {
-	classSlots := len(c.egraphParents) - 1
-	if classSlots < 0 {
-		classSlots = 0
-	}
+	classSlots := c.eqClassSlotsLocked()
 	estimate := CacheMetadataEstimate{
 		ResultCount:     len(c.resultsByID),
 		TermCount:       len(c.egraphTerms),
@@ -5929,6 +6069,7 @@ func (c *Cache) putResultLocked(res *sharedResult) {
 	}
 	c.resultPayloadBytes += res.payloadBytes
 	c.resultsByID[res.id] = res
+	c.markEntryClassLocked(res.id)
 }
 
 // deleteResultLocked unregisters res. Requires egraphMu for writing.
@@ -5936,6 +6077,7 @@ func (c *Cache) deleteResultLocked(res *sharedResult) {
 	if c.resultsByID[res.id] != res {
 		return
 	}
+	c.markLeavingLocked(res.id)
 	c.forgetListItemLocked(res)
 	c.resultPayloadBytes -= res.payloadBytes
 	delete(c.resultsByID, res.id)
@@ -6126,8 +6268,8 @@ func (c *Cache) measureAllResultSizes(ctx context.Context) (rerr error) {
 			rerr = errors.Join(rerr, err)
 		}
 	}()
-	c.egraphMu.Lock()
-	defer c.egraphMu.Unlock()
+	step := c.lockGraphAs(ctx, "dagql.usage.publish")
+	defer c.unlockGraphAs(step)
 	snapshot.releaseLocked(context.WithoutCancel(ctx))
 	if err := ctx.Err(); err != nil {
 		return err
@@ -6787,6 +6929,7 @@ func (c *Cache) lookupCacheForDigests(
 		return nil, false, nil
 	}
 
+	c.markEntryClassLocked(hitRes.id)
 	hitRes.expiresAtUnix = mergeSharedResultExpiryUnix(
 		hitRes.expiresAtUnix,
 		candidateSharedResultExpiryUnix(nowUnix, 0),
@@ -7546,6 +7689,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	// - 0 means "no TTL for this writer", not necessarily "never expire globally".
 	// - if any writer provides TTL, we keep the earliest non-zero expiry.
 	// - 0 only remains when all writers are 0.
+	c.markEntryClassLocked(oc.res.id)
 	oc.res.expiresAtUnix = mergeSharedResultExpiryUnix(
 		oc.res.expiresAtUnix,
 		oc.candidateExpiryUnix(now.Unix()),

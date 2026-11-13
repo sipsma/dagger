@@ -24,7 +24,7 @@ func engineHeldTestBundle(t *testing.T, c *Cache, bundle ValueBundle, held ...An
 			if row.SenderNumber != uint64(shared.id) {
 				continue
 			}
-			out.Values[i] = TransferredValue{Ordinal: row.Ordinal, SenderNumber: row.SenderNumber, SenderReplacements: row.SenderReplacements, Record: PersistedRecord{ResultID: uint64(row.Ordinal)}, ExpiresAtUnix: row.ExpiresAtUnix, Held: recipe}
+			out.Values[i] = TransferredValue{Ordinal: row.Ordinal, SenderNumber: row.SenderNumber, SenderReplacements: row.SenderReplacements, Record: PersistedRecord{ResultID: row.SenderNumber}, ExpiresAtUnix: row.ExpiresAtUnix, Held: recipe}
 			found = true
 		}
 		require.True(t, found, "the bundle carries entry %d", shared.id)
@@ -277,7 +277,7 @@ func TestCloudStoresAnUploadOnAHeldRowNamingAHeldRow(t *testing.T) {
 	require.True(t, ok, "the named held row lands on an entry")
 	part := PersistedPartOffer{Address: output.Address, Value: *output.Value, Chain: *output.Chain, Owner: PersistedOfferOwner{DependencyIDs: []uint64{svcNumber}}}
 	part.Value.Services = []TransferredServiceBinding{{ServiceResultID: svcNumber, Hostname: "svc"}}
-	stored, err := cloud.SetStoredPart(cctx, numbers[outOrdinal], part, 0)
+	stored, _, err := cloud.SetStoredPart(cctx, numbers[outOrdinal], part, 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	_, deps = cloudEntryOfRecipe(t, cloud, engine, out)

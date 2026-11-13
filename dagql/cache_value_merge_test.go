@@ -346,9 +346,9 @@ func mergeTestUnderLiveRoot(t *testing.T, bundle ValueBundle) ValueBundle {
 	dep.ExpiresAtUnix = time.Now().Add(-time.Hour).Unix()
 	root := TransferredValue{Ordinal: 2, SenderNumber: dep.SenderNumber + 1000, DependencyIDs: []uint64{1}}
 	root.Record = dep.Record
-	root.Record.ResultID = 2
+	root.Record.ResultID = root.SenderNumber
 	if root.Record.Envelope.ResultID != 0 {
-		root.Record.Envelope.ResultID = 2
+		root.Record.Envelope.ResultID = root.SenderNumber
 	}
 	root.Record.Envelope.PendingOffers = nil
 	call := dep.Record.Call.clone()
@@ -407,7 +407,7 @@ func TestMergeValuesReplacesAnExpiredCloudRecord(t *testing.T) {
 	first, err := cloud.MergeValues(ctx, "cache-a", bundle)
 	require.NoError(t, err)
 	number := first.Imported()[0].ResultID
-	stored, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	cloud.egraphMu.RLock()
@@ -426,23 +426,20 @@ func TestMergeValuesReplacesAnExpiredCloudRecord(t *testing.T) {
 }
 
 // mergeTestThroughTheCloud merges an engine's export into a new Cloud cache,
-// and returns the bundle the Cloud sends on: the same records, named by the
-// Cloud's numbers.
+// and returns the bundle the Cloud sends on: the same records, as the Cloud
+// stores them.
 func mergeTestThroughTheCloud(t *testing.T, exported ValueBundle) (context.Context, *Cache, ValueBundle) {
 	t.Helper()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
 	stored, err := cloud.MergeValues(ctx, "cache-a", exported)
 	require.NoError(t, err)
-	sent := exported
-	sent.Values = append([]TransferredValue(nil), exported.Values...)
-	for i := range sent.Values {
-		for _, value := range stored.Values {
-			if value.Ordinal == sent.Values[i].Ordinal {
-				sent.Values[i].SenderNumber = value.Number
-			}
-		}
+	var roots []uint64
+	for _, root := range stored.Roots {
+		roots = append(roots, root.Number)
 	}
-	return ctx, cloud, sent
+	sent, err := cloud.StoredBundle(ctx, roots, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	return ctx, cloud, sent.Bundle
 }
 
 // mergeTestHolding returns cache's holding on the entry of key.
@@ -478,7 +475,7 @@ func TestApplyMergedReplyCreatesTheEngineHoldings(t *testing.T) {
 	change, err := cloud.ApplyMergedReply(ctx, "cache-b", sent, reply)
 	require.NoError(t, err)
 	require.Len(t, change.Candidates, 2)
-	collected, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
+	collected, _, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
 	require.NoError(t, err)
 	require.Empty(t, collected)
 	for _, value := range reply.Values {
@@ -659,7 +656,7 @@ func TestHeldValueStateInEveryOrder(t *testing.T) {
 		a.call(callRow{key: key(r), session: "r", holding: holdingOf("r", p, q)})
 		require.Empty(t, a.collect())
 		for _, i := range order {
-			collected, err := cloud.CollectRemoteHoldings(t.Context(), events[i].apply(t, cloud))
+			collected, _, err := cloud.CollectRemoteHoldings(t.Context(), events[i].apply(t, cloud))
 			require.NoError(t, err)
 			require.NotContains(t, collected, key(q), "order %v: Q is never collected", order)
 		}
@@ -688,14 +685,15 @@ func TestCollectRemoteHoldingForAGoneAnswer(t *testing.T) {
 	a.call(callRow{key: key(3), session: "s", holding: holdingOf("parent", 1)})
 	require.Empty(t, a.collect())
 
-	candidates, found, err := cloud.CollectRemoteHolding(t.Context(), key(1))
+	change, found, err := cloud.CollectRemoteHolding(t.Context(), key(1))
 	require.NoError(t, err)
 	require.True(t, found)
+	candidates := change.Candidates
 	require.Equal(t, []HolderKey{key(2)}, candidates)
 	requireNoHolding(t, cloud, key(1))
 	require.Equal(t, []uint64{1}, requireHolding(t, cloud, key(3)).UnknownDeps, "the dependent's edge is an unknown number now")
 
-	collected, err := cloud.CollectRemoteHoldings(t.Context(), candidates)
+	collected, _, err := cloud.CollectRemoteHoldings(t.Context(), candidates)
 	require.NoError(t, err)
 	require.Equal(t, []HolderKey{key(2)}, collected, "the dependency only it owned")
 	_, found, err = cloud.CollectRemoteHolding(t.Context(), key(1))
@@ -732,7 +730,7 @@ func TestMergeValuesOnTheCloudCreatesTheSendersHoldings(t *testing.T) {
 	require.Equal(t, []uint64{typedefNumber}, user.Deps, "the unknown number attached to the new holding")
 	require.Equal(t, []uint64{typedefNumber}, requireHolding(t, cloud, HolderKey{"cache-a", rootNumber}).Deps)
 
-	collected, err := cloud.CollectRemoteHoldings(ctx, reply.Change.Candidates)
+	collected, _, err := cloud.CollectRemoteHoldings(ctx, reply.Change.Candidates)
 	require.NoError(t, err)
 	require.Equal(t, []HolderKey{{"cache-a", rootNumber}}, collected, "the type definition's holding is its user's")
 	cloud.egraphMu.RLock()
@@ -948,7 +946,7 @@ func valueStateCloud(t *testing.T, observations []valueStateObs) valueStateFinal
 			})
 		}
 		require.NoError(t, err)
-		_, err = cloud.CollectRemoteHoldings(ctx, change.Candidates)
+		_, _, err = cloud.CollectRemoteHoldings(ctx, change.Candidates)
 		require.NoError(t, err)
 	}
 	h := requireHolding(t, cloud, key(vsR))
@@ -1238,7 +1236,7 @@ func TestApplyMergedReplyThenAPruneDrop(t *testing.T) {
 	rootKey := HolderKey{Cache: "cache-b", Number: reply.Roots[0].Number}
 	change, err := cloud.ApplyMergedReply(ctx, "cache-b", sent, reply)
 	require.NoError(t, err)
-	collected, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
+	collected, _, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
 	require.NoError(t, err)
 	require.Empty(t, collected)
 	require.True(t, mergeTestHolding(t, cloud, rootKey).Retained)
@@ -1253,15 +1251,15 @@ func TestApplyMergedReplyThenAPruneDrop(t *testing.T) {
 	}
 	require.NotNil(t, drop, "the prune drops the merged root's edge")
 	require.Greater(t, drop.DroppedAt.UnixNano(), reply.EngineTimeUnixNano, "the drop is later than the commit")
-	candidates, err := cloud.ObserveRemoteRetention(ctx, rootKey, RetentionObservation{Generation: b.Identity().Generation, EngineTimeUnixNano: drop.DroppedAt.UnixNano()})
+	observed, err := cloud.ObserveRemoteRetention(ctx, rootKey, RetentionObservation{Generation: b.Identity().Generation, EngineTimeUnixNano: drop.DroppedAt.UnixNano()})
 	require.NoError(t, err)
-	collected, err = cloud.CollectRemoteHoldings(ctx, candidates)
+	collected, _, err = cloud.CollectRemoteHoldings(ctx, observed.Candidates)
 	require.NoError(t, err)
 	require.Len(t, collected, 2, "the root's holding and its dependency's")
 
 	change, err = cloud.ApplyMergedReply(ctx, "cache-b", sent, reply)
 	require.NoError(t, err)
-	collected, err = cloud.CollectRemoteHoldings(ctx, change.Candidates)
+	collected, _, err = cloud.CollectRemoteHoldings(ctx, change.Candidates)
 	require.NoError(t, err)
 	require.Empty(t, collected)
 	require.True(t, mergeTestHolding(t, cloud, rootKey).Retained, "a late reply recreates the stale retention")
@@ -1290,7 +1288,7 @@ func TestApplyMergedReplyKeepsAKeptEntrysOwnDependencies(t *testing.T) {
 
 	change, err := cloud.ApplyMergedReply(ctx, "cache-b", sent, reply)
 	require.NoError(t, err)
-	collected, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
+	collected, _, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
 	require.NoError(t, err)
 	pNewKey := HolderKey{Cache: "cache-b", Number: uint64(pNew.cacheSharedResult().id)}
 	require.Equal(t, []HolderKey{pNewKey}, collected, "P' is nobody's dependency")
@@ -1414,7 +1412,7 @@ func TestMergeValuesKeepsAnExpiredDependencysStoredPart(t *testing.T) {
 	reply, err := cloud.MergeValues(ctx, "cache-a", first)
 	require.NoError(t, err)
 	number := numberOf(reply, firstP)
-	stored, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 

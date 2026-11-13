@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"time"
 
 	"github.com/opencontainers/go-digest"
 )
 
 // EquivalentEntries returns the numbers of the entries in the class that dig
 // names, sorted, read under one hold. It is nil when no class has the digest.
-// An entry's number stays its own across the classes' renumbering, so the
+// An entry's number stays its own across the classes' compactions, so the
 // numbers are safe to keep past the call.
 func (c *Cache) EquivalentEntries(dig string) []uint64 {
 	c.egraphMu.RLock()
@@ -87,15 +86,21 @@ const (
 
 // PartAvailability is AvailablePart's answer. Donor is the number of the
 // entry whose stored part or record it is, and Part the stored part, for
-// PartStored.
+// PartStored. ValidUntilUnix is the soonest moment, after the clock it was
+// read at, that one of the entries the answer considered expires (0: none
+// does): before it, only a write can change the answer, and the write's
+// change names the entry (RemoteChange.Entries).
 type PartAvailability struct {
-	State PartAvailabilityState
-	Donor uint64
-	Part  PersistedPartOffer
+	State          PartAvailabilityState
+	Donor          uint64
+	Part           PersistedPartOffer
+	ValidUntilUnix int64
 }
 
 // AvailablePart reports what the cache has of a part of the entry numbered
-// number, read under one hold with the clock:
+// number at nowUnix, the reader's clock, read under one hold. A reader that
+// judges other facts of the cache by its own clock asks at that same moment,
+// so its answers agree with each other:
 //   - stored: the entry, while its value has not expired, or else an
 //     unexpired entry of its class, has the part in its blob store: a stored
 //     part is available only while the value it belongs to is;
@@ -107,7 +112,7 @@ type PartAvailability struct {
 //
 // Among the class's other entries, the lowest number answers first. Part is
 // a copy of the stored part. Only a blob-backed cache answers.
-func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress) (PartAvailability, error) {
+func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress, nowUnix int64) (PartAvailability, error) {
 	if !c.blobBacked {
 		return PartAvailability{}, fmt.Errorf("available part: the cache has no blob store")
 	}
@@ -117,7 +122,6 @@ func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress) (Part
 	}
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
-	now := time.Now().Unix()
 	res := c.resultsByID[sharedResultID(number)]
 	if res == nil {
 		return PartAvailability{}, fmt.Errorf("available part of %d: %w", number, ErrUnknownEntry)
@@ -127,7 +131,7 @@ func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress) (Part
 	for root := range c.outputEqClassRootsLocked(res.id) {
 		for id := range c.outputEqClassResults[root] {
 			other := c.resultsByID[id]
-			if other == nil || other == res || other.noValueLocked() || c.resultExpiredAtLocked(other, now) {
+			if other == nil || other == res || other.noValueLocked() || c.resultExpiredAtLocked(other, nowUnix) {
 				continue
 			}
 			others = append(others, id)
@@ -137,16 +141,21 @@ func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress) (Part
 	for _, id := range slices.Compact(others) {
 		candidates = append(candidates, c.resultsByID[id])
 	}
+	// Time alone changes the answer only when a considered value expires: the
+	// entry's own, or another of the class, which then stops answering.
+	// Expired ones never come back but by a write.
+	var validUntil int64
 	for _, candidate := range candidates {
-		if candidate == res && c.resultExpiredAtLocked(res, now) {
+		if expires := candidate.expiresAtUnix; expires > nowUnix && (validUntil == 0 || expires < validUntil) {
+			validUntil = expires
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate == res && c.resultExpiredAtLocked(res, nowUnix) {
 			continue
 		}
 		if part, ok := candidate.storedParts[key]; ok {
-			copied, err := clonePartOffers([]PersistedPartOffer{part})
-			if err != nil {
-				return PartAvailability{}, fmt.Errorf("available part: %w", err)
-			}
-			return PartAvailability{State: PartStored, Donor: uint64(candidate.id), Part: copied[0]}, nil
+			return PartAvailability{State: PartStored, Donor: uint64(candidate.id), Part: part.offer(), ValidUntilUnix: validUntil}, nil
 		}
 	}
 	for _, candidate := range candidates {
@@ -159,11 +168,11 @@ func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress) (Part
 		}
 		for _, output := range outputs {
 			if outputKey, _ := partAddressKey(output.Address); outputKey == key && output.State == "absent" {
-				return PartAvailability{State: PartAbsent, Donor: uint64(candidate.id)}, nil
+				return PartAvailability{State: PartAbsent, Donor: uint64(candidate.id), ValidUntilUnix: validUntil}, nil
 			}
 		}
 	}
-	return PartAvailability{}, nil
+	return PartAvailability{ValidUntilUnix: validUntil}, nil
 }
 
 // StoredState is what a blob-backed cache stores: its stored roots, and each
@@ -191,7 +200,7 @@ func (c *Cache) StoredState() (StoredState, error) {
 	slices.Sort(state.Roots)
 	for id, res := range c.resultsByID {
 		for _, part := range res.storedPartsLocked() {
-			state.Parts[uint64(id)] = append(state.Parts[uint64(id)], part.Address)
+			state.Parts[uint64(id)] = append(state.Parts[uint64(id)], part.address())
 		}
 	}
 	return state, nil
@@ -227,8 +236,10 @@ func (c *Cache) LivePacks() ([]digest.Digest, error) {
 	live := map[digest.Digest]struct{}{}
 	for _, res := range c.resultsByID {
 		for _, part := range res.storedParts {
-			for _, pack := range part.Chain.Packs {
-				live[pack] = struct{}{}
+			for _, layer := range part.layers {
+				if layer.pack != "" {
+					live[layer.pack] = struct{}{}
+				}
 			}
 		}
 	}
@@ -248,9 +259,13 @@ func (c *Cache) LivePackMembers() (map[digest.Digest]digest.Digest, error) {
 	members := map[digest.Digest]digest.Digest{}
 	for _, res := range c.resultsByID {
 		for _, part := range res.storedParts {
-			for layer, pack := range part.Chain.Packs {
-				if current, ok := members[layer]; !ok || pack < current {
-					members[layer] = pack
+			for _, layer := range part.layers {
+				blob, pack := layer.layer.Descriptor.Digest, layer.pack
+				if pack == "" {
+					continue
+				}
+				if current, ok := members[blob]; !ok || pack < current {
+					members[blob] = pack
 				}
 			}
 		}

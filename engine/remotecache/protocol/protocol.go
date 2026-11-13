@@ -191,11 +191,15 @@ type Claims struct {
 }
 
 // SessionClaim is one session and its claim: ID is the engine session's ID,
-// as its telemetry names it (dagger.io/engine.session), and Claim is the
-// claim ID its client connected with.
+// as its telemetry names it (dagger.io/engine.session), Claim is the claim
+// ID its client connected with, and Started is when the session started,
+// on the engine's clock, the clock its spans' times are on: the service
+// counts how far into the claim's run each of the run's calls came from its
+// first session's start.
 type SessionClaim struct {
-	ID    string `json:"id"`
-	Claim string `json:"claim"`
+	ID      string    `json:"id"`
+	Claim   string    `json:"claim"`
+	Started time.Time `json:"started"`
 }
 
 // Claimed is the service's reply to Claims.
@@ -246,7 +250,9 @@ const (
 
 // Exported answers Export. Bundle is nil when no root survived. The engine
 // keeps the bundle's chains open under ExportID until Upload, or until the
-// connection ends.
+// connection ends. The bundle's records carry no offers of parts: an
+// engine's offers are the Cloud's own, and its parts go as the bundle's
+// outputs.
 type Exported struct {
 	ExportID string             `json:"exportID,omitempty"`
 	Bundle   *dagql.ValueBundle `json:"bundle,omitempty"`

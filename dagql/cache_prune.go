@@ -118,14 +118,40 @@ func metadataDirectResultBytes(estimate CacheMetadataEstimate) int64 {
 		(sharedGraphBytes+int64(estimate.ResultCount)-1)/int64(estimate.ResultCount)
 }
 
+// MetadataPruneOption adjusts one PruneMetadataEstimate.
+type MetadataPruneOption func(*metadataPruneOptions)
+
+type metadataPruneOptions struct {
+	overshootAllowance int64
+}
+
+// WithOvershootAllowance gives a metadata prune the allowance that
+// CachePrunePolicy.OvershootAllowance gives a prune: it passes over a root
+// whose removal would free more than the bytes down to the target plus
+// allowance, unless that leaves the estimate over its maximum.
+func WithOvershootAllowance(allowance int64) MetadataPruneOption {
+	return func(o *metadataPruneOptions) { o.overshootAllowance = allowance }
+}
+
 // PruneMetadataEstimate removes cold persisted roots when the coarse DAGQL
 // structural estimate exceeds maximumBytes. It deliberately skips physical
 // usage measurement and returns only aggregate information.
-func (c *Cache) PruneMetadataEstimate(ctx context.Context, maximumBytes, targetBytes int64) (report CacheMetadataPruneReport, rerr error) {
+func (c *Cache) PruneMetadataEstimate(ctx context.Context, maximumBytes, targetBytes int64, opts ...MetadataPruneOption) (report CacheMetadataPruneReport, rerr error) {
+	var options metadataPruneOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	started := time.Now()
 	report.MaximumEstimatedBytes = maximumBytes
 	report.TargetEstimatedBytes = targetBytes
 	defer func() {
+		if c != nil && c.changes != nil {
+			// A pass releases the graph lock between its drops; what they
+			// changed is handed back once it ends.
+			c.egraphMu.Lock()
+			c.takeChangesLocked(&report.Change)
+			c.egraphMu.Unlock()
+		}
 		report.Duration = time.Since(started)
 		if report.Triggered && c != nil {
 			c.traceMetadataPruneFinished(ctx, report, rerr)
@@ -146,12 +172,12 @@ func (c *Cache) PruneMetadataEstimate(ctx context.Context, maximumBytes, targetB
 		return report, err
 	}
 
-	c.egraphMu.Lock()
+	step := c.lockGraphAs(ctx, "dagql.prune.metadataEstimate")
 	report.BeforeCompaction = c.metadataPruneEstimateLocked()
 	report.AfterInitialCompaction = report.BeforeCompaction
 	report.AfterPrune = report.BeforeCompaction
 	if report.BeforeCompaction.EstimatedBytes <= maximumBytes {
-		c.egraphMu.Unlock()
+		c.unlockGraphAs(step)
 		return report, nil
 	}
 	report.Triggered = true
@@ -161,7 +187,7 @@ func (c *Cache) PruneMetadataEstimate(ctx context.Context, maximumBytes, targetB
 		report.AfterInitialCompaction = c.cacheMetadataEstimateLocked()
 		report.AfterPrune = report.AfterInitialCompaction
 	}
-	c.egraphMu.Unlock()
+	c.unlockGraphAs(step)
 
 	if report.AfterInitialCompaction.EstimatedBytes <= maximumBytes {
 		return report, nil
@@ -200,7 +226,8 @@ func (c *Cache) PruneMetadataEstimate(ctx context.Context, maximumBytes, targetB
 	report.CandidateCount = len(candidates)
 
 	reclaimTarget := report.AfterInitialCompaction.EstimatedBytes - targetBytes
-	plan, simulatedReclaimed, simulatedCollected, err := buildPrunePlanCancelable(snapshot, candidates, reclaimTarget, checker)
+	required := report.AfterInitialCompaction.EstimatedBytes - maximumBytes
+	plan, simulatedReclaimed, simulatedCollected, err := buildPrunePlanWithAllowanceCancelable(snapshot, candidates, reclaimTarget, required, options.overshootAllowance, checker)
 	if err != nil {
 		return report, err
 	}
@@ -224,12 +251,12 @@ func (c *Cache) PruneMetadataEstimate(ctx context.Context, maximumBytes, targetB
 		}
 	}
 
-	c.egraphMu.Lock()
+	step = c.lockGraphAs(ctx, "dagql.prune.metadataCompact")
 	if len(plan) > 0 && !c.blobBacked {
 		_, report.FinalCompactionOldClassSlots, report.FinalCompactionNewClassSlots = c.compactEqClassesLocked(true)
 	}
 	report.AfterPrune = c.metadataPruneEstimateLocked()
-	c.egraphMu.Unlock()
+	c.unlockGraphAs(step)
 
 	if report.RemovedPersistedRootCount > 0 && c.snapshotGC != nil {
 		report.SnapshotGCAttempted = true
@@ -319,6 +346,19 @@ func (c *Cache) measurePruneState(ctx context.Context, policyIdx int) (map[share
 }
 
 func (c *Cache) Prune(ctx context.Context, policies []CachePrunePolicy) (CachePruneReport, error) {
+	report, err := c.prune(ctx, policies)
+	if c.changes != nil {
+		// A run releases the graph lock between its drops; what they changed
+		// is handed back once it ends.
+		c.egraphMu.Lock()
+		c.takeChangesLocked(&report.Change)
+		c.egraphMu.Unlock()
+	}
+	return report, err
+}
+
+// prune is Prune's run.
+func (c *Cache) prune(ctx context.Context, policies []CachePrunePolicy) (CachePruneReport, error) {
 	report := CachePruneReport{}
 	if len(policies) == 0 {
 		return report, nil
@@ -381,7 +421,7 @@ func (c *Cache) Prune(ctx context.Context, policies []CachePrunePolicy) (CachePr
 			continue
 		}
 
-		plan, plannedReclaim, _ := buildPrunePlan(snapshot, candidates, targetBytes)
+		plan, plannedReclaim, _, _ := buildPrunePlanWithAllowanceCancelable(snapshot, candidates, targetBytes, pruneRequiredBytes(policy, snapshot.usedBytes), policy.OvershootAllowance, nil)
 		if len(plan) == 0 {
 			continue
 		}
@@ -448,13 +488,13 @@ func (c *Cache) Prune(ctx context.Context, policies []CachePrunePolicy) (CachePr
 	}
 
 	if compactedNeeded && !c.blobBacked {
-		c.egraphMu.Lock()
+		step := c.lockGraphAs(ctx, "dagql.prune.compact")
 		if compacted, oldSlots, newSlots := c.compactEqClassesLocked(false); compacted {
 			slog.Debug("dagql prune compacted eq classes",
 				"oldSlots", oldSlots,
 				"newSlots", newSlots)
 		}
-		c.egraphMu.Unlock()
+		c.unlockGraphAs(step)
 	}
 
 	if len(report.Entries) > 0 && c.snapshotGC != nil {
@@ -477,12 +517,12 @@ func (c *Cache) snapshotPruneStateCancelable(
 	directResultBytes int64,
 	checker *pruneCancellationChecker,
 ) (_ pruneSnapshot, rerr error) {
+	ctx := context.Background()
+	if checker != nil {
+		ctx = checker.ctx
+	}
 	var usage *cacheUsageSnapshot
 	if mode == pruneSnapshotDisk && !c.blobBacked {
-		ctx := context.Background()
-		if checker != nil {
-			ctx = checker.ctx
-		}
 		var err error
 		usage, err = c.collectUsageMeasurementInputs(ctx, false)
 		if err != nil {
@@ -495,11 +535,11 @@ func (c *Cache) snapshotPruneStateCancelable(
 		}()
 	}
 	if usage != nil {
-		c.egraphMu.Lock()
-		defer c.egraphMu.Unlock()
+		step := c.lockGraphAs(ctx, "dagql.prune.snapshot")
+		defer c.unlockGraphAs(step)
 	} else {
-		c.egraphMu.RLock()
-		defer c.egraphMu.RUnlock()
+		step := c.readLockGraphAs(ctx, "dagql.prune.snapshot")
+		defer c.runlockGraphAs(step)
 	}
 	if c.blobBacked {
 		var blobs *storedBlobUsage
@@ -999,6 +1039,62 @@ func buildPrunePlan(snapshot pruneSnapshot, candidates []pruneCandidate, targetB
 	return plan, reclaimed, collected
 }
 
+// buildPrunePlanWithAllowanceCancelable plans like buildPrunePlanCancelable,
+// oldest first until needBytes are freed, but passes over a candidate whose
+// removal would take what the plan has freed past needBytes plus allowance,
+// and tries the next. A plan that passed over candidates must still free
+// requiredBytes, what its caller can't do without; when it can't, the plan
+// is the plain oldest-first one. A zero allowance is the plain plan
+// (CachePrunePolicy.OvershootAllowance).
+func buildPrunePlanWithAllowanceCancelable(
+	snapshot pruneSnapshot,
+	candidates []pruneCandidate,
+	needBytes, requiredBytes, allowance int64,
+	checker *pruneCancellationChecker,
+) ([]prunePlanEntry, int64, int, error) {
+	if allowance <= 0 || needBytes > math.MaxInt64-allowance {
+		return buildPrunePlanCancelable(snapshot, candidates, needBytes, checker)
+	}
+	if err := checker.checkNow(); err != nil {
+		return nil, 0, 0, err
+	}
+	if len(candidates) == 0 {
+		return nil, 0, 0, nil
+	}
+	sim, err := newPruneSimulationStateCancelable(snapshot, checker)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	limit := needBytes + allowance
+	plan := make([]prunePlanEntry, 0, len(candidates))
+	var reclaimed int64
+	var collected int
+	for _, candidate := range candidates {
+		if reclaimed >= needBytes {
+			break
+		}
+		var undo pruneSimulationUndo
+		immediateReclaim, immediateCollected, err := sim.applyCandidateCancelable(snapshot, candidate.resultID, checker, &undo)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if reclaimed+immediateReclaim > limit {
+			undo.rollback()
+			continue
+		}
+		plan = append(plan, prunePlanEntry{candidate: candidate, reclaimBytes: immediateReclaim})
+		reclaimed += immediateReclaim
+		collected += immediateCollected
+	}
+	if reclaimed < requiredBytes {
+		return buildPrunePlanCancelable(snapshot, candidates, needBytes, checker)
+	}
+	if err := checker.checkNow(); err != nil {
+		return nil, 0, 0, err
+	}
+	return plan, reclaimed, collected, nil
+}
+
 func buildPrunePlanCancelable(
 	snapshot pruneSnapshot,
 	candidates []pruneCandidate,
@@ -1024,7 +1120,7 @@ func buildPrunePlanCancelable(
 				return nil, 0, 0, err
 			}
 		}
-		immediateReclaim, immediateCollected, err := sim.applyCandidateCancelable(snapshot, candidate.resultID, checker)
+		immediateReclaim, immediateCollected, err := sim.applyCandidateCancelable(snapshot, candidate.resultID, checker, nil)
 		if err != nil {
 			return nil, 0, 0, err
 		}
@@ -1075,10 +1171,25 @@ func newPruneSimulationStateCancelable(snapshot pruneSnapshot, checker *pruneCan
 	return state, nil
 }
 
+// pruneSimulationUndo takes back what one applyCandidateCancelable did to the
+// simulation, newest change first, so a plan can pass over a candidate.
+type pruneSimulationUndo []func()
+
+func (u *pruneSimulationUndo) record(restore func()) {
+	*u = append(*u, restore)
+}
+
+func (u pruneSimulationUndo) rollback() {
+	for i := len(u) - 1; i >= 0; i-- {
+		u[i]()
+	}
+}
+
 func (s *pruneSimulationState) applyCandidateCancelable(
 	snapshot pruneSnapshot,
 	resultID sharedResultID,
 	checker *pruneCancellationChecker,
+	undo *pruneSimulationUndo,
 ) (int64, int, error) {
 	if checker != nil {
 		if err := checker.check(); err != nil {
@@ -1088,6 +1199,9 @@ func (s *pruneSimulationState) applyCandidateCancelable(
 	curCount, ok := s.remainingIncomingCount[resultID]
 	if !ok {
 		return 0, 0, nil
+	}
+	if undo != nil {
+		undo.record(func() { s.remainingIncomingCount[resultID] = curCount })
 	}
 	s.remainingIncomingCount[resultID] = curCount - 1
 
@@ -1114,6 +1228,9 @@ func (s *pruneSimulationState) applyCandidateCancelable(
 			continue
 		}
 		s.collected[curID] = struct{}{}
+		if undo != nil {
+			undo.record(func() { delete(s.collected, curID) })
+		}
 		collected++
 
 		cur, ok := snapshot.results[curID]
@@ -1128,6 +1245,9 @@ func (s *pruneSimulationState) applyCandidateCancelable(
 				}
 			}
 			alive := s.aliveCountByUsageIdentity[identity] - 1
+			if undo != nil {
+				undo.record(func() { s.aliveCountByUsageIdentity[identity] = alive + 1 })
+			}
 			s.aliveCountByUsageIdentity[identity] = alive
 			if alive == 0 {
 				reclaimed += s.sizeBytesByUsageIdentity[identity]
@@ -1136,6 +1256,10 @@ func (s *pruneSimulationState) applyCandidateCancelable(
 
 		deps := slices.Clone(cur.deps)
 		for _, id := range cur.offers {
+			holds := s.remainingOwnerHolds[id]
+			if undo != nil {
+				undo.record(func() { s.remainingOwnerHolds[id] = holds })
+			}
 			s.remainingOwnerHolds[id]--
 			if s.remainingOwnerHolds[id] == 0 {
 				owner := snapshot.owners[id]
@@ -1152,6 +1276,10 @@ func (s *pruneSimulationState) applyCandidateCancelable(
 			depCount, ok := s.remainingIncomingCount[depID]
 			if !ok {
 				continue
+			}
+			before := depCount
+			if undo != nil {
+				undo.record(func() { s.remainingIncomingCount[depID] = before })
 			}
 			depCount--
 			s.remainingIncomingCount[depID] = depCount
@@ -1331,6 +1459,20 @@ func pruneTargetBytes(policy CachePrunePolicy, usedBytes int64) (int64, bool) {
 	}
 
 	return target, thresholdTriggered
+}
+
+// pruneRequiredBytes is the part of pruneTargetBytes that a policy can't do
+// without: the bytes over its maximum (or reserved space) and under its
+// minimum free space, leaving out the target it prunes down to.
+func pruneRequiredBytes(policy CachePrunePolicy, usedBytes int64) int64 {
+	required := int64(0)
+	if policy.MaxUsedSpace > 0 && usedBytes > policy.MaxUsedSpace {
+		required = max(required, usedBytes-max(policy.MaxUsedSpace, policy.ReservedSpace))
+	}
+	if policy.MinFreeSpace > 0 && policy.CurrentFreeSpace < policy.MinFreeSpace {
+		required = max(required, policy.MinFreeSpace-policy.CurrentFreeSpace)
+	}
+	return required
 }
 
 func cachePrunePolicyMatchesEntry(policy CachePrunePolicy, entry CacheUsageEntry) bool {

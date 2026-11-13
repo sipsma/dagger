@@ -10,7 +10,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -24,6 +23,8 @@ import (
 func WithBlobStore() CacheOption {
 	return func(c *Cache) {
 		c.blobBacked = true
+		c.storedLayers = &storedLayers{}
+		c.changes = &changeMarks{}
 	}
 }
 
@@ -40,53 +41,58 @@ func WithBlobStore() CacheOption {
 // is not stored. A named entry can have lost its value to a prune between the
 // export's merge, which kept it through its sender's holding only, and this
 // call: storing the part would leave a value whose bundle can never be built.
-// It reports whether the part was stored. A metadata part carries no bytes
-// and is never stored.
-func (c *Cache) SetStoredPart(ctx context.Context, number uint64, part PersistedPartOffer, copyExpiresAtUnix int64) (bool, error) {
+// It reports whether the part was stored, and what it changed. A metadata
+// part carries no bytes and is never stored.
+func (c *Cache) SetStoredPart(ctx context.Context, number uint64, part PersistedPartOffer, copyExpiresAtUnix int64) (_ bool, change RemoteChange, _ error) {
 	if !c.blobBacked {
-		return false, errors.New("set stored part: the cache has no blob store")
+		return false, change, errors.New("set stored part: the cache has no blob store")
 	}
 	key, err := partAddressKey(part.Address)
 	if err != nil {
-		return false, fmt.Errorf("set stored part: %w", err)
+		return false, change, fmt.Errorf("set stored part: %w", err)
 	}
 	if part.Address.Part == "metadata" {
-		return false, errors.New("set stored part: a metadata part carries no bytes")
+		return false, change, errors.New("set stored part: a metadata part carries no bytes")
 	}
 	copied, err := clonePartOffers([]PersistedPartOffer{part})
 	if err != nil {
-		return false, fmt.Errorf("set stored part: %w", err)
+		return false, change, fmt.Errorf("set stored part: %w", err)
 	}
+	// The part takes the cache's layers before the graph lock: a part that
+	// isn't stored leaves them to the collector.
+	stored := c.storedLayers.part(copied[0])
 	if err := context.Cause(ctx); err != nil {
-		return false, err
+		return false, change, err
 	}
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
+	defer c.takeChangesLocked(&change)
 	// Admission is against the value the entry holds now, so the clock is
 	// read once the graph lock is held, not while waiting for it.
 	now := time.Now().Unix()
 	res := c.resultsByID[sharedResultID(number)]
 	if res == nil {
-		return false, fmt.Errorf("set stored part: no entry %d", number)
+		return false, change, fmt.Errorf("set stored part: no entry %d", number)
 	}
 	if res.noValueLocked() {
-		return false, fmt.Errorf("set stored part: entry %d has no value", number)
+		return false, change, fmt.Errorf("set stored part: entry %d has no value", number)
 	}
 	copyExpired := copyExpiresAtUnix != 0 && now >= copyExpiresAtUnix
 	if copyExpired && !c.resultExpiredAtLocked(res, now) {
-		return false, nil
+		return false, change, nil
 	}
-	named, ok := c.storedPartDependenciesLocked(res, copied[0])
+	named, ok := c.storedPartDependenciesLocked(res, stored.held)
 	if !ok {
-		return false, nil
+		return false, change, nil
 	}
 	if res.storedParts == nil {
-		res.storedParts = make(map[string]PersistedPartOffer)
+		res.storedParts = make(map[string]storedPart)
 	}
-	res.storedParts[key] = copied[0]
+	res.storedParts[key] = stored
+	c.markEntryClassLocked(res.id)
 	// The Cloud serves no sessions, so there are no requirements to carry.
 	c.applyPartDependenciesLocked(ctx, res, named, nil)
-	return true, nil
+	return true, change, nil
 }
 
 // storedPartDependenciesLocked returns the entries part's owner and services
@@ -115,11 +121,11 @@ func (c *Cache) storedPartDependenciesLocked(res *sharedResult, part PersistedPa
 
 // storedPartsLocked returns res's stored parts, sorted by part address key,
 // for its saved envelope. Requires egraphMu.
-func (res *sharedResult) storedPartsLocked() []PersistedPartOffer {
+func (res *sharedResult) storedPartsLocked() []storedPart {
 	if len(res.storedParts) == 0 {
 		return nil
 	}
-	parts := make([]PersistedPartOffer, 0, len(res.storedParts))
+	parts := make([]storedPart, 0, len(res.storedParts))
 	for _, key := range slices.Sorted(maps.Keys(res.storedParts)) {
 		parts = append(parts, res.storedParts[key])
 	}
@@ -129,27 +135,28 @@ func (res *sharedResult) storedPartsLocked() []PersistedPartOffer {
 // restoreStoredPartsLocked takes a blob-backed cache's restored value's
 // stored parts out of its saved envelope, onto the entry, and sets the size
 // of its record as merge measured it: the call frame's JSON and the envelope's
-// without them. Requires egraphMu for writing.
-func restoreStoredPartsLocked(res *sharedResult, env *PersistedResultEnvelope, callFrameJSON string, payload []byte) error {
-	res.storedRecordBytes = int64(len(callFrameJSON) + len(payload))
+// without them. callFrameBytes and payloadBytes are the sizes of the row's
+// saved call frame and envelope. Requires egraphMu for writing.
+func (c *Cache) restoreStoredPartsLocked(res *sharedResult, env *PersistedResultEnvelope, callFrameBytes, payloadBytes int) error {
+	res.storedRecordBytes = int64(callFrameBytes + payloadBytes)
 	if len(env.StoredParts) == 0 {
 		return nil
 	}
 	parts := env.StoredParts
 	env.StoredParts = nil
-	res.storedParts = make(map[string]PersistedPartOffer, len(parts))
+	res.storedParts = make(map[string]storedPart, len(parts))
 	for _, part := range parts {
 		key, err := partAddressKey(part.Address)
 		if err != nil {
 			return err
 		}
-		res.storedParts[key] = part
+		res.storedParts[key] = c.storedLayers.part(part)
 	}
 	stripped, err := json.Marshal(env)
 	if err != nil {
 		return err
 	}
-	res.storedRecordBytes = int64(len(callFrameJSON) + len(stripped))
+	res.storedRecordBytes = int64(callFrameBytes + len(stripped))
 	return nil
 }
 
@@ -164,47 +171,47 @@ type StoredPart struct {
 // blob store no longer has the blob, so that no later bundle or offer
 // carries those parts. It changes nothing else: the values, and the entries
 // their parts named, stay.
-func (c *Cache) DropStoredParts(blob digest.Digest) ([]StoredPart, error) {
+func (c *Cache) DropStoredParts(blob digest.Digest) ([]StoredPart, RemoteChange, error) {
 	if !c.blobBacked {
-		return nil, errors.New("drop stored parts: the cache has no blob store")
+		return nil, RemoteChange{}, errors.New("drop stored parts: the cache has no blob store")
 	}
-	return c.dropStoredParts(func(part PersistedPartOffer) bool {
-		return slices.ContainsFunc(part.Chain.Layers, func(layer snapshots.ExportLayer) bool {
-			return layer.Descriptor.Digest == blob
+	dropped, change := c.dropStoredParts(func(part storedPart) bool {
+		return slices.ContainsFunc(part.layers, func(layer *storedLayer) bool {
+			return layer.layer.Descriptor.Digest == blob
 		})
-	}), nil
+	})
+	return dropped, change, nil
 }
 
 // DropStoredPack removes every stored part whose layer chain names the pack,
 // on every entry, and returns them, sorted: what DropStoredParts does for a
 // blob, for a pack the blob store no longer has.
-func (c *Cache) DropStoredPack(pack digest.Digest) ([]StoredPart, error) {
+func (c *Cache) DropStoredPack(pack digest.Digest) ([]StoredPart, RemoteChange, error) {
 	if !c.blobBacked {
-		return nil, errors.New("drop stored pack: the cache has no blob store")
+		return nil, RemoteChange{}, errors.New("drop stored pack: the cache has no blob store")
 	}
-	return c.dropStoredParts(func(part PersistedPartOffer) bool {
-		for _, named := range part.Chain.Packs {
-			if named == pack {
-				return true
-			}
-		}
-		return false
-	}), nil
+	dropped, change := c.dropStoredParts(func(part storedPart) bool {
+		return slices.ContainsFunc(part.layers, func(layer *storedLayer) bool {
+			return layer.pack != "" && layer.pack == pack
+		})
+	})
+	return dropped, change, nil
 }
 
 // dropStoredParts removes every stored part that drop selects, on every
-// entry, and returns them, sorted.
-func (c *Cache) dropStoredParts(drop func(PersistedPartOffer) bool) []StoredPart {
+// entry, and returns them, sorted, and what it changed.
+func (c *Cache) dropStoredParts(drop func(storedPart) bool) (dropped []StoredPart, change RemoteChange) {
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
-	var dropped []StoredPart
+	defer c.takeChangesLocked(&change)
 	for id, res := range c.resultsByID {
 		for key, part := range res.storedParts {
 			if !drop(part) {
 				continue
 			}
 			delete(res.storedParts, key)
-			dropped = append(dropped, StoredPart{Number: uint64(id), Address: part.Address})
+			c.markEntryClassLocked(id)
+			dropped = append(dropped, StoredPart{Number: uint64(id), Address: part.address()})
 		}
 		if len(res.storedParts) == 0 {
 			res.storedParts = nil
@@ -213,5 +220,5 @@ func (c *Cache) dropStoredParts(drop func(PersistedPartOffer) bool) []StoredPart
 	slices.SortFunc(dropped, func(a, b StoredPart) int {
 		return cmp.Or(cmp.Compare(a.Number, b.Number), comparePartAddresses(a.Address, b.Address))
 	})
-	return dropped
+	return dropped, change
 }

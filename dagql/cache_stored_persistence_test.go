@@ -67,7 +67,7 @@ func storedPersistenceTestState(c *Cache) map[uint64]storedPersistenceTestEntry 
 		state := res.loadPayloadState()
 		out[uint64(id)] = storedPersistenceTestEntry{
 			retained:                retained,
-			storedParts:             res.storedParts,
+			storedParts:             storedPartTestOffers(res.storedParts),
 			deps:                    deps,
 			recordBytes:             res.storedRecordBytes,
 			createdAt:               state.createdAtUnixNano,
@@ -94,7 +94,7 @@ func TestCloudSaveAndRestoreKeepThePool(t *testing.T) {
 	p := persistedListTestResult(t, actx, a, asrv, "saved-dep", &transferTestValue{Text: "dep"})
 	transferTestDependency(a, actx, r, p)
 	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0]
-	stored, err := cloud.SetStoredPart(ctx, root, storedPruneTestPart("snapshot", map[string]int64{"saved-base": 10, "saved-top": 20}), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, root, storedPruneTestPart("snapshot", map[string]int64{"saved-base": 10, "saved-top": 20}), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	storedPruneTestUse(cloud, root, time.Now().Add(-time.Hour))
@@ -114,7 +114,7 @@ func TestCloudSaveAndRestoreKeepThePool(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 	require.Equal(t, poolBefore, poolAfter, "the record sizes come back as merge measured them")
 
-	got, err := cloud.StoredBundle(ctx, []uint64{root}, nil)
+	got, err := cloud.StoredBundle(ctx, []uint64{root}, time.Now().Unix(), nil)
 	require.NoError(t, err)
 	require.Len(t, got.Bundle.Values, 2)
 	for _, value := range got.Bundle.Values {
@@ -147,7 +147,7 @@ func TestCloudRestoreKeepsEveryRecord(t *testing.T) {
 	r := persistedListTestResult(t, actx, a, asrv, "list-holder", &transferTestValue{Text: "holder"})
 	transferTestDependency(a, actx, r, list)
 	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0]
-	before, err := cloud.StoredBundle(ctx, []uint64{root}, nil)
+	before, err := cloud.StoredBundle(ctx, []uint64{root}, time.Now().Unix(), nil)
 	require.NoError(t, err)
 	kinds := func(bundle ValueBundle) []string {
 		var out []string
@@ -162,7 +162,7 @@ func TestCloudRestoreKeepsEveryRecord(t *testing.T) {
 
 	ctx, cloud = storedPersistenceTestCloud(t, path)
 	defer func() { require.NoError(t, cloud.Close(ctx)) }()
-	after, err := cloud.StoredBundle(ctx, []uint64{root}, nil)
+	after, err := cloud.StoredBundle(ctx, []uint64{root}, time.Now().Unix(), nil)
 	require.NoError(t, err, "every record of the closure is still stored")
 	require.Equal(t, kinds(before.Bundle), kinds(after.Bundle))
 	require.Equal(t, before.Bundle.Values, after.Bundle.Values)
@@ -249,7 +249,7 @@ func TestCheckpointRunsBesideReaders(t *testing.T) {
 				cloud.EquivalentEntries(recipeA.String())
 				cloud.EquivalentHolders(recipeB.String())
 				_, _ = cloud.EntryInfo(rootA)
-				_, _ = cloud.StoredBundle(ctx, []uint64{rootA}, nil)
+				_, _ = cloud.StoredBundle(ctx, []uint64{rootA}, time.Now().Unix(), nil)
 				_, _ = cloud.BlobCacheUsage()
 			}
 		})

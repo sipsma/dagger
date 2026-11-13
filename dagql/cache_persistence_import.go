@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"slices"
+	"sync"
 
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/dagql/persistdb"
@@ -23,7 +25,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	var finalOffers []restoredFinalOffer
 
 	var (
-		resultRows              []persistdb.MirrorResult
+		resultRows              []importedResultRow
 		eqClassRows             []persistdb.MirrorEqClass
 		eqClassDigestRows       []persistdb.MirrorEqClassDigest
 		termRows                []persistdb.MirrorTerm
@@ -41,7 +43,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	// The tables are independent reads of a store nothing else writes yet, so
 	// they are listed concurrently, each on its own connection.
 	lists, listCtx := errgroup.WithContext(ctx)
-	listMirrorRows(lists, listCtx, "results", &resultRows, c.pdb.ListMirrorResults)
+	listImportedResultRows(lists, listCtx, &resultRows, c.pdb.EachMirrorResult)
 	listMirrorRows(lists, listCtx, "eq_classes", &eqClassRows, c.pdb.ListMirrorEqClasses)
 	listMirrorRows(lists, listCtx, "eq_class_digests", &eqClassDigestRows, c.pdb.ListMirrorEqClassDigests)
 	listMirrorRows(lists, listCtx, "terms", &termRows, c.pdb.ListMirrorTerms)
@@ -64,8 +66,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	}
 
 	var eagerDecodeResultIDs []sharedResultID
-
-	decodedResultRows := decodeImportedResultRows(resultRows)
+	indexed := make(map[sharedResultID]struct{})
 
 	c.egraphMu.Lock()
 	importErr := func() error {
@@ -88,6 +89,14 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			c.egraphParents[eqID] = eqID
 			if c.eqClassToDigests[eqID] == nil {
 				c.eqClassToDigests[eqID] = make(map[string]struct{})
+			}
+		}
+		// Classes keep the numbers they were saved under; the numbers no saved
+		// class holds are free for new classes, lowest first.
+		c.freeEqClassIDs = nil
+		for id := maxEqClassID; id >= 1; id-- {
+			if c.egraphParents[id] == 0 {
+				c.freeEqClassIDs = append(c.freeEqClassIDs, id)
 			}
 		}
 
@@ -123,7 +132,8 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 
 		var maxResultID sharedResultID
-		for i, row := range resultRows {
+		for i := range resultRows {
+			row := &resultRows[i]
 			resultID := sharedResultID(row.ID)
 			if resultID == 0 {
 				return fmt.Errorf("import result: zero ID")
@@ -131,14 +141,16 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			if resultID > maxResultID {
 				maxResultID = resultID
 			}
+			if row.Indexed {
+				indexed[resultID] = struct{}{}
+			}
 
-			decoded := decodedResultRows[i]
-			env := decoded.env
+			env := row.env
 			if env == nil {
 				return fmt.Errorf("import result %d: empty self payload", resultID)
 			}
-			if decoded.envErr != nil {
-				return fmt.Errorf("import result %d self payload: %w", resultID, decoded.envErr)
+			if row.envErr != nil {
+				return fmt.Errorf("import result %d self payload: %w", resultID, row.envErr)
 			}
 			if env.Kind == "" {
 				return fmt.Errorf("import result %d: empty self payload kind", resultID)
@@ -147,12 +159,12 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				return fmt.Errorf("import result %d: unsupported self payload version %d", resultID, env.Version)
 			}
 
-			frame := decoded.frame
+			frame := row.frame
 			if frame == nil {
 				return fmt.Errorf("import result %d: empty call_frame_json", resultID)
 			}
-			if decoded.frameErr != nil {
-				return fmt.Errorf("import result %d call_frame_json: %w", resultID, decoded.frameErr)
+			if row.frameErr != nil {
+				return fmt.Errorf("import result %d call_frame_json: %w", resultID, row.frameErr)
 			}
 
 			// The decline mark goes back onto the entry, not into the
@@ -186,7 +198,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				// A blob-backed cache never decodes a value: it keeps every
 				// record as it was saved, which placement copies into
 				// bundles, and takes back its stored parts.
-				if err := restoreStoredPartsLocked(res, env, row.CallFrameJSON, row.SelfPayload); err != nil {
+				if err := c.restoreStoredPartsLocked(res, env, row.callFrameBytes, row.payloadBytes); err != nil {
 					return fmt.Errorf("import result %d stored parts: %w", resultID, err)
 				}
 			} else if env.Kind == persistedResultKindNull {
@@ -205,7 +217,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				eagerDecodeResultIDs = append(eagerDecodeResultIDs, resultID)
 			}
 			c.putResultLocked(res)
-			c.traceImportResultLoaded(ctx, importRunID, resultID, row.CallFrameJSON)
+			c.traceImportResultLoaded(ctx, importRunID, resultID, frame)
 		}
 
 		for _, row := range resultCallRows {
@@ -463,15 +475,11 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			c.nextSharedResultID = maxResultID + 1
 		}
 		c.nextEgraphTermID = maxTermID + 1
-		c.nextEgraphClassID = maxEqClassID + 1
 		if c.nextSharedResultID == 0 {
 			c.nextSharedResultID = 1
 		}
 		if c.nextEgraphTermID == 0 {
 			c.nextEgraphTermID = 1
-		}
-		if c.nextEgraphClassID == 0 {
-			c.nextEgraphClassID = 1
 		}
 
 		return nil
@@ -479,12 +487,6 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	c.egraphMu.Unlock()
 	if importErr != nil {
 		return importErr
-	}
-	indexed := make(map[sharedResultID]struct{})
-	for _, row := range resultRows {
-		if row.Indexed {
-			indexed[sharedResultID(row.ID)] = struct{}{}
-		}
 	}
 	if err := c.indexRestoredEntries(indexed); err != nil {
 		return err
@@ -517,7 +519,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				markRestoredPartDelegation(res, *state.persistedEnvelope, call, state.snapshotOwnerLinks)
 				c.bindPartHost(res, decoded)
 				if withSelf, ok := UnwrapAs[HasResultReference](decoded); ok {
-					withSelf.InitializeResultReference(Result[Typed]{shared: res})
+					withSelf.InitializeResultReference(decodedResultReference(res, decoded))
 				}
 				res.self = decoded.Unwrap()
 				res.hasValue = true
@@ -535,7 +537,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 			installedRevision := res.payloadRevision
 			res.payloadMu.Unlock()
-			c.updateDecodedPayloadBytes(res, decoded.Unwrap(), installedRevision)
+			c.updateDecodedPayloadBytes(ctx, res, decoded.Unwrap(), installedRevision)
 			if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
 				return err
 			}
@@ -659,34 +661,87 @@ func listMirrorRows[T any](lists *errgroup.Group, ctx context.Context, table str
 	})
 }
 
-// importedResultRow is a results row's self payload and call frame, decoded
-// ahead of the import loop. A nil env or frame means the row stored none.
+// importResultBatchRows is how many results rows are read before they are
+// decoded together. Rows wait for their batch with their raw bytes, a few
+// kilobytes each, so a batch is small enough that the batches read but not
+// yet decoded, about two per core, stay far below what the restored cache
+// holds, and big enough that handing one to a decoder costs nothing next to
+// decoding it.
+const importResultBatchRows = 64
+
+// importedResultRow is a results row as the import keeps it: its columns,
+// with its self payload and call frame decoded and their raw bytes dropped
+// (SelfPayload and CallFrameJSON are empty), and the sizes those had. A nil
+// env or frame means the row stored none.
 type importedResultRow struct {
-	env      *PersistedResultEnvelope
-	envErr   error
-	frame    *ResultCall
-	frameErr error
+	persistdb.MirrorResult
+	payloadBytes   int
+	callFrameBytes int
+	env            *PersistedResultEnvelope
+	envErr         error
+	frame          *ResultCall
+	frameErr       error
 }
 
-// decodeImportedResultRows decodes every results row on all cores. Decoding
-// reads only the row. The import loop checks the rows in order, so the error
-// it reports is the one of the first invalid row.
-func decodeImportedResultRows(rows []persistdb.MirrorResult) []importedResultRow {
-	decoded := make([]importedResultRow, len(rows))
-	_ = forEachIndexParallel(len(rows), func(i int) error {
-		row := &rows[i]
-		out := &decoded[i]
-		if len(row.SelfPayload) > 0 {
-			out.env = new(PersistedResultEnvelope)
-			out.envErr = json.Unmarshal(row.SelfPayload, out.env)
+// decode decodes the row's self payload and call frame, and drops their raw
+// bytes. Decoding reads only the row.
+func (row *importedResultRow) decode() {
+	row.payloadBytes = len(row.SelfPayload)
+	row.callFrameBytes = len(row.CallFrameJSON)
+	if len(row.SelfPayload) > 0 {
+		row.env = new(PersistedResultEnvelope)
+		row.envErr = json.Unmarshal(row.SelfPayload, row.env)
+	}
+	if row.CallFrameJSON != "" {
+		row.frame = &ResultCall{}
+		row.frameErr = json.Unmarshal([]byte(row.CallFrameJSON), row.frame)
+	}
+	row.SelfPayload = nil
+	row.CallFrameJSON = ""
+}
+
+// listImportedResultRows lists the results table into dst, in the table's
+// order, decoding rows on all cores as they are read, a batch at a time
+// (importResultBatchRows). A row keeps its raw bytes only until its batch is
+// decoded, so a restore never holds the whole table's bytes beside their
+// decoded form. The import loop checks the rows in order, so the error it
+// reports is the one of the first invalid row.
+func listImportedResultRows(lists *errgroup.Group, ctx context.Context, dst *[]importedResultRow, each func(context.Context, func(persistdb.MirrorResult) error) error) {
+	lists.Go(func() error {
+		pending := make(chan []importedResultRow, runtime.GOMAXPROCS(0))
+		var decoders sync.WaitGroup
+		for range runtime.GOMAXPROCS(0) {
+			decoders.Go(func() {
+				for batch := range pending {
+					for i := range batch {
+						batch[i].decode()
+					}
+				}
+			})
 		}
-		if row.CallFrameJSON != "" {
-			out.frame = &ResultCall{}
-			out.frameErr = json.Unmarshal([]byte(row.CallFrameJSON), out.frame)
+		var batches [][]importedResultRow
+		batch := make([]importedResultRow, 0, importResultBatchRows)
+		err := each(ctx, func(row persistdb.MirrorResult) error {
+			batch = append(batch, importedResultRow{MirrorResult: row})
+			if len(batch) == importResultBatchRows {
+				batches = append(batches, batch)
+				pending <- batch
+				batch = make([]importedResultRow, 0, importResultBatchRows)
+			}
+			return nil
+		})
+		if len(batch) > 0 {
+			batches = append(batches, batch)
+			pending <- batch
 		}
+		close(pending)
+		decoders.Wait()
+		if err != nil {
+			return fmt.Errorf("list mirror results: %w", err)
+		}
+		*dst = slices.Concat(batches...)
 		return nil
 	})
-	return decoded
 }
 
 func normalizeImportedDigest(raw string) digest.Digest {
@@ -746,9 +801,9 @@ func persistedEnvelopeTypeNames(env PersistedResultEnvelope, names []persistedEn
 // updateDecodedPayloadBytes replaces an imported row's envelope size with
 // its decoded value's, unless the row's payload changed after revision.
 // Callers hold no cache locks: sizing may take the value's own lock.
-func (c *Cache) updateDecodedPayloadBytes(res *sharedResult, decoded Typed, revision uint64) {
+func (c *Cache) updateDecodedPayloadBytes(ctx context.Context, res *sharedResult, decoded Typed, revision uint64) {
 	n := cachePayloadBytes(decoded)
-	c.egraphMu.Lock()
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 	defer c.egraphMu.Unlock()
 	res.payloadMu.RLock()
 	current := res.payloadRevision == revision
@@ -1023,7 +1078,7 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 				markRestoredPartDelegation(res, *state.persistedEnvelope, call, roles)
 				c.bindPartHost(res, decoded)
 				if withSelf, ok := UnwrapAs[HasResultReference](decoded); ok {
-					withSelf.InitializeResultReference(Result[Typed]{shared: res})
+					withSelf.InitializeResultReference(decodedResultReference(res, decoded))
 				}
 				res.self = decoded.Unwrap()
 				res.hasValue = true
@@ -1042,7 +1097,7 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			}
 			installedRevision := res.payloadRevision
 			res.payloadMu.Unlock()
-			c.updateDecodedPayloadBytes(res, decoded.Unwrap(), installedRevision)
+			c.updateDecodedPayloadBytes(ctx, res, decoded.Unwrap(), installedRevision)
 
 			resolver = decodeResolver
 		}

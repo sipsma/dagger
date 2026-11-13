@@ -307,10 +307,15 @@ func (r MergeReply) Imported() []ImportedValue {
 // entry keeps its provisional number, firstID + ordinal - 1.
 type valueMergePrep struct {
 	// from is the cache the bundle is from.
-	from    CacheID
-	bundle  ValueBundle
-	order   []uint64
-	index   map[uint64]*TransferredValue
+	from   CacheID
+	bundle ValueBundle
+	order  []uint64
+	index  map[uint64]*TransferredValue
+	// rows are the bundle's ordinals by sender number, which its records'
+	// own references name rows by, and senders the reverse
+	// (transferSenderNumbers).
+	rows    map[uint64]uint64
+	senders transferSenderNumbers
 	firstID uint64
 	plans   map[uint64]transferIdentityPlan
 	// records are the bundle's records at their provisional numbers, by
@@ -425,10 +430,13 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 		recordBytes = map[uint64]int64{}
 	}
 	prep := &valueMergePrep{from: from, bundle: bundle, order: order, index: map[uint64]*TransferredValue{}, plans: map[uint64]transferIdentityPlan{}, records: map[uint64]PersistedRecord{}, refs: map[uint64][]uint64{}, recordBytes: recordBytes, completeParts: map[uint64][]string{}, held: map[uint64]bool{}, heldParts: heldParts}
+	prep.rows = make(map[uint64]uint64, len(prep.bundle.Values))
 	for i := range prep.bundle.Values {
 		row := &prep.bundle.Values[i]
 		prep.index[uint64(row.Ordinal)] = row
+		prep.rows[row.SenderNumber] = uint64(row.Ordinal)
 	}
+	prep.senders = transferSenders(prep.bundle)
 	if prep.calls, err = c.prepareMergedCalls(prep.bundle.Calls); err != nil {
 		return nil, err
 	}
@@ -455,12 +463,26 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 		ref.ResultID = prep.firstID + ref.ResultID - 1
 		return nil
 	}
+	// A record names itself and the rows it references by the sender's
+	// numbers, as the sender stores it; the bundle's own offers name rows
+	// by ordinal (relocate).
+	relocateRecord := func(ref *PersistedRef) error {
+		if ref.RecipeID != nil || ref.ResultID == 0 {
+			return nil
+		}
+		ordinal, ok := prep.rows[ref.ResultID]
+		if !ok {
+			return fmt.Errorf("transfer reference %d names no row", ref.ResultID)
+		}
+		ref.ResultID = ordinal
+		return relocate(ref)
+	}
 	// Every record is first relocated in its call and offers, which is all
 	// its identity and the bundle's ownership graph read. Relocation maps
 	// ordinals one to one onto nonzero numbers, so what the validation
 	// checked at ordinals holds at provisional numbers: neither the records
 	// nor the private cache's ownership are checked again.
-	private, err := c.privateMergeCache(ctx, prep, heldFrames, relocate)
+	private, err := c.privateMergeCache(ctx, prep, heldFrames, relocateRecord, relocate)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +497,7 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 		prep.light = c.keptMergeRecords(prep)
 	}
 	// Every other record is prepared with its payload.
-	if err := prep.prepareRecordPayloads(ctx, relocate); err != nil {
+	if err := prep.prepareRecordPayloads(ctx, relocateRecord, relocate); err != nil {
 		return nil, err
 	}
 	// A preparation cancelled after its last payload, or with every record
@@ -515,7 +537,7 @@ func (c *Cache) prepareMergedCalls(calls []TransferredCall) ([]mergedCall, error
 // in its call and offers, a held row standing in with its entry's own call
 // frame (heldFrames), and the bundle's ownership graph, with its offers'
 // owners. It holds no lock: the private cache is the preparation's own.
-func (c *Cache) privateMergeCache(ctx context.Context, prep *valueMergePrep, heldFrames map[uint64]*ResultCall, relocate PersistedRefVisitor) (*Cache, error) {
+func (c *Cache) privateMergeCache(ctx context.Context, prep *valueMergePrep, heldFrames map[uint64]*ResultCall, relocateRecord, relocate PersistedRefVisitor) (*Cache, error) {
 	private := &Cache{resultsByID: map[sharedResultID]*sharedResult{}}
 	for _, id := range prep.order {
 		row := prep.index[id]
@@ -535,7 +557,7 @@ func (c *Cache) privateMergeCache(ctx context.Context, prep *valueMergePrep, hel
 		rec.Envelope.ResultID = rec.ResultID
 		rec.Envelope.Imported = true
 		rec.Call = rec.Call.clone()
-		if err := visitResultCallReferences(rec.Call, nil, relocate); err != nil {
+		if err := visitResultCallReferences(rec.Call, nil, relocateRecord); err != nil {
 			return nil, err
 		}
 		offers, err := clonePartOffers(rec.Envelope.PendingOffers)
@@ -611,7 +633,7 @@ func (c *Cache) planMergeIdentities(prep *valueMergePrep, private *Cache) error 
 // prepareRecordPayloads prepares every record but a light one with its
 // payload (prepareRecordPayload), in dependency order. It returns ctx's cause
 // when ctx is cancelled before a payload.
-func (prep *valueMergePrep) prepareRecordPayloads(ctx context.Context, relocate PersistedRefVisitor) error {
+func (prep *valueMergePrep) prepareRecordPayloads(ctx context.Context, relocateRecord, relocate PersistedRefVisitor) error {
 	for _, id := range prep.order {
 		if prep.light[id] || prep.held[id] {
 			continue
@@ -619,7 +641,7 @@ func (prep *valueMergePrep) prepareRecordPayloads(ctx context.Context, relocate 
 		if err := context.Cause(ctx); err != nil {
 			return err
 		}
-		if err := prep.prepareRecordPayload(id, relocate); err != nil {
+		if err := prep.prepareRecordPayload(id, relocateRecord, relocate); err != nil {
 			return err
 		}
 	}
@@ -703,13 +725,14 @@ func (c *Cache) heldRowStaleLocked(cur *sharedResult, expiresAtUnix, now int64) 
 // numbers with relocate. One visit of the record's references both checks
 // and relocates them, since visiting decodes its payload; its offers, whose
 // references validateTransferRecordContent checks, are relocated apart.
-func (prep *valueMergePrep) prepareRecordPayload(id uint64, relocate PersistedRefVisitor) error {
+func (prep *valueMergePrep) prepareRecordPayload(id uint64, relocateRecord, relocate PersistedRefVisitor) error {
 	row := prep.index[id]
 	// The record's payloads are decoded once for its validation, its part
 	// mapping and its part description, which all read them as sent; the
-	// visit below checks and relocates its references.
+	// visit below checks and relocates its references. The record names its
+	// dependencies by sender number, as the sender holds it.
 	memos := payloadMemos{}
-	direct, err := validateMemoTransferRecordContent(row.Record, row.DependencyIDs, memos)
+	direct, err := validateMemoTransferRecordContent(row.Record, prep.senders.dependencies(row.DependencyIDs), memos)
 	if err != nil {
 		return fmt.Errorf("row %d: %w", id, err)
 	}
@@ -720,23 +743,28 @@ func (prep *valueMergePrep) prepareRecordPayload(id uint64, relocate PersistedRe
 	// which relocation leaves as sent, so they're described as sent.
 	completeParts := memoRecordCompletePartKeys(row.Record, memos)
 	var refs []uint64
-	collect := func(ref *PersistedRef) error {
-		if err := relocate(ref); err != nil {
-			return err
+	collect := func(relocate PersistedRefVisitor) PersistedRefVisitor {
+		return func(ref *PersistedRef) error {
+			if err := relocate(ref); err != nil {
+				return err
+			}
+			if ref.RecipeID == nil && ref.ResultID != 0 {
+				refs = append(refs, ref.ResultID)
+			}
+			return nil
 		}
-		if ref.RecipeID == nil && ref.ResultID != 0 {
-			refs = append(refs, ref.ResultID)
-		}
-		return nil
 	}
+	// The record's own references name rows by sender number, as do its
+	// direct dependencies here; its offers, the bundle's, by ordinal.
 	checkDirect := directTransferReferences(direct)
+	ownRef := collect(relocateRecord)
 	bare := row.Record
 	bare.Envelope.PendingOffers = nil
 	rec, err := VisitEncodedReferences(bare, func(ref *PersistedRef) error {
 		if err := checkDirect(ref); err != nil {
 			return fmt.Errorf("row %d: %w", id, err)
 		}
-		return collect(ref)
+		return ownRef(ref)
 	})
 	if err != nil {
 		return err
@@ -744,8 +772,9 @@ func (prep *valueMergePrep) prepareRecordPayload(id uint64, relocate PersistedRe
 	if rec.Envelope.PendingOffers, err = clonePartOffers(row.Record.Envelope.PendingOffers); err != nil {
 		return err
 	}
+	offerRef := collect(relocate)
 	for i := range rec.Envelope.PendingOffers {
-		if err := visitPersistedPartOffer(&rec.Envelope.PendingOffers[i], nil, collect); err != nil {
+		if err := visitPersistedPartOffer(&rec.Envelope.PendingOffers[i], nil, offerRef); err != nil {
 			return err
 		}
 	}
@@ -1616,6 +1645,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 	errs = errors.Join(errs, collectErr)
 
 	reply := c.mergeReplyLocked(commit)
+	c.takeChangesLocked(&change)
 	reply.Change = change
 	attached := commit.attached
 	finish := func(ctx context.Context) error {
@@ -1688,6 +1718,7 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 		// entry takes the earliest expiry of its calls, though the entry
 		// was here before.
 		row.res.expiresAtUnix = mergeSharedResultExpiryUnix(row.res.expiresAtUnix, row.value.ExpiresAtUnix)
+		c.markEntryClassLocked(row.res.id)
 		c.teachCallIdentityLocked(ctx, row.res, merged.id)
 	}
 	if joined != nil {
@@ -1750,6 +1781,9 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, comm
 		touchSharedResultLastUsed(res, time.Now().UnixNano())
 	}
 	res.transferRevision++
+	if c.resultsByID[res.id] == res {
+		c.markEntryClassLocked(res.id)
+	}
 }
 
 // mergeSenderHoldingLocked records, on the Cloud, the sending engine's holding
@@ -1971,6 +2005,7 @@ func completePartKeysCoverageLocked(res *sharedResult) ([]string, bool) {
 // egraphMu for writing.
 func (c *Cache) failMergedEntryLocked(ctx context.Context, res *sharedResult, queue collectionQueue) collectionQueue {
 	if c.blobBacked {
+		c.markEntryClassLocked(res.id)
 		res.storedRecordBytes = 0
 		res.storedTransfer.Store(nil)
 		res.payloadMu.Lock()
