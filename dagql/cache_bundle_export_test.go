@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
+	"github.com/dagger/dagger/engine/snapshots"
 	"github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/opencontainers/go-digest"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,4 +107,44 @@ func (b bundleCatcher) WriteBundle(_ context.Context, bundle ValueBundle) error 
 
 func (bundleCatcher) WriteBlob(context.Context, digest.Digest, content.ReaderAt) error {
 	return nil
+}
+
+// A cache export ships what the engine holds, not what the remote cache
+// offers it: a row the Cloud offered a part of exports as it would on an
+// engine with no remote cache, with none of the Cloud's offers, so the
+// bundle is the same either way and an engine image built from it starts.
+func TestExportBundleCarriesNoneOfTheCloudsOffers(t *testing.T) {
+	t.Parallel()
+	ctx, c, srv := transferTestCache(t)
+	dep := persistedListTestResult(t, ctx, c, srv, "offered-dep", &transferTestValue{Text: "pending"})
+	root := persistedListTestResult(t, ctx, c, srv, "offered-root", String("root"))
+	transferTestDependency(c, ctx, root, dep)
+	export := func() ValueBundle {
+		t.Helper()
+		var bundle *ValueBundle
+		require.NoError(t, c.ExportBundle(ctx, srv, []AnyResult{root}, config.RefConfig{}, bundleCatcher{&bundle}))
+		require.NotNil(t, bundle)
+		return *bundle
+	}
+	without := export()
+
+	d := digest.FromString("cloud layer")
+	offer := testLiveOffer()
+	offer.Chain = OfferedChain{
+		Layers:     []snapshots.ExportLayer{{Descriptor: ocispecs.Descriptor{MediaType: ocispecs.MediaTypeImageLayer, Digest: d, Size: 16}}},
+		Addresses:  map[digest.Digest]BlobAddress{d: {URL: "https://fixed.invalid/blob"}},
+		RenewalKey: "the Cloud's renewal key",
+	}
+	out, err := c.testOfferParts(ctx, dep, []PersistedPartOffer{offer})
+	require.NoError(t, err)
+	require.Equal(t, OfferAccepted, out[0].Outcome)
+	with := export()
+
+	require.Equal(t, without, with, "the Cloud's offer doesn't change the bundle")
+	for _, value := range with.Values {
+		require.Empty(t, value.Record.Envelope.PendingOffers, "row %d", value.SenderNumber)
+	}
+	ctx2, image, _ := transferTestCache(t)
+	_, err = image.MergeValues(ctx2, ImageCacheID, with)
+	require.NoError(t, err, "an engine image's merge takes the bundle")
 }
