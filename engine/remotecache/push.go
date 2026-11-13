@@ -173,8 +173,11 @@ func (s *session) pushFailed(q PushQueue, roots []uint64, flushed bool, err erro
 // ended first.
 func (s *session) waitPushes(ctx context.Context) bool {
 	q := s.adapter.Pushes()
-	q.FlushRemotePushes()
 	for {
+		// A push in flight as the settle began can find a root busy after
+		// it: each change flushes again, and a flushed busy root is
+		// dropped, so this ends.
+		q.FlushRemotePushes()
 		idle, changed := q.RemotePushesIdle()
 		if idle {
 			return true
