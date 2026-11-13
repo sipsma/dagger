@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/wcprof"
 )
 
@@ -217,31 +218,64 @@ func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *share
 		c.incrementIncomingOwnershipLocked(ctx, standIn)
 		owner.dependencyOwnershipRevision++
 	}
-	var releases []OnReleaseFunc
-	if _, ok := owner.deps[res.id]; ok && owner != res && !frameNames(owner.loadResultCall(), res.id) {
-		delete(owner.deps, res.id)
-		c.forgetDependencyEdgeLocked(owner.id, res.id)
-		owner.dependencyOwnershipRevision++
-		queue, err := c.decrementIncomingOwnershipLocked(ctx, res, nil)
-		if err == nil {
-			releases, _ = c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
+	if _, ok := owner.deps[res.id]; ok && owner != res {
+		// The decoded owner gives up res for the stand-in only once its
+		// decoded value is installed (settleStandIns): until then res
+		// stays, for another reference to it in the same decode, or a
+		// retry of a failed one.
+		if owner.pendingStandIns == nil {
+			owner.pendingStandIns = map[sharedResultID]sharedResultID{}
 		}
+		owner.pendingStandIns[res.id] = standIn.id
 	}
 	_ = c.cascadeRequiredSessionResourcesLocked([]*sharedResult{owner}, false)
-	return releases
+	return nil
 }
 
-// frameNames reports whether frame references result id anywhere in its
-// call: receiver, module, arguments or implicit inputs.
-func frameNames(frame *ResultCall, id sharedResultID) bool {
-	found := false
-	_ = walkTransferCalls(frame, func(*ResultCall) error { return nil }, func(ref *ResultCallRef) error {
-		if ref.ResultID == uint64(id) {
-			found = true
+// settleStandIns makes an entry whose decoded value is now installed depend
+// on the stand-ins its decode resolved, in place of the identity-only
+// entries they stood for: its live value names the stand-ins, and its frame
+// is rewritten to name them too, which same recipe makes the same frame. An
+// export then finds nothing held of a stand-in's recipe beside it. An
+// identity-only entry nothing else owns is collected.
+func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	pending := owner.pendingStandIns
+	owner.pendingStandIns = nil
+	if len(pending) == 0 || c.resultsByID[owner.id] != owner {
+		c.egraphMu.Unlock()
+		return
+	}
+	if frame := owner.loadResultCall(); frame != nil {
+		frame = frame.clone()
+		_ = walkTransferCalls(frame, func(*ResultCall) error { return nil }, func(ref *ResultCallRef) error {
+			if to, ok := pending[sharedResultID(ref.ResultID)]; ok {
+				ref.ResultID = uint64(to)
+				ref.shared = c.resultsByID[to]
+			}
+			return nil
+		})
+		owner.storeResultCall(frame)
+	}
+	var queue []*sharedResult
+	for from, to := range pending {
+		_, hasFrom := owner.deps[from]
+		_, hasTo := owner.deps[to]
+		res := c.resultsByID[from]
+		if !hasFrom || !hasTo || res == nil {
+			continue
 		}
-		return nil
-	})
-	return found
+		delete(owner.deps, from)
+		c.forgetDependencyEdgeLocked(owner.id, from)
+		owner.dependencyOwnershipRevision++
+		var err error
+		if queue, err = c.decrementIncomingOwnershipLocked(ctx, res, queue); err != nil {
+			slog.Warn("settle stand-ins: ownership", "entry", owner.id, "error", err)
+		}
+	}
+	releases, _ := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
+	c.egraphMu.Unlock()
+	_ = runOnReleaseFuncs(context.WithoutCancel(ctx), releases)
 }
 
 // resolveIdentityFrame returns the call frame that stands for an
