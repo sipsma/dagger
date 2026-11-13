@@ -245,6 +245,7 @@ func TestWriteBehindWithNothingChangedWritesNothing(t *testing.T) {
 	first, err := cloud.WriteBehind(ctx)
 	require.NoError(t, err)
 	require.Positive(t, first.Entries)
+	require.Positive(t, first.Held, "a write reports its hold of the read lock")
 	second, err := cloud.WriteBehind(ctx)
 	require.NoError(t, err)
 	require.Equal(t, WriteBehindReport{}, second)
@@ -457,6 +458,8 @@ func TestWriteBehindUpdatesALastUseAlone(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 	report, err := cloud.WriteBehind(ctx)
 	require.NoError(t, err)
+	require.Positive(t, report.Held, "the write held the read lock to plan")
+	report.Held = 0
 	require.Equal(t, WriteBehindReport{Used: 1}, report)
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a last use")
 }
