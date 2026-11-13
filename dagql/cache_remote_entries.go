@@ -169,10 +169,6 @@ type RemoteChange struct {
 	Recipes    []digest.Digest
 	Holdings   []HolderKey
 	Entries    []uint64
-	// Saved reports that the operation changed what a save of the cache
-	// writes, beyond the holdings, which aren't saved: a call kept on a
-	// stored entry, or the entry's expiry.
-	Saved bool
 	// recipes is the set of Recipes, which a merge's change can list by the
 	// thousand.
 	recipes map[digest.Digest]struct{}
@@ -425,7 +421,7 @@ func (c *Cache) indexRecipeLocked(recipe digest.Digest, res *sharedResult) {
 	}
 	c.entriesByRecipe[recipe] = res.id
 	res.recipeKeys = append(res.recipeKeys, recipe)
-	c.markEntryLocked(res.id)
+	c.markEntryLocked(res.id, markBoth)
 }
 
 // unindexRecipesLocked removes the recipe keys that still name res. Requires
@@ -499,7 +495,7 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		affected = true
 	}
 	c.teachRemoteIdentityLocked(ctx, entry, desc.Field, desc.Recipe, desc.Request, desc.ContentDigest, desc.Term)
-	change.Saved = c.keepCallLocked(entry, desc, kept)
+	c.keepCallLocked(entry, desc, kept)
 	if desc.Request != "" && desc.Request != desc.Recipe {
 		if _, ok := c.entriesByRecipe[desc.Request]; !ok {
 			c.indexRecipeLocked(desc.Request, entry)
@@ -517,7 +513,7 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		h.image = desc.Image
 		c.markHoldingLocked(key)
 	}
-	touchSharedResultLastUsed(entry, desc.UsedAtUnixNano)
+	c.touchLastUsed(entry, desc.UsedAtUnixNano)
 	candidates, changed := c.applyHeldValueStateLocked(ctx, state, key, entry, h, HeldValueState{
 		Replacements:  desc.Replacements,
 		Deps:          desc.Deps,
@@ -559,7 +555,7 @@ func (c *Cache) addHoldingLocked(ctx context.Context, state *remoteCacheState, k
 	}
 	entry.holders[key] = h
 	c.markHoldingLocked(key)
-	c.markEntryLocked(entry.id)
+	c.markEntryLocked(entry.id, markSelection)
 	if entry.cacheHolders == nil {
 		entry.cacheHolders = make(map[CacheID]map[uint64]struct{})
 	}
@@ -1194,7 +1190,7 @@ func (c *Cache) removeHoldingLocked(ctx context.Context, state *remoteCacheState
 	delete(entry.holders, key)
 	state.graphVersion++
 	c.markHoldingLocked(key)
-	c.markEntryLocked(entry.id)
+	c.markEntryLocked(entry.id, markSelection)
 	if len(entry.holders) == 0 {
 		entry.holders = nil
 	}
@@ -1423,6 +1419,7 @@ func (c *Cache) teachRemoteIdentityLocked(ctx context.Context, entry *sharedResu
 	c.addResultOutputEqClassLocked(entry.id, outputEqID)
 	if len(extras) > 0 {
 		outputEqID = c.findEqClassLocked(outputEqID)
+		c.markSavedClassLocked(outputEqID)
 		classExtras := c.eqClassExtraDigests[outputEqID]
 		if classExtras == nil {
 			classExtras = make(map[call.ExtraDigest]struct{})
