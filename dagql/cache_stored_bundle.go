@@ -56,8 +56,9 @@ type StoredBundleResult struct {
 type identityRows struct {
 	roots map[sharedResultID]bool
 	// full are entries that travel as their records though they aren't
-	// roots: an answer to a fetch that decodes a value carries its child
-	// rows so (StoredRows).
+	// roots: the roots' child rows, followed down (storedChildClosure), as
+	// a stored bundle and its price carry them, and as an answer to a fetch
+	// that decodes a value carries them (StoredRows).
 	full map[sharedResultID]bool
 }
 
@@ -121,7 +122,11 @@ func (c *Cache) StoredBundle(ctx context.Context, roots []uint64, nowUnix int64)
 	if err := context.Cause(ctx); err != nil {
 		return out, err
 	}
-	out, frames, err := c.storedBundle(roots, nowUnix, nil, nil)
+	full, err := c.storedChildClosure(ctx, roots)
+	if err != nil {
+		return out, err
+	}
+	out, frames, err := c.storedBundle(roots, nowUnix, full, nil)
 	if err != nil {
 		return out, err
 	}

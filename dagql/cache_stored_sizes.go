@@ -86,7 +86,11 @@ func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, 
 		return nil, fmt.Errorf("stored sizes: the cache has no blob store")
 	}
 	sizes := make([]StoredSize, len(roots))
-	held := identityRows{roots: make(map[sharedResultID]bool, len(roots))}
+	full, err := c.storedChildClosure(ctx, roots)
+	if err != nil {
+		return nil, err
+	}
+	held := identityRows{roots: make(map[sharedResultID]bool, len(roots)), full: full}
 	for _, number := range roots {
 		held.roots[sharedResultID(number)] = true
 	}
