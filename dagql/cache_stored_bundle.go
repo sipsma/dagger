@@ -133,7 +133,7 @@ func (c *Cache) StoredBundle(ctx context.Context, roots []uint64, nowUnix int64)
 	if err := context.Cause(ctx); err != nil {
 		return out, err
 	}
-	out, frames, err := c.storedBundle(roots, nowUnix, nil)
+	out, frames, err := c.storedBundle(roots, nowUnix, nil, nil)
 	if err != nil {
 		return out, err
 	}
@@ -166,7 +166,7 @@ func (c *Cache) finishStoredBundle(out StoredBundleResult, frames map[TransferOr
 // storedBundle builds StoredBundle's answer in one hold of egraphMu.RLock,
 // with held rows' recipes left empty, and returns the call frame of each held
 // row by ordinal. A bundle without held rows is validated here.
-func (c *Cache) storedBundle(roots []uint64, nowUnix int64, full map[sharedResultID]bool) (StoredBundleResult, map[TransferOrdinal]entryFrame, error) {
+func (c *Cache) storedBundle(roots []uint64, nowUnix int64, full map[sharedResultID]bool, frameRows map[sharedResultID]frameRow) (StoredBundleResult, map[TransferOrdinal]entryFrame, error) {
 	var out StoredBundleResult
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
@@ -189,7 +189,7 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, full map[sharedResul
 		return out, nil, nil
 	}
 	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, identity: identityRows{roots: seenRoot, full: full}, held: map[sharedResultID]bool{},
-		owners: map[sharedResultID]int{}, ordinary: map[sharedResultID]bool{}, rootSeen: seenRoot}
+		owners: map[sharedResultID]int{}, ordinary: map[sharedResultID]bool{}, rootSeen: seenRoot, frameRows: frameRows}
 	build.bundle.Version = ValueBundleVersion
 	visiting := map[sharedResultID]bool{}
 	// Root by root, as StoredSizes prices them: its closure, then the calls
@@ -214,8 +214,19 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, full map[sharedResul
 		waiting = waiting || res.waitsForTaughtContentLocked()
 		if build.held[res.id] {
 			ordinal := build.ordinals[res.id]
-			build.bundle.Values = append(build.bundle.Values, TransferredValue{Ordinal: ordinal, SenderNumber: uint64(res.id), SenderReplacements: res.replacements, Record: PersistedRecord{ResultID: uint64(res.id)}, ExpiresAtUnix: res.expiresAtUnix,
-				Extra: c.entryExtraDigestsLocked(res)})
+			value := TransferredValue{Ordinal: ordinal, SenderNumber: uint64(res.id), SenderReplacements: res.replacements, Record: PersistedRecord{ResultID: uint64(res.id)}, ExpiresAtUnix: res.expiresAtUnix,
+				Extra: c.entryExtraDigestsLocked(res)}
+			if row, ok := build.frameRows[res.id]; ok {
+				// A frame row carries its call, naming its references by
+				// the Cloud's entry numbers as a record does, and their rows
+				// as its dependencies.
+				value.Record.Call = row.call.clone()
+				for _, ref := range row.refs {
+					value.DependencyIDs = append(value.DependencyIDs, uint64(build.ordinals[ref]))
+				}
+				slices.Sort(value.DependencyIDs)
+			}
+			build.bundle.Values = append(build.bundle.Values, value)
 			if frames == nil {
 				frames = map[TransferOrdinal]entryFrame{}
 			}
@@ -298,6 +309,10 @@ type storedBundleBuild struct {
 	// stored has, by ordinal, the declared parts of each value the build
 	// carries compressed (addStoredValue).
 	stored map[uint64][]declaredPart
+	// frameRows are the identity rows that travel as frame rows, with their
+	// calls (StoredRows with frames). An entry whose call references a row
+	// the build can't carry goes as a plain identity row.
+	frameRows map[sharedResultID]frameRow
 }
 
 // relocate rewrites a reference to an entry of the closure to its ordinal.
@@ -325,6 +340,19 @@ func (c *Cache) storedBundleVisitLocked(build *storedBundleBuild, res *sharedRes
 		return fmt.Errorf("stored bundle: dependency cycle through entry %d", res.id)
 	}
 	if build.identity.heldLocked(res) {
+		if row, ok := build.frameRows[res.id]; ok {
+			if !c.frameRowCarriedLocked(build, row) {
+				delete(build.frameRows, res.id)
+			} else {
+				visiting[res.id] = true
+				for _, ref := range row.refs {
+					if err := c.storedBundleVisitLocked(build, c.resultsByID[ref], visiting); err != nil {
+						return err
+					}
+				}
+				delete(visiting, res.id)
+			}
+		}
 		build.held[res.id] = true
 		build.order = append(build.order, res)
 		build.ordinals[res.id] = TransferOrdinal(len(build.order))
