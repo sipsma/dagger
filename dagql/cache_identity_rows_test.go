@@ -332,3 +332,59 @@ func TestFrameRowGivesAnIdentityEntryItsFrame(t *testing.T) {
 	_, err = Result[Typed]{shared: rEntry}.RecipeID(bctx)
 	require.NoError(t, err)
 }
+
+// An entry that stands in for an identity-only one is owned through it, so
+// it outlives its own session as long as what needed it does.
+func TestIdentityEntryOwnsItsStandIn(t *testing.T) {
+	t.Parallel()
+	bctx, b, bsrv, rEntry, pEntry, _, _, _ := identityTestEngine(t)
+	own := heldTestSessionValue(t, bctx, b, bsrv)
+	_, err := Result[Typed]{shared: rEntry}.RecipeID(bctx)
+	require.NoError(t, err)
+	b.egraphMu.RLock()
+	defer b.egraphMu.RUnlock()
+	require.Contains(t, pEntry.deps, sharedResultID(own), "the identity-only entry owns its stand-in")
+}
+
+// A fetched record lands on the identity-only entry that asked for it, even
+// when the recipe's current entry has become another, and stays: its
+// dependent owns that entry.
+func TestFetchedRowLandsOnTheEntryThatAsked(t *testing.T) {
+	t.Parallel()
+	bctx, b, _, rEntry, pEntry, ctx, cloud, p := identityTestEngine(t)
+	b.SetRowFetcher(&identityTestFetcher{fetch: func(numbers []uint64, _, _ bool) (ValueBundle, []uint64, error) {
+		got, err := cloud.StoredBundle(ctx, numbers, time.Now().Unix())
+		return got.Bundle, nil, err
+	}})
+	pRecipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p))
+	b.egraphMu.Lock()
+	delete(b.entriesByRecipe, pRecipe) // as when a value computed here retired it
+	b.egraphMu.Unlock()
+	_, err := Result[Typed]{shared: rEntry}.RecipeID(bctx)
+	require.NoError(t, err)
+	b.egraphMu.RLock()
+	defer b.egraphMu.RUnlock()
+	require.False(t, pEntry.identityOnly, "the record landed on the entry that asked")
+	require.Equal(t, pEntry, b.resultsByID[pEntry.id])
+}
+
+// An export whose shared recipe would carry an identity-only row in full,
+// beside a value of its recipe computed here, stays here instead of
+// capturing again forever.
+func TestExportOfAnIdentityEntryBesideItsRecipesValueEnds(t *testing.T) {
+	t.Parallel()
+	bctx, b, bsrv, rEntry, _, _, _, _ := identityTestEngine(t)
+	own := heldTestSessionValue(t, bctx, b, bsrv)
+	b.egraphMu.RLock()
+	ownEntry := b.resultsByID[sharedResultID(own)]
+	b.egraphMu.RUnlock()
+	done := make(chan error, 1)
+	go func() {
+		done <- b.WithExportedValues(bctx, ValueSelection{Roots: []AnyResult{Result[Typed]{shared: rEntry}, Result[Typed]{shared: ownEntry}}}, config.RefConfig{}, func(context.Context, *ExportedValues) error { return nil })
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the export didn't end")
+	}
+}
