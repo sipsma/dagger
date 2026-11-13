@@ -424,8 +424,8 @@ func TestStoredSizesMeasureOutsideTheLock(t *testing.T) {
 	again, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, got, again)
-	require.Equal(t, 2, free, "measured sizes are kept")
-	require.Equal(t, before+2, cloud.StoredSizeEncodes())
+	require.Equal(t, 1, free, "measured sizes are kept")
+	require.Equal(t, before+1, cloud.StoredSizeEncodes())
 }
 
 // MeasuredStoredSizes never measures: a root whose closure has an unmeasured
