@@ -33,21 +33,21 @@ func pushTestFull(bundle ValueBundle) (full, held int) {
 	return full, held
 }
 
-// pushTestStaleNumbers are the engine's numbers of a merge's stale rows.
-func pushTestStaleNumbers(bundle ValueBundle, stale []TransferOrdinal) map[uint64]bool {
+// pushTestLacks are the rows the recipient says it lacks, as a set.
+func pushTestLacks(recipient *Cache, bundle ValueBundle) map[uint64]bool {
 	full := map[uint64]bool{}
-	for _, ordinal := range stale {
-		full[bundle.Values[int(ordinal)-1].SenderNumber] = true
+	for _, number := range recipient.LackedRows(bundle.Values) {
+		full[number] = true
 	}
 	return full
 }
 
-// A push names first, as held rows, every row of its roots' closures the
-// Cloud isn't known to have. The Cloud answers the ones it lacks as stale,
-// and commits nothing; the second capture sends those in full and the others
-// held, and the Cloud stores the records it lacked, learning the engine's
-// holding of every row. A second engine that pushes the same results sends
-// no record at all: the Cloud has them all, so its first capture commits.
+// A push asks first about every row of its roots' closures the Cloud isn't
+// known to have, naming each as a held row; the Cloud says which it lacks.
+// The push then sends those in full and the others held, and the Cloud
+// stores the records it lacked, learning the engine's holding of every row
+// the push carried. A second engine that pushes the same results sends no
+// record at all: the Cloud lacks none.
 func TestPushSendsTheCloudOnlyTheRecordsItLacks(t *testing.T) {
 	t.Parallel()
 	build := func(t *testing.T) (context.Context, *Cache, AnyResult, AnyResult) {
@@ -67,21 +67,18 @@ func TestPushSendsTheCloudOnlyTheRecordsItLacks(t *testing.T) {
 
 	ctx, engine, child, root := build(t)
 	known := NewKnownRows()
-	first, _ := pushTestCapture(t, ctx, engine, known, &PushRows{List: true}, root)
-	full, held := pushTestFull(first)
-	require.Equal(t, 0, full, "the first capture carries no record")
+	listed, _ := pushTestCapture(t, ctx, engine, known, &PushRows{List: true}, root)
+	full, held := pushTestFull(listed)
+	require.Equal(t, 0, full, "the list carries no record")
 	require.Equal(t, 2, held, "it names the root and the row below it")
-	reply, err = cloud.MergeValues(cctx, "engine", first)
-	require.NoError(t, err)
-	require.False(t, reply.Committed)
-	lacks := pushTestStaleNumbers(first, reply.Stale)
+	lacks := pushTestLacks(cloud, listed)
 	require.Equal(t, map[uint64]bool{uint64(root.cacheSharedResult().id): true}, lacks, "the Cloud lacks only the root")
 
-	second, rows := pushTestCapture(t, ctx, engine, known, &PushRows{Full: lacks}, root)
-	full, held = pushTestFull(second)
+	push, rows := pushTestCapture(t, ctx, engine, known, &PushRows{Full: lacks}, root)
+	full, held = pushTestFull(push)
 	require.Equal(t, 1, full, "only the root goes in full")
 	require.Equal(t, 1, held)
-	reply, err = cloud.MergeValues(cctx, "engine", second)
+	reply, err = cloud.MergeValues(cctx, "engine", push)
 	require.NoError(t, err)
 	require.True(t, reply.Committed)
 	require.Equal(t, MergeRowCounts{Held: 1, Created: 1}, reply.Rows)
@@ -94,13 +91,18 @@ func TestPushSendsTheCloudOnlyTheRecordsItLacks(t *testing.T) {
 	}
 	cloud.egraphMu.RUnlock()
 
-	// A third engine computed both: the Cloud has every record.
+	// A third engine computed both: the Cloud lacks nothing.
 	tctx, third, _, thirdRoot := build(t)
-	first, _ = pushTestCapture(t, tctx, third, NewKnownRows(), &PushRows{List: true}, thirdRoot)
-	reply, err = cloud.MergeValues(cctx, "third", first)
+	listed, _ = pushTestCapture(t, tctx, third, NewKnownRows(), &PushRows{List: true}, thirdRoot)
+	lacks = pushTestLacks(cloud, listed)
+	require.Empty(t, lacks)
+	push, _ = pushTestCapture(t, tctx, third, NewKnownRows(), &PushRows{Full: lacks}, thirdRoot)
+	full, _ = pushTestFull(push)
+	require.Zero(t, full, "no record is sent twice")
+	reply, err = cloud.MergeValues(cctx, "third", push)
 	require.NoError(t, err)
-	require.True(t, reply.Committed, "no record is sent twice")
-	require.Equal(t, MergeRowCounts{Held: 2}, reply.Rows)
+	require.True(t, reply.Committed)
+	require.Equal(t, MergeRowCounts{Held: 1}, reply.Rows)
 
 	// What the Cloud is known to have goes held, with nothing below it.
 	again, _ := pushTestCapture(t, ctx, engine, known, &PushRows{List: true}, root)
