@@ -382,7 +382,7 @@ func (c *Cache) mergeEqClassesNoRepairLocked(a, b eqClassID) (root eqClassID, ab
 		// Every entry of both classes now answers from the other's: one
 		// mark of the union's class widens to all of them when handed back.
 		for resID := range srcResults {
-			c.markEntryClassLocked(resID, markBoth)
+			c.markEntryClassLocked(resID)
 			break
 		}
 	}
@@ -1137,7 +1137,7 @@ func (c *Cache) lookupCacheForRequestLocked(
 		res.expiresAtUnix,
 		persistedEdgeExpiresAtUnix,
 	)
-	c.markEntryClassLocked(res.id, markBoth)
+	c.markEntryClassLocked(res.id)
 	c.touchLastUsed(res, now.UnixNano())
 	if err := c.teachResultIdentityLocked(ctx, res, req.ResultCall, requestDigest, requestSelf, requestInputs, requestInputRefs); err != nil {
 		return nil, false, 0, false, err
