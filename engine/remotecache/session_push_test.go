@@ -88,6 +88,7 @@ func TestPushSendsWhatTheCloudLacksInFull(t *testing.T) {
 
 	push := conn.next(t)
 	require.Equal(t, protocol.TypePush, push.Type)
+	require.NotZero(t, decode[protocol.Push](t, push).EngineTimeUnixNano, "the push says when its roots were retained")
 	bundle := decode[protocol.Push](t, push).Bundle
 	require.Empty(t, bundle.Values[0].Held, "the row the Cloud lacks goes in full")
 	require.NotEmpty(t, bundle.Values[1].Held, "the row it has stays held")
