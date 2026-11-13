@@ -140,6 +140,12 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 		if rows == nil {
 			continue
 		}
+		if result := &rows.result; result.frame == nil && !result.stored.holdsFrame() {
+			if result.self == nil || result.self.Type() == nil || result.self.Type().Name() != "Query" {
+				c.behind.broken = true
+				return WriteBehindReport{}, fmt.Errorf("persist result %d: missing result call frame", result.resultID)
+			}
+		}
 		if err := c.encodePersistedResultRow(ctx, &rows.result); err != nil {
 			c.behind.broken = true
 			return WriteBehindReport{}, err
