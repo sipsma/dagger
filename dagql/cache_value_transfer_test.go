@@ -38,6 +38,9 @@ type transferTestValue struct {
 	revisionHook func()
 	// unready makes the output revision read report a held persistence guard.
 	unready atomic.Bool
+	// busy makes encoding report state another caller holds, as a container
+	// being evaluated does.
+	busy atomic.Bool
 }
 
 // transferTestField is one named field of a transferTestValue's body: a name,
@@ -59,6 +62,9 @@ func (*transferTestValue) Type() *ast.Type {
 	return &ast.Type{NamedType: "TransferTestValue", NonNull: true}
 }
 func (v *transferTestValue) EncodePersistedObject(context.Context, *PersistEncodeContext) (PersistedObjectEncoding, error) {
+	if v.busy.Load() {
+		return PersistedObjectEncoding{}, fmt.Errorf("%w: test value busy", ErrPersistStateNotReady)
+	}
 	raw, err := json.Marshal(v)
 	return PersistedObjectEncoding{JSON: raw, SnapshotLinks: cloneSnapshotRefLinks(v.links)}, err
 }

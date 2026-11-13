@@ -719,3 +719,33 @@ func TestStandInOfAnotherRecipeLeavesTheFrame(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, rRecipe, got, "R's recipe is unchanged")
 }
+
+// Settlement reads what the decode loaded, not an encoding of the installed
+// value: a value another caller is using, which can't be encoded for now,
+// still gives up the identity-only entry for its stand-in, and an export
+// once it is free carries nothing held.
+func TestDecodedParentSettlesAValueThatCannotBeEncodedYet(t *testing.T) {
+	t.Parallel()
+	d := newDecodedParentTest(t)
+	var decoded *transferTestValue
+	transferDecodeHooks.Store(d.rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
+		child, err := dec.ResultRef(ctx, value.Child)
+		if err != nil {
+			return err
+		}
+		value.Child = uint64(child.cacheSharedResult().id)
+		value.busy.Store(true)
+		decoded = value
+		return nil
+	})
+	t.Cleanup(func() { transferDecodeHooks.Delete(d.rNumber) })
+	_, err := d.b.LoadResultByResultID(d.bctx, "", d.bsrv, d.rNumber)
+	require.NoError(t, err)
+	d.b.egraphMu.RLock()
+	rEntry := d.b.resultsByID[sharedResultID(d.rNumber)]
+	require.Contains(t, rEntry.deps, sharedResultID(d.own), "R owns the stand-in")
+	require.Len(t, rEntry.deps, 1, "and no longer the identity-only entry")
+	d.b.egraphMu.RUnlock()
+	decoded.busy.Store(false)
+	d.exportsWhole(t)
+}

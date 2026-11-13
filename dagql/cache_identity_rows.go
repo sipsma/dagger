@@ -233,16 +233,40 @@ func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *share
 	return nil
 }
 
+// noteLoadedDirect records, for the decode on ctx, a load that returned res
+// itself where an earlier load of the same decode had resolved res to a
+// stand-in: res was filled in between, and the decoded value names it.
+func (c *Cache) noteLoadedDirect(ctx context.Context, res *sharedResult) {
+	owner := decodeOwner(ctx, c)
+	if owner == nil || owner == res {
+		return
+	}
+	c.egraphMu.RLock()
+	_, pending := owner.pendingStandIns[res.id]
+	c.egraphMu.RUnlock()
+	if !pending {
+		return
+	}
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	if _, ok := owner.pendingStandIns[res.id]; ok {
+		if owner.loadedDirect == nil {
+			owner.loadedDirect = map[sharedResultID]struct{}{}
+		}
+		owner.loadedDirect[res.id] = struct{}{}
+	}
+	c.egraphMu.Unlock()
+}
+
 // settleStandIns makes an entry whose decoded value is now installed depend
 // on the stand-ins its decode resolved, in place of the identity-only
-// entries they stood for. It decides from the installed value itself, encoded
-// for its references: an identity-only entry the value no longer names, whose
-// stand-in derives the same recipe, gives way to its stand-in in the entry's
-// frame (same recipe, so the same frame) and in its dependencies, and is
-// collected if nothing else owns it. One the value still names stays, as when
-// a fetch filled it between two loads of one decode. An export then finds
-// nothing held of a stand-in's recipe beside it. Recipes are derived and the
-// value encoded outside the graph lock.
+// entries they stood for. The decode loaded every row the value names, so
+// what it loaded decides: an identity-only entry every load resolved to its
+// stand-in, which derives the same recipe, gives way to the stand-in in the
+// entry's frame (same recipe, so the same frame) and in its dependencies, and
+// is collected if nothing else owns it. One a later load returned as itself
+// stays (loadedDirect), as when a fetch filled it between two loads of one
+// decode. An export then finds nothing held of a stand-in's recipe beside
+// it. Recipes are derived outside the graph lock.
 func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 	c.egraphMu.RLock()
 	pending := maps.Clone(owner.pendingStandIns)
@@ -275,20 +299,11 @@ func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 			same[p.from.id] = p.to.id
 		}
 	}
-	// What the installed value names.
-	named := map[uint64]bool{}
-	enc, err := DefaultPersistedSelfCodec.EncodeResult(context.WithoutCancel(ctx), c, Result[Typed]{shared: owner})
-	if err == nil {
-		_, err = VisitEncodedReferences(PersistedRecord{ResultID: uint64(owner.id), Envelope: enc.Envelope}, func(ref *PersistedRef) error {
-			if ref.ResultID != 0 {
-				named[ref.ResultID] = true
-			}
-			return nil
-		})
-	}
 	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	named := owner.loadedDirect
 	owner.pendingStandIns = nil
-	if err != nil || len(same) == 0 || c.resultsByID[owner.id] != owner {
+	owner.loadedDirect = nil
+	if len(same) == 0 || c.resultsByID[owner.id] != owner {
 		c.egraphMu.Unlock()
 		return
 	}
@@ -311,7 +326,8 @@ func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 		_, hasFrom := owner.deps[from]
 		_, hasTo := owner.deps[to]
 		res := c.resultsByID[from]
-		if !hasFrom || !hasTo || res == nil || named[uint64(from)] {
+		_, loaded := named[from]
+		if !hasFrom || !hasTo || res == nil || loaded {
 			continue
 		}
 		dropped = true
@@ -340,6 +356,7 @@ func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 func (c *Cache) clearStandIns(ctx context.Context, res *sharedResult) {
 	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 	res.pendingStandIns = nil
+	res.loadedDirect = nil
 	c.egraphMu.Unlock()
 }
 
