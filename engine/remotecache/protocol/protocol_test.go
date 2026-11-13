@@ -184,6 +184,14 @@ func derefBody(v any) any {
 		return *b
 	case *Claimed:
 		return *b
+	case *Push:
+		return *b
+	case *Pushed:
+		return *b
+	case *CheckRows:
+		return *b
+	case *CheckedRows:
+		return *b
 	case *Error:
 		return *b
 	}
