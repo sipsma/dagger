@@ -347,6 +347,34 @@ func TestCallRecordHitsOverAnEquivalentReceiver(t *testing.T) {
 	}
 }
 
+// A call on a live root hits over an equivalent receiver though the
+// receiver's identity row is reached only by an expired root: the call needs
+// the row, so the merge lands it with the expired root skipped.
+func TestCallRecordHitsOverAnEquivalentReceiverAnExpiredRootReaches(t *testing.T) {
+	t.Parallel()
+	test := newReceiverCallTest(t)
+	// X depends on the receiver, and the Cloud stores it.
+	x := persistedListTestResult(t, test.ctx, test.producer, test.srv, "receiver-user", &transferTestValue{Text: "user"})
+	transferTestDependency(test.producer, test.ctx, x, test.receiver)
+	numbers := storedPersistenceTestMerge(t, test.ctx, test.cloud, exportTestBundle(t, test.ctx, test.producer, x))
+	var xNumber uint64
+	for _, number := range numbers {
+		if storedTestFrame(t, test.cloud, storedBundleTestEntry(test.cloud, number)).Field == "receiver-user" {
+			xNumber = number
+		}
+	}
+	require.NotZero(t, xNumber)
+
+	built, err := test.cloud.StoredBundle(test.ctx, []uint64{xNumber, test.number}, time.Now().Unix())
+	require.NoError(t, err)
+	require.Len(t, built.Bundle.Calls, 1)
+	require.Equal(t, []uint64{test.receiverNumber}, built.Held, "X reaches the receiver, as an identity row")
+	require.Empty(t, built.CallInputs, "the bundle carries the call's input already")
+	// X has expired by the time the recipient merges.
+	built.Bundle.Roots[0].ExpiresAtUnix = time.Now().Add(-time.Minute).Unix()
+	require.True(t, test.freshReceiverHits(t, built.Bundle))
+}
+
 // A call whose input the Cloud doesn't store, and the recipient doesn't hold,
 // is not sent: the recipient couldn't place it. It is counted.
 func TestCallRecordWithAnUnplaceableInputIsNotSent(t *testing.T) {
