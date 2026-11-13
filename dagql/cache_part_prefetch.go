@@ -150,6 +150,11 @@ type partPrefetcher struct {
 	cond   *sync.Cond
 	closed bool
 	queues [partPrefetchLanes][]*partPrefetchJob
+	// backlog are the jobs of the offers restores attached, in each lane in
+	// the order they were attached: for a file, the order its records were
+	// first used. A lane's worker takes the next of them only when the
+	// lane's queue is empty, and nothing is dropped from them to make room.
+	backlog [partPrefetchLanes][]*partPrefetchJob
 	// ahead are the jobs of offers of at least aheadOffer, kept until the
 	// ahead worker runs them; aheadCurrent is the offer the worker works on,
 	// which a replacement with the same meaning passes on.
@@ -346,30 +351,9 @@ func (c *Cache) partOfferAccepted(ctx context.Context, row *sharedResult, key st
 	if p == nil || offer == nil {
 		return
 	}
-	if imageOfferLayers(&offer.record) {
-		// The image's blobs are on the engine's own disk: a demand reads
-		// them there, with nothing to fetch ahead.
+	jobs := p.newJobs(row, key, offer)
+	if jobs == nil {
 		return
-	}
-	var wanted [partPrefetchLanes]bool
-	var size int64
-	for _, layer := range offer.record.Chain.Layers {
-		wanted[p.cfg.lane(layer.Descriptor.Size)] = true
-		size += layer.Descriptor.Size
-	}
-	ahead := p.cfg.aheadOffer > 0 && size >= p.cfg.aheadOffer
-	var jobs []*partPrefetchJob
-	now := time.Now()
-	for lane := range partPrefetchLanes {
-		if !wanted[lane] {
-			continue
-		}
-		// Each job has its own copy: a replacement refreshes a queued job's.
-		record, err := clonePartOffer(offer.record)
-		if err != nil {
-			return
-		}
-		jobs = append(jobs, &partPrefetchJob{row: row.id, key: key, offer: offer, lane: lane, record: record, accepted: now, size: size, ahead: ahead})
 	}
 	var dropped []*partPrefetchJob
 	p.mu.Lock()
@@ -405,10 +389,66 @@ func (c *Cache) partOfferAccepted(ctx context.Context, row *sharedResult, key st
 	}
 }
 
-// partOfferRestored queues an offer a restore just attached for prefetch,
-// as partOfferAccepted queues any merge's.
+// partOfferRestored queues an offer a restore just attached for prefetch: a
+// job in each lane its blobs take, at the end of the lane's backlog. A lane
+// runs its backlog only while its queue is empty, so a restore's offers wait
+// behind every other offer, and drop none of them. They never enter the
+// ahead queue, which runs the largest offer first. It never blocks.
 func (c *Cache) partOfferRestored(ctx context.Context, row *sharedResult, key string, offer *partOffer) {
-	c.partOfferAccepted(ctx, row, key, offer)
+	p := c.partPrefetch(ctx)
+	if p == nil || offer == nil {
+		return
+	}
+	jobs := p.newJobs(row, key, offer)
+	if jobs == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return
+	}
+	p.rows[offer] = row.id
+	for _, job := range jobs {
+		if p.jobs[job.jobKey()] != nil {
+			continue
+		}
+		job.ahead = false
+		p.jobs[job.jobKey()] = job
+		p.backlog[job.lane] = append(p.backlog[job.lane], job)
+	}
+	p.cond.Broadcast()
+}
+
+// newJobs returns offer's jobs, one in each lane its blobs take, or nil when
+// nothing of it is fetched ahead.
+func (p *partPrefetcher) newJobs(row *sharedResult, key string, offer *partOffer) []*partPrefetchJob {
+	if imageOfferLayers(&offer.record) {
+		// The image's blobs are on the engine's own disk: a demand reads
+		// them there, with nothing to fetch ahead.
+		return nil
+	}
+	var wanted [partPrefetchLanes]bool
+	var size int64
+	for _, layer := range offer.record.Chain.Layers {
+		wanted[p.cfg.lane(layer.Descriptor.Size)] = true
+		size += layer.Descriptor.Size
+	}
+	ahead := p.cfg.aheadOffer > 0 && size >= p.cfg.aheadOffer
+	var jobs []*partPrefetchJob
+	now := time.Now()
+	for lane := range partPrefetchLanes {
+		if !wanted[lane] {
+			continue
+		}
+		// Each job has its own copy: a replacement refreshes a queued job's.
+		record, err := clonePartOffer(offer.record)
+		if err != nil {
+			return nil
+		}
+		jobs = append(jobs, &partPrefetchJob{row: row.id, key: key, offer: offer, lane: lane, record: record, accepted: now, size: size, ahead: ahead})
+	}
+	return jobs
 }
 
 // queueLaneLocked queues job in its lane, dropping the lane's oldest job
@@ -674,22 +714,29 @@ func (c *Cache) partPrefetchHeld(ctx context.Context, layers []snapshots.ExportL
 	return n
 }
 
-// work runs lane's jobs, one at a time, until the prefetcher closes.
+// work runs lane's jobs, one at a time, until the prefetcher closes: its
+// queue's first, then its backlog's.
 func (p *partPrefetcher) work(lane partPrefetchLane) {
 	defer p.wg.Done()
 	_, unlabel := wcprof.WithCPUKind(p.ctx, wcprof.CPUKindFetch)
 	defer unlabel()
 	for {
 		p.mu.Lock()
-		for !p.closed && len(p.queues[lane]) == 0 {
+		for !p.closed && len(p.queues[lane]) == 0 && len(p.backlog[lane]) == 0 {
 			p.cond.Wait()
 		}
 		if p.closed {
 			p.mu.Unlock()
 			return
 		}
-		job := p.queues[lane][0]
-		p.queues[lane] = p.queues[lane][1:]
+		var job *partPrefetchJob
+		if len(p.queues[lane]) > 0 {
+			job = p.queues[lane][0]
+			p.queues[lane] = p.queues[lane][1:]
+		} else {
+			job = p.backlog[lane][0]
+			p.backlog[lane] = p.backlog[lane][1:]
+		}
 		if job.gone {
 			delete(p.jobs, job.jobKey())
 			p.mu.Unlock()
