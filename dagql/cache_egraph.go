@@ -83,15 +83,22 @@ type eqMergePair struct {
 	b eqClassID
 }
 
-func touchSharedResultLastUsed(res *sharedResult, nowUnixNano int64) {
+// touchLastUsed moves res's last use forward to nowUnixNano, and marks it
+// for the writer behind when it moved. It needs egraphMu, for reading at
+// least.
+func (c *Cache) touchLastUsed(res *sharedResult, nowUnixNano int64) {
 	if res == nil {
 		return
 	}
 	res.payloadMu.Lock()
-	if nowUnixNano > res.lastUsedAtUnixNano {
+	moved := nowUnixNano > res.lastUsedAtUnixNano
+	if moved {
 		res.lastUsedAtUnixNano = nowUnixNano
 	}
 	res.payloadMu.Unlock()
+	if moved {
+		c.usedMarks.mark(res.id)
+	}
 }
 
 func calcEgraphTermDigest(selfDigest digest.Digest, inputEqIDs []eqClassID) string {
@@ -233,6 +240,7 @@ func (c *Cache) ensureEqClassForDigestLocked(ctx context.Context, dig string) eq
 		return c.findEqClassLocked(id)
 	}
 	id := c.allocEqClassLocked()
+	c.markSavedClassLocked(id)
 	c.egraphDigestToClass[dig] = id
 	digests := c.eqClassToDigests[id]
 	if digests == nil {
@@ -299,6 +307,8 @@ func (c *Cache) mergeEqClassesNoRepairLocked(a, b eqClassID) (root eqClassID, ab
 		ra, rb = rb, ra
 	}
 	c.egraphParents[rb] = ra
+	c.markSavedClassLocked(ra)
+	c.markSavedClassLocked(rb)
 	if c.egraphRanks[ra] == c.egraphRanks[rb] {
 		c.egraphRanks[ra]++
 	}
@@ -368,7 +378,7 @@ func (c *Cache) mergeEqClassesNoRepairLocked(a, b eqClassID) (root eqClassID, ab
 		// Every entry of both classes now answers from the other's: one
 		// mark of the union's class widens to all of them when handed back.
 		for resID := range srcResults {
-			c.markEntryClassLocked(resID)
+			c.markEntryClassLocked(resID, markBoth)
 			break
 		}
 	}
@@ -497,6 +507,7 @@ func (c *Cache) repairClassTermsLocked(ctx context.Context, root eqClassID) (mer
 				set[termID] = struct{}{}
 			}
 			term.inputEqIDs = newInputs
+			c.markSavedTermLocked(term)
 
 			oldTermDigest := term.termDigest
 			newTermDigest := calcEgraphTermDigest(term.selfDigest, newInputs)
@@ -1087,7 +1098,7 @@ func (c *Cache) lookupCacheForRequestLocked(
 
 	// fast-path: if we got a very simple recipe-digest hit we can skip trying to teach the egraph anything new
 	if requestDigest != "" && len(req.ResultCall.ExtraDigests) == 0 && req.TTL == 0 && !req.IsPersistable && match.hitRecipeDigest {
-		touchSharedResultLastUsed(hitRes, now.UnixNano())
+		c.touchLastUsed(hitRes, now.UnixNano())
 		retRes := Result[Typed]{
 			shared:   hitRes,
 			hitCache: true,
@@ -1102,7 +1113,7 @@ func (c *Cache) lookupCacheForRequestLocked(
 		if !c.hitTeachesNothingLocked(hitRes, req, requestDigest, requestSelf, requestInputs, requestInputRefs, persistedEdgeExpiresAtUnix) {
 			return nil, false, 0, true, nil
 		}
-		touchSharedResultLastUsed(hitRes, now.UnixNano())
+		c.touchLastUsed(hitRes, now.UnixNano())
 		retRes := Result[Typed]{
 			shared:   hitRes,
 			hitCache: true,
@@ -1120,8 +1131,8 @@ func (c *Cache) lookupCacheForRequestLocked(
 		res.expiresAtUnix,
 		persistedEdgeExpiresAtUnix,
 	)
-	c.markEntryClassLocked(res.id)
-	touchSharedResultLastUsed(res, now.UnixNano())
+	c.markEntryClassLocked(res.id, markBoth)
+	c.touchLastUsed(res, now.UnixNano())
 	if err := c.teachResultIdentityLocked(ctx, res, req.ResultCall, requestDigest, requestSelf, requestInputs, requestInputRefs); err != nil {
 		return nil, false, 0, false, err
 	}
@@ -1706,6 +1717,7 @@ func (c *Cache) termForResultByDigestLocked(resID sharedResultID, termDigest str
 // result's output eq-classes, which hold the outputs of all its terms.
 func (c *Cache) addResultExtraDigestsLocked(resID sharedResultID, frames ...*ResultCall) {
 	for outputEqID := range c.outputEqClassesForResultLocked(resID) {
+		c.markSavedClassLocked(outputEqID)
 		extras := c.eqClassExtraDigests[outputEqID]
 		if extras == nil {
 			extras = make(map[call.ExtraDigest]struct{})
@@ -1767,6 +1779,10 @@ func (c *Cache) addResultOutputEqClassLocked(resID sharedResultID, outputEqID eq
 	}
 	_, hadReverse := results[resID]
 	results[resID] = struct{}{}
+	if !hadForward || !hadReverse {
+		c.markEntryLocked(resID, markSave)
+		c.markSavedClassLocked(outputEqID)
+	}
 	if !hadForward || !hadReverse {
 		// New membership in an existing class, with no union of its own.
 		// Recorded only once both memberships exist.
@@ -1846,7 +1862,9 @@ func (c *Cache) mergeOutputsForTermDigestLocked(ctx context.Context, termDigest 
 			if term == nil {
 				continue
 			}
+			c.markSavedTermLocked(term)
 			term.outputEqID = root
+			c.markSavedTermLocked(term)
 		}
 		return root
 	}
@@ -1856,7 +1874,9 @@ func (c *Cache) mergeOutputsForTermDigestLocked(ctx context.Context, termDigest 
 		if term == nil {
 			continue
 		}
+		c.markSavedTermLocked(term)
 		term.outputEqID = root
+		c.markSavedTermLocked(term)
 	}
 	return root
 }
@@ -2001,6 +2021,7 @@ func (c *Cache) applyPreparedResultIdentityLocked(ctx context.Context, res *shar
 
 		newTerm := newEgraphTerm(termID, requestSelf, inputEqIDs, mergedOutputEqID)
 		c.egraphTerms[termID] = newTerm
+		c.markSavedTermLocked(newTerm)
 		c.traceTermCreated(ctx, "runtime", "", newTerm)
 
 		digestTerms := c.egraphTermsByTermDigest[newTerm.termDigest]
@@ -2211,6 +2232,7 @@ func (c *Cache) indexWaitResultInEgraphLocked(
 			mergedOutputEqID,
 		)
 		c.egraphTerms[termID] = newTerm
+		c.markSavedTermLocked(newTerm)
 		c.traceTermCreated(ctx, "runtime", "", newTerm)
 
 		digestTerms := c.egraphTermsByTermDigest[newTerm.termDigest]
@@ -2319,6 +2341,7 @@ func (c *Cache) removeResultFromEgraphLocked(ctx context.Context, res *sharedRes
 			if set := c.outputEqClassToTerms[outputEqID]; set != nil {
 				delete(set, termID)
 			}
+			c.markSavedTermLocked(c.egraphTerms[termID])
 			delete(c.egraphTerms, termID)
 			delete(c.termResults, termID)
 			delete(c.termInputProvenance, termID)

@@ -585,8 +585,8 @@ func NewCache(
 	// and its store is a whole, consistent save at every commit (Checkpoint),
 	// so it restores the last save however its process ended, a crash
 	// included, and never marks its store dirty. Its store is written with
-	// synchronous=NORMAL (prepareCacheDBs), so an operating-system crash or a
-	// power loss leaves it whole too, though it can lose the latest save.
+	// synchronous=FULL (prepareCacheDBs), so an operating-system crash or a
+	// power loss leaves it whole too, as of its last commit.
 	cleanShutdownVal, found, err := c.pdb.SelectMetaValue(ctx, persistdb.MetaKeyCleanShutdown)
 	if err != nil {
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
@@ -656,6 +656,9 @@ func NewCache(
 	// from before an open: nothing is handed back for it.
 	c.egraphMu.Lock()
 	c.clearChangesLocked()
+	// The store holds what the cache restored from it: the writer behind
+	// starts from there.
+	c.resetWriteBehindLocked()
 	c.egraphMu.Unlock()
 	if c.blobBacked {
 		c.startStoredBodyWorker()
@@ -1890,11 +1893,12 @@ func (c *Cache) upsertPersistedEdgeLocked(ctx context.Context, res *sharedResult
 		edge.unpruneable = true
 		edge.expiresAtUnix = 0
 		res.expiresAtUnix = 0
-		c.markEntryClassLocked(res.id)
+		c.markEntryClassLocked(res.id, markBoth)
 	} else if !edge.unpruneable {
 		edge.expiresAtUnix = mergeSharedResultExpiryUnix(edge.expiresAtUnix, expiresAtUnix)
 	}
 	c.persistedEdgesByResult[res.id] = edge
+	c.markEntryLocked(res.id, markSave)
 }
 
 // resultState reads what a span reports of res: its complete parts, then,
@@ -1991,6 +1995,7 @@ func (c *Cache) removePrunedEdge(ctx context.Context, resultID sharedResultID) (
 		return time.Time{}, false, 0, nil
 	}
 	delete(c.persistedEdgesByResult, resultID)
+	c.markEntryLocked(resultID, markSave)
 	droppedAt = time.Now()
 	entriesBefore := len(c.resultsByID)
 	res = c.resultsByID[resultID]
@@ -2379,36 +2384,47 @@ func (c *Cache) desiredImportedOwnerLeaseIDs(ctx context.Context) (map[string]st
 	return desired, nil
 }
 
+// blobStoreJournalSizeLimit is the size, in bytes, a blob-backed cache's
+// write-ahead log is taken back to after a checkpoint: a large write behind
+// grows the log past it, and SQLite otherwise keeps the file at its largest.
+// 64 MiB holds the rows of a few thousand records, more than a write behind
+// usually writes, so the log is rarely truncated and never stays large.
+const blobStoreJournalSizeLimit = 64 << 20
+
 func prepareCacheDBs(ctx context.Context, dbPath string, blobBacked bool) (*sql.DB, *persistdb.Queries, error) {
 	// for now, it's okay if an engine loses its cache after a catastrophic
 	// crash (it's just a cache afterall), we'll take the better performance.
-	// A blob-backed cache's store is the Cloud's pool, which an operating
-	// system crash or a power loss must not corrupt: in WAL mode, NORMAL
-	// keeps the database whole, and syncs at checkpoints, not at every
-	// commit.
+	// A blob-backed cache's store is the Cloud's pool, written behind every
+	// few seconds (WriteBehind): FULL syncs the write-ahead log at each
+	// commit, so an operating-system crash or a power loss loses no more
+	// than a crash of the process, the changes since the last write. Its log
+	// is checkpointed by SQLite as it grows, and journal_size_limit takes it
+	// back to that size after a large write.
 	synchronous := "synchronous=OFF"
+	var journalSizeLimit []string
 	if blobBacked {
-		synchronous = "synchronous=NORMAL"
+		synchronous = "synchronous=FULL"
+		journalSizeLimit = []string{"journal_size_limit=" + strconv.Itoa(blobStoreJournalSizeLimit)}
 	}
 	connURL := &url.URL{
 		Scheme: "file",
 		Path:   dbPath,
 		RawQuery: url.Values{
-			"_pragma": []string{ // ref: https://www.sqlite.org/pragma.html
+			"_pragma": append([]string{ // ref: https://www.sqlite.org/pragma.html
 				// WAL mode for better concurrency behavior and performance
 				"journal_mode=WAL",
 
 				// wait up to 10s when there are concurrent writers
 				"busy_timeout=10000",
 
-				// OFF for an engine, NORMAL for a blob-backed cache (above)
+				// OFF for an engine, FULL for a blob-backed cache (above)
 				synchronous,
 
 				// other pragmas to possible worth consideration someday:
 				// cache_size
 				// threads
 				// optimize
-			},
+			}, journalSizeLimit...),
 			"_txlock": []string{"immediate"}, // use BEGIN IMMEDIATE for transactions
 		}.Encode(),
 	}
@@ -2671,6 +2687,10 @@ type Cache struct {
 	// handed them back, on a blob-backed cache only: nil on any other
 	// (cache_change_marks.go). Guarded by egraphMu.
 	changes *changeMarks
+	// usedMarks are the entries whose last use changed since the writer
+	// behind last took them, on a blob-backed cache only. A last use changes
+	// under the read lock, so they have a mutex of their own.
+	usedMarks usedMarks
 
 	closing                atomic.Bool
 	activeGlobalOperations atomic.Int64
@@ -2708,8 +2728,11 @@ type Cache struct {
 	releaseCleanupErrMu sync.Mutex
 	releaseCleanupErr   error
 
-	// checkpointMu serializes Checkpoint's saves.
+	// checkpointMu serializes Checkpoint's saves and the writes behind.
 	checkpointMu sync.Mutex
+	// behind is the writer behind's state of a blob-backed cache's store
+	// (cache_write_behind.go), nil without one. Guarded by checkpointMu.
+	behind *writeBehindState
 
 	persistenceResetReason CachePersistenceResetReason
 	// identity names the cache's persistence database across the engine
@@ -4144,7 +4167,7 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 		if err != nil {
 			return nil, fmt.Errorf("attach dependency result: refresh cache-backed value: %w", err)
 		}
-		touchSharedResultLastUsed(shared, time.Now().UnixNano())
+		c.touchLastUsed(shared, time.Now().UnixNano())
 		c.traceAttachResultReusedCacheBacked(ctx, sessionID, shared)
 		return loaded, nil
 	}
@@ -4210,7 +4233,7 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 	if relErr := c.releaseOngoingCallHandoff(ctx, oc); relErr != nil {
 		return nil, fmt.Errorf("attach dependency result: release publication hold: %w", relErr)
 	}
-	touchSharedResultLastUsed(oc.res, time.Now().UnixNano())
+	c.touchLastUsed(oc.res, time.Now().UnixNano())
 
 	attachedRes := Result[Typed]{shared: oc.res}
 	attached, err := c.ensurePersistedHitValueLoaded(ctx, resolver, attachedRes)
@@ -4368,9 +4391,11 @@ func (c *Cache) rememberDependencyEdgeLocked(parentRes *sharedResult, depRes *sh
 		depRes.depParents = newSharedResultIDSet()
 	}
 	depRes.depParents.Insert(parentRes.id)
+	c.markEntryLocked(parentRes.id, markSave)
 }
 
 func (c *Cache) forgetDependencyEdgeLocked(parentID sharedResultID, depID sharedResultID) {
+	c.markEntryLocked(parentID, markSave)
 	depRes := c.resultsByID[depID]
 	if depRes == nil || depRes.depParents == nil {
 		return
@@ -4679,7 +4704,7 @@ func (r Result[T]) claimCacheBackedNthValue(ctx context.Context, nth int, self T
 	if err != nil {
 		return nil, fmt.Errorf("load %dth value from %T: current dagql cache: %w", nth, self, err)
 	}
-	touchSharedResultLastUsed(childShared, time.Now().UnixNano())
+	cache.touchLastUsed(childShared, time.Now().UnixNano())
 	retResAny, err := wrapSharedResultWithResolver(ctx, childShared, true, srv)
 	if err != nil {
 		return nil, fmt.Errorf("load %dth value from %T: reconstruct result: %w", nth, self, err)
@@ -6062,7 +6087,7 @@ func (c *Cache) CloseWithShutdownError(ctx context.Context, cause error) error {
 			c.closeErr = errors.Join(c.closeErr, err)
 		}
 		if c.closeErr == nil {
-			if err := c.persistCurrentState(ctx); err != nil {
+			if err := c.persistOnClose(ctx); err != nil {
 				slog.Error("failed to persist dagql cache during close", "err", err)
 				c.closeErr = errors.Join(c.closeErr, err)
 			}
@@ -6205,7 +6230,7 @@ func (c *Cache) putResultLocked(res *sharedResult) {
 	}
 	c.resultPayloadBytes += res.payloadBytes
 	c.resultsByID[res.id] = res
-	c.markEntryClassLocked(res.id)
+	c.markEntryClassLocked(res.id, markBoth)
 }
 
 // deleteResultLocked unregisters res. Requires egraphMu for writing.
@@ -6733,7 +6758,7 @@ func (c *Cache) getOrInitCallInner(
 			return nil, nil
 		}
 		if shared := val.cacheSharedResult(); shared != nil && shared.id != 0 {
-			touchSharedResultLastUsed(shared, time.Now().UnixNano())
+			c.touchLastUsed(shared, time.Now().UnixNano())
 			normalized, err := wrapSharedResultWithResolver(ctx, shared, false, resolver)
 			if err != nil {
 				return nil, fmt.Errorf("normalize do-not-cache attached result: %w", err)
@@ -7084,12 +7109,12 @@ func (c *Cache) lookupCacheForDigests(
 		return nil, false, nil
 	}
 
-	c.markEntryClassLocked(hitRes.id)
+	c.markEntryClassLocked(hitRes.id, markBoth)
 	hitRes.expiresAtUnix = mergeSharedResultExpiryUnix(
 		hitRes.expiresAtUnix,
 		candidateSharedResultExpiryUnix(nowUnix, 0),
 	)
-	touchSharedResultLastUsed(hitRes, now.UnixNano())
+	c.touchLastUsed(hitRes, now.UnixNano())
 	retRes := Result[Typed]{
 		shared:   hitRes,
 		hitCache: true,
@@ -7306,7 +7331,7 @@ func (c *Cache) wait(
 		return nil, fmt.Errorf("cache wait completed without initialized result")
 	}
 
-	touchSharedResultLastUsed(oc.res, time.Now().UnixNano())
+	c.touchLastUsed(oc.res, time.Now().UnixNano())
 	if ev := req.CacheEvidence; ev != nil {
 		// The last waiter creates the edge, possibly after this call's span
 		// ends; until then the span reports it as the publication's.
@@ -7523,7 +7548,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	if oc.res.createdAtUnixNano == 0 {
 		oc.res.createdAtUnixNano = now.UnixNano()
 	}
-	touchSharedResultLastUsed(oc.res, now.UnixNano())
+	c.touchLastUsed(oc.res, now.UnixNano())
 	if oc.res.recordType == "" {
 		oc.res.recordType = requestForIndex.Field
 	}
@@ -7859,7 +7884,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	// - 0 means "no TTL for this writer", not necessarily "never expire globally".
 	// - if any writer provides TTL, we keep the earliest non-zero expiry.
 	// - 0 only remains when all writers are 0.
-	c.markEntryClassLocked(oc.res.id)
+	c.markEntryClassLocked(oc.res.id, markBoth)
 	oc.res.expiresAtUnix = mergeSharedResultExpiryUnix(
 		oc.res.expiresAtUnix,
 		oc.candidateExpiryUnix(now.Unix()),
@@ -7903,6 +7928,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 			// edge, which kept the old value, goes with it, and so does the
 			// ownership its old value's dependency edges held.
 			delete(c.persistedEdgesByResult, oc.res.id)
+			c.markEntryLocked(oc.res.id, markSave)
 			releaseQueue, replacedErr = c.releaseReplacedDependenciesLocked(cleanupCtx, replaced, releaseQueue)
 		}
 		releases, rollbackErr := c.rollbackPartialPublicationLocked(cleanupCtx, oc.res)
@@ -8014,6 +8040,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		if replacedInPlace {
 			if _, retained := c.persistedEdgesByResult[oc.res.id]; retained {
 				delete(c.persistedEdgesByResult, oc.res.id)
+				c.markEntryLocked(oc.res.id, markSave)
 				queue, decErr = c.decrementIncomingOwnershipLocked(ctx, oc.res, queue)
 			}
 		}
