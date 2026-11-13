@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -106,6 +107,13 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 	// Entries the bundle adds for a call's inputs are visited too.
 	for i := start; i < len(build.order); i++ {
 		res := build.order[i]
+		if build.hold != nil {
+			// Read by its number once the read holds the lock for it.
+			build.hold.step()
+			if res = c.resultsByID[res.id]; res == nil {
+				continue
+			}
+		}
 		if len(res.calls) == 0 {
 			continue
 		}
@@ -119,6 +127,10 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 			}
 			for _, input := range add {
 				if err := c.storedBundleVisitLocked(build, input, map[sharedResultID]bool{}); err != nil {
+					if errors.Is(err, errStoredEntryGone) {
+						// The input went between the pieces.
+						continue
+					}
 					return fmt.Errorf("call %s input: %w", chosen.id.recipe, err)
 				}
 				// A merge installs only what its roots need, so an input
