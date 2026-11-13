@@ -123,6 +123,25 @@ type Adapter interface {
 	// Settled records the service's Settled for a settle of period that
 	// listed sessions.
 	Settled(period uint64, sessions []protocol.SettleSession)
+	// Push captures roots for a push to the Cloud, as rows says
+	// (dagql.PushRows), and calls consume exactly once, as Export does:
+	// with no bundle when no root survived. known are the rows the Cloud
+	// is known to have.
+	Push(ctx context.Context, roots []uint64, known *dagql.KnownRows, rows *dagql.PushRows, consume func(context.Context, Export) error) error
+	// Pushes is the queue of results waiting for a push.
+	Pushes() PushQueue
+}
+
+// PushQueue is the queue of results the engine computed and retained,
+// waiting for a push to the Cloud (dagql.RemoteCacheBridge): the pusher takes
+// them, and says what became of each one it took.
+type PushQueue interface {
+	TakeRemotePushes(ctx context.Context) (numbers []uint64, flushed bool, err error)
+	RemotePushesDone(n int)
+	RequeueRemotePushes(numbers []uint64)
+	WaitRemotePushesBusy(numbers []uint64)
+	FlushRemotePushes()
+	RemotePushesIdle() (idle bool, changed <-chan struct{})
 }
 
 // SettleState is where the engine stands in settling with the service.
