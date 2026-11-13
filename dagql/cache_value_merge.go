@@ -118,6 +118,17 @@ func (p *PreparedValueMerge) Unretained(ordinals ...TransferOrdinal) {
 	}
 }
 
+// Stale returns, sorted, the held rows the preparation found stale as the
+// cache stood then: CommitValueMerge would answer them, committing nothing.
+// The caller can answer them without committing; the commit judges every
+// held row again as the cache stands then.
+func (p *PreparedValueMerge) Stale() []TransferOrdinal {
+	if p == nil || p.prep == nil {
+		return nil
+	}
+	return slices.Clone(p.prep.stale)
+}
+
 // errValueMergeEnded is CommitValueMerge's answer for a prepared merge whose
 // terminal action has already run.
 var errValueMergeEnded = errors.New("commit value merge: the prepared merge has ended")
@@ -861,6 +872,35 @@ func (c *Cache) resolveHeldRows(prep *valueMergePrep) map[uint64]entryFrame {
 	}
 	slices.Sort(prep.stale)
 	return frames
+}
+
+// lackedRowsPerHold is how many rows LackedRows reads in one hold of
+// egraphMu's read lock: each costs one lookup by recipe and a staleness
+// check, so a hold is short, and a commit waiting for the write lock waits
+// for at most one.
+const lackedRowsPerHold = 256
+
+// LackedRows returns, by sender number, the identity rows (held rows) whose
+// recipe has no value here that a merge would keep for a record with the
+// row's expiry (heldRowStaleLocked), as the cache stands now: a push names
+// its rows this way before it sends them, and sends in full only those this
+// answers. It's a hint: the merge judges every held row again as it
+// commits. It reads under egraphMu's read lock, released every
+// lackedRowsPerHold rows.
+func (c *Cache) LackedRows(rows []TransferredValue) []uint64 {
+	var lacked []uint64
+	for start := 0; start < len(rows); start += lackedRowsPerHold {
+		piece := rows[start:min(start+lackedRowsPerHold, len(rows))]
+		c.egraphMu.RLock()
+		now := time.Now().Unix()
+		for _, row := range piece {
+			if row.Held == "" || c.heldRowStaleLocked(c.currentEntryForRecipeLocked(row.Held), row.ExpiresAtUnix, now) {
+				lacked = append(lacked, row.SenderNumber)
+			}
+		}
+		c.egraphMu.RUnlock()
+	}
+	return lacked
 }
 
 // heldRowStaleLocked reports whether a held row with the expiry doesn't hold
