@@ -2556,8 +2556,11 @@ type Cache struct {
 	// testStoredSizesHold after each hold of egraphMu it takes, with the
 	// hold's length, and testStoredTransferNormalized after a build
 	// normalizes a record and before it keeps it.
-	testStoredSizeMeasure        func()
-	testStoredSizesHold          func(time.Duration)
+	testStoredSizeMeasure func()
+	testStoredSizesHold   func(time.Duration)
+	// testStoredBundleHold, nil but in tests, is told the length of each
+	// hold of egraphMu a stored bundle's build takes (storedBundle).
+	testStoredBundleHold         func(time.Duration)
 	testStoredTransferNormalized func()
 	// testStoredBodies runs after the body worker installs a batch, with the
 	// number of entries it read.
