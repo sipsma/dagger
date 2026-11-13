@@ -195,9 +195,19 @@ func (srv *Server) stopEngineEvents(ctx context.Context, clean bool) {
 		return
 	}
 	if srv.engineCache != nil {
+		rows := srv.engineCache.IdentityRowCounts()
 		srv.engineEvents.Emit(telemetryattrs.EngineEventStop, srv.engineCache.Identity(), time.Now(), telemetryattrs.EngineStopEvent{
 			Clean:        clean,
 			SavedEntries: srv.engineCache.PersistedResults(),
+			IdentityRows: telemetryattrs.IdentityRowCounts{
+				ResolvedLocally:  rows.ResolvedLocally,
+				Fetched:          rows.Fetched,
+				FetchFailed:      rows.FetchFailed,
+				FetchedRows:      rows.FetchedRows,
+				RecipeWalks:      rows.RecipeWalks,
+				HitsMissed:       rows.HitsMissed,
+				PartsUnavailable: rows.PartsUnavailable,
+			},
 		})
 	}
 	shutdownCtx := context.WithoutCancel(ctx)

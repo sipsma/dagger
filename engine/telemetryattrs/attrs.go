@@ -1135,4 +1135,21 @@ type EngineStopEvent struct {
 	Clean bool `json:"clean"`
 	// SavedEntries counts the entries the save wrote.
 	SavedEntries int `json:"savedEntries"`
+	// IdentityRows counts what became of the rows Cloud merges carried as
+	// identity alone that something on the engine needed.
+	IdentityRows IdentityRowCounts `json:"identityRows"`
+}
+
+// IdentityRowCounts is dagql.IdentityRowCounts on the engine.stop row:
+// resolved to a local entry of the class, fetched (with the full rows the
+// fetches brought) or not, frame walks that reached one, hits turned into
+// misses, and parts left unavailable, by an unavailable row.
+type IdentityRowCounts struct {
+	ResolvedLocally  int64 `json:"resolvedLocally"`
+	Fetched          int64 `json:"fetched"`
+	FetchFailed      int64 `json:"fetchFailed"`
+	FetchedRows      int64 `json:"fetchedRows"`
+	RecipeWalks      int64 `json:"recipeWalks"`
+	HitsMissed       int64 `json:"hitsMissed"`
+	PartsUnavailable int64 `json:"partsUnavailable"`
 }
