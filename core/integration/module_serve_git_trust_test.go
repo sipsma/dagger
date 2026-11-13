@@ -79,7 +79,11 @@ func (m *Caller) NonceDir(ctx context.Context, address string) *dagger.Directory
 // returns, a string with no dependency on how it was computed.
 const serveGitTrustRelaySource = `package main
 
-import "context"
+import (
+	"context"
+	"strconv"
+	"time"
+)
 
 func (m *Caller) Relay(ctx context.Context, address string) (string, error) {
 	return relay(ctx, address)
@@ -93,26 +97,34 @@ func relay(ctx context.Context, address string) (string, error) {
 	if err := dag.ServeModule(ctx, "/modules/helper"); err != nil {
 		return "", err
 	}
-	// A call that returns nothing is part of the work too.
-	if err := dag.QueryBuilder().Select("helper").Select("touch").Execute(ctx); err != nil {
-		return "", err
-	}
 	var out string
 	q := dag.QueryBuilder().Select("helper").Select("nonce").Arg("address", address).Bind(&out)
 	return out, q.Execute(ctx)
+}
+
+// Touched serves the helper, whose touch function serves address and
+// returns nothing, and returns a new nonce once it succeeded.
+func (m *Caller) Touched(ctx context.Context, address string) (string, error) {
+	if err := dag.ServeModule(ctx, "/modules/helper"); err != nil {
+		return "", err
+	}
+	if err := dag.QueryBuilder().Select("helper").Select("touch").Arg("address", address).Execute(ctx); err != nil {
+		return err.Error(), nil
+	}
+	return strconv.FormatInt(time.Now().UnixNano(), 10), nil
 }
 `
 
 const serveGitTrustHelperManifest = `{"name":"helper","engineVersion":"latest","sdk":{"source":"go"},"source":"."}`
 
 // serveGitTrustHelperSource is a helper module whose nonce function serves
-// an address, as the caller's does, and whose touch function returns
-// nothing.
+// an address, as the caller's does, and whose touch function serves an
+// address and returns nothing.
 var serveGitTrustHelperSource = strings.ReplaceAll(serveGitTrustNonceSource, "*Caller", "*Helper") + `
 type Helper struct{}
 
-func (m *Helper) Touch() error {
-	return nil
+func (m *Helper) Touch(ctx context.Context, address string) error {
+	return dag.ServeModule(ctx, address)
 }
 `
 
@@ -424,9 +436,15 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		// The helper's result comes from cache in this call's work.
 		require.Equal(t, first, stdout(ctx, t, ctr.With(relay("relay-again"))))
 
+		// The helper's touch borrows the credentials and returns nothing; the
+		// caller returns a nonce of its own once it succeeded.
+		touched := stdout(ctx, t, ctr.With(relay("touched")))
+		require.Regexp(t, `^[0-9]+\s*$`, touched)
+
 		ctr = relayCaller(connect(ctx, t), false)
 		require.Contains(t, stdout(ctx, t, ctr.With(relay("relay"))), "git authentication failed")
 		require.Contains(t, stdout(ctx, t, ctr.With(relay("relay-again"))), "git authentication failed")
+		require.Contains(t, stdout(ctx, t, ctr.With(relay("touched"))), "git authentication failed")
 	})
 
 	t.Run("an entrypoint's process that used credentials misses in a session without them", func(ctx context.Context, t *testctx.T) {
