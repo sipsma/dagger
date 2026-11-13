@@ -11,7 +11,6 @@ import (
 
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/wcprof"
-	"github.com/opencontainers/go-digest"
 )
 
 // An engine's identity-only entry (sharedResult.identityOnly) stands for a
