@@ -315,7 +315,7 @@ func TestLookupShape(t *testing.T) {
 	require.Contains(t, string(raw), `"lookup":0`)
 	raw, err = json.Marshal(Merged{})
 	require.NoError(t, err)
-	require.Contains(t, string(raw), `"stale":`)
+	require.NotContains(t, string(raw), `"stale"`, "an engine's merge never answers stale")
 }
 
 // A merge lists a layer its outputs share, and the layer's address, once,
