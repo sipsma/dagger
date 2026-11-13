@@ -353,7 +353,8 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 			WithNewFile("modules/caller/nonce.go", serveGitTrustNonceSource).
 			WithNewFile("modules/caller/session.go", serveGitTrustSessionSource)
 	}
-	stdout := func(ctr *core.Container) string {
+	stdout := func(ctx context.Context, t *testctx.T, ctr *core.Container) string {
+		t.Helper()
 		out, err := ctr.Stdout(ctx)
 		require.NoError(t, err)
 		return out
@@ -370,7 +371,7 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		// function's result served from cache.
 		run := func(c *dagger.Client, n string) (string, string) {
 			ctr := sessionCaller(c, public, false).WithEnvVariable("SERVE_MODULE_RUN", n)
-			return stdout(ctr.With(daggerCallAt("caller", "plain"))), stdout(ctr.With(daggerCallAt("caller", "nonce", "--address="+public)))
+			return stdout(ctx, t, ctr.With(daggerCallAt("caller", "plain"))), stdout(ctx, t, ctr.With(daggerCallAt("caller", "nonce", "--address="+public)))
 		}
 		firstPlain, firstServed := run(connect(ctx, t), "1")
 		require.Regexp(t, `^[0-9]+\s*$`, firstPlain)
@@ -384,23 +385,23 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 	t.Run("a result built with credentials misses in a session without them", func(ctx context.Context, t *testctx.T) {
 		// The directory is a result the engine holds under its own key, not
 		// only under the function's.
-		first := stdout(sessionCaller(connect(ctx, t), hello, true).With(nonceDir(hello)))
+		first := stdout(ctx, t, sessionCaller(connect(ctx, t), hello, true).With(nonceDir(hello)))
 		require.Regexp(t, `^[0-9]+\s*$`, first)
 
-		out := stdout(sessionCaller(connect(ctx, t), hello, false).With(nonceDir(hello)))
+		out := stdout(ctx, t, sessionCaller(connect(ctx, t), hello, false).With(nonceDir(hello)))
 		require.Contains(t, out, "git authentication failed")
 	})
 
 	t.Run("a result built with credentials hits in a session holding them", func(ctx context.Context, t *testctx.T) {
-		first := stdout(sessionCaller(connect(ctx, t), hello, true).With(daggerCallAt("caller", "nonce", "--address="+hello)))
+		first := stdout(ctx, t, sessionCaller(connect(ctx, t), hello, true).With(daggerCallAt("caller", "nonce", "--address="+hello)))
 		require.Regexp(t, `^[0-9]+\s*$`, first)
 
 		// The second session holds the same token once serving the client
 		// has lent it; a session is served what requires a credential only
 		// after it holds it.
 		ctr := sessionCaller(connect(ctx, t), hello, true).WithEnvVariable("SERVE_MODULE_RUN", "2").With(daggerCallAt("caller", "attempt", "--address="+hello))
-		require.Equal(t, "served", stdout(ctr))
-		require.Equal(t, first, stdout(ctr.With(daggerCallAt("caller", "nonce", "--address="+hello))))
+		require.Equal(t, "served", stdout(ctx, t, ctr))
+		require.Equal(t, first, stdout(ctx, t, ctr.With(daggerCallAt("caller", "nonce", "--address="+hello))))
 	})
 
 	t.Run("a result relayed from a module that used credentials misses in a session without them", func(ctx context.Context, t *testctx.T) {
@@ -418,14 +419,14 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 			return daggerCallAt("caller", fn, "--address="+hello)
 		}
 		ctr := relayCaller(connect(ctx, t), true).With(relay("relay"))
-		first := stdout(ctr)
+		first := stdout(ctx, t, ctr)
 		require.Regexp(t, `^[0-9]+\s*$`, first)
 		// The helper's result comes from cache in this call's work.
-		require.Equal(t, first, stdout(ctr.With(relay("relay-again"))))
+		require.Equal(t, first, stdout(ctx, t, ctr.With(relay("relay-again"))))
 
 		ctr = relayCaller(connect(ctx, t), false)
-		require.Contains(t, stdout(ctr.With(relay("relay"))), "git authentication failed")
-		require.Contains(t, stdout(ctr.With(relay("relay-again"))), "git authentication failed")
+		require.Contains(t, stdout(ctx, t, ctr.With(relay("relay"))), "git authentication failed")
+		require.Contains(t, stdout(ctx, t, ctr.With(relay("relay-again"))), "git authentication failed")
 	})
 
 	t.Run("an entrypoint's process that used credentials misses in a session without them", func(ctx context.Context, t *testctx.T) {
@@ -441,6 +442,12 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 				WithNewFile("dagger.toml", fmt.Sprintf(`[modules.epcaller]
 source = "modules/epcaller"
 
+[modules.go]
+source = "go"
+
+[sdks.go]
+module = "go"
+
 [sdks.go.scopes."modules/epcaller"]
 is-module = true
 clients = [%q]
@@ -450,10 +457,10 @@ clients = [%q]
 				WithNewFile("modules/epcaller/serve.sh", serveGitTrustEntrypointScript(hello)).
 				With(daggerCallAt("epcaller", "nonce"))
 		}
-		first := stdout(epCaller(connect(ctx, t), true, "1"))
+		first := stdout(ctx, t, epCaller(connect(ctx, t), true, "1"))
 		require.Regexp(t, `^[0-9]+\s*$`, first)
 
-		require.Contains(t, stdout(epCaller(connect(ctx, t), false, "2")), "git authentication failed")
+		require.Contains(t, stdout(ctx, t, epCaller(connect(ctx, t), false, "2")), "git authentication failed")
 	})
 
 	t.Run("a plain program keeps its own credentials", func(ctx context.Context, t *testctx.T) {
