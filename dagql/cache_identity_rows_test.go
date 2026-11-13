@@ -490,12 +490,23 @@ func TestFilledIdentityEntryRaisesItsDependentsRequirements(t *testing.T) {
 	require.NoError(t, a.ReleaseSession(sessCtx, "leaf-session"))
 }
 
-// A value that names an identity-only child, decoded through a local stand-in
-// of the child's recipe, depends on the stand-in from then on, not on the
-// identity-only entry, so an export of the live value carries the stand-in
-// and nothing held of the same recipe.
-func TestDecodedParentExportsItsStandIn(t *testing.T) {
-	t.Parallel()
+// decodedParentTest is an engine b holding the Cloud's R as a merged record
+// whose value and frame both name P, which landed with its identity alone,
+// and its own value of P's recipe, computed here: P's stand-in.
+type decodedParentTest struct {
+	actx     context.Context
+	a        *Cache
+	p        AnyResult
+	bctx     context.Context
+	b        *Cache
+	bsrv     *Server
+	rNumber  uint64
+	own      uint64
+	identity sharedResultID
+}
+
+func newDecodedParentTest(t *testing.T) *decodedParentTest {
+	t.Helper()
 	actx, a, asrv := transferTestCache(t)
 	p := persistedListTestResult(t, actx, a, asrv, "bundle-dep", &transferTestValue{Text: "dep"})
 	pNumber := uint64(p.cacheSharedResult().id)
@@ -527,31 +538,103 @@ func TestDecodedParentExportsItsStandIn(t *testing.T) {
 	require.NoError(t, err)
 	rNumber := reply.Imported()[0].ResultID
 	own := heldTestSessionValue(t, bctx, b, bsrv)
-	transferDecodeHooks.Store(rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
-		// The child twice, as a list naming one row at two positions does.
+	b.egraphMu.RLock()
+	var identity sharedResultID
+	for id := range b.resultsByID[sharedResultID(rNumber)].deps {
+		identity = id
+	}
+	b.egraphMu.RUnlock()
+	return &decodedParentTest{actx: actx, a: a, p: p, bctx: bctx, b: b, bsrv: bsrv, rNumber: rNumber, own: own, identity: identity}
+}
+
+// decode loads R, whose decode loads its child twice, as a list naming one
+// row at two positions does, running between before the second load; the
+// value names the row the first load returned.
+func (d *decodedParentTest) decode(t *testing.T, between func()) {
+	t.Helper()
+	transferDecodeHooks.Store(d.rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
 		child, err := dec.ResultRef(ctx, value.Child)
 		if err != nil {
 			return err
 		}
-		if _, err := dec.ResultRef(ctx, value.Child); err != nil {
+		if between != nil {
+			between()
+		}
+		second, err := dec.ResultRef(ctx, value.Child)
+		if err != nil {
 			return err
+		}
+		if between != nil {
+			child = second
 		}
 		value.Child = uint64(child.cacheSharedResult().id)
 		return nil
 	})
-	t.Cleanup(func() { transferDecodeHooks.Delete(rNumber) })
-
-	_, err = b.LoadResultByResultID(bctx, "", bsrv, rNumber)
+	t.Cleanup(func() { transferDecodeHooks.Delete(d.rNumber) })
+	_, err := d.b.LoadResultByResultID(d.bctx, "", d.bsrv, d.rNumber)
 	require.NoError(t, err)
-	b.egraphMu.RLock()
-	rEntry := b.resultsByID[sharedResultID(rNumber)]
-	require.Contains(t, rEntry.deps, sharedResultID(own), "R owns the stand-in")
-	require.Len(t, rEntry.deps, 1, "and no longer the identity-only entry")
-	b.egraphMu.RUnlock()
+}
 
-	exported := exportTestBundle(t, bctx, b, Result[Typed]{shared: rEntry})
+// exportsWhole checks that R's export carries nothing held.
+func (d *decodedParentTest) exportsWhole(t *testing.T) ValueBundle {
+	t.Helper()
+	d.b.egraphMu.RLock()
+	rEntry := d.b.resultsByID[sharedResultID(d.rNumber)]
+	d.b.egraphMu.RUnlock()
+	exported := exportTestBundle(t, d.bctx, d.b, Result[Typed]{shared: rEntry})
+	require.NotEmpty(t, exported.Values, "R exports")
 	for _, value := range exported.Values {
 		require.Empty(t, value.Held, "nothing held of the child's recipe")
 	}
-	require.Len(t, exported.Values, 2)
+	return exported
+}
+
+// A value that names an identity-only child, decoded through a local stand-in
+// of the child's recipe, depends on the stand-in from then on, not on the
+// identity-only entry, so an export of the live value carries the stand-in
+// and nothing held of the same recipe.
+func TestDecodedParentExportsItsStandIn(t *testing.T) {
+	t.Parallel()
+	d := newDecodedParentTest(t)
+	d.decode(t, nil)
+	d.b.egraphMu.RLock()
+	rEntry := d.b.resultsByID[sharedResultID(d.rNumber)]
+	require.Contains(t, rEntry.deps, sharedResultID(d.own), "R owns the stand-in")
+	require.Len(t, rEntry.deps, 1, "and no longer the identity-only entry")
+	d.b.egraphMu.RUnlock()
+	require.Len(t, d.exportsWhole(t).Values, 2)
+}
+
+// The same with a stand-in whose frame hasn't derived its recipe yet, as
+// after a clone: settlement derives it.
+func TestDecodedParentExportsAStandInWithNoRecipeDerived(t *testing.T) {
+	t.Parallel()
+	d := newDecodedParentTest(t)
+	d.b.egraphMu.Lock()
+	ownEntry := d.b.resultsByID[sharedResultID(d.own)]
+	ownEntry.storeResultCall(ownEntry.loadResultCall().clone())
+	d.b.egraphMu.Unlock()
+	d.decode(t, nil)
+	d.b.egraphMu.RLock()
+	require.Len(t, d.b.resultsByID[sharedResultID(d.rNumber)].deps, 1, "R settled onto the stand-in")
+	d.b.egraphMu.RUnlock()
+	d.exportsWhole(t)
+}
+
+// A fetch that fills the identity-only entry between two loads of one
+// decode leaves the value naming that entry: it stays R's dependency.
+func TestDecodedParentKeepsAChildFilledMidDecode(t *testing.T) {
+	t.Parallel()
+	d := newDecodedParentTest(t)
+	pNumber := uint64(d.p.cacheSharedResult().id)
+	d.decode(t, func() {
+		_, err := d.b.mergeFetchedRowsInto(d.bctx, exportTestBundle(t, d.actx, d.a, d.p), map[uint64]sharedResultID{pNumber: d.identity})
+		require.NoError(t, err)
+	})
+	d.b.egraphMu.RLock()
+	rEntry := d.b.resultsByID[sharedResultID(d.rNumber)]
+	require.Contains(t, rEntry.deps, d.identity, "the value names the filled entry, which R keeps")
+	require.False(t, d.b.resultsByID[d.identity].identityOnly)
+	d.b.egraphMu.RUnlock()
+	d.exportsWhole(t)
 }
