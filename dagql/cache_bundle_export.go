@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/snapshots"
 	"github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/opencontainers/go-digest"
@@ -40,8 +42,15 @@ type BundleWriter interface {
 // was made from travels as records only: a lookup of the result reads its own
 // parts, not those of what made it. Every result the export reads parts from is decoded, with
 // resolver, and evaluated first, with every part it declares, and a part that
-// still isn't complete fails the export. Every result must be captured: a
-// result left out fails the export.
+// still isn't complete fails the export. Every result must be captured. The
+// engine it runs on may be busy with other work: a capture there, such as
+// the remote cache's, can hold a row of the closure for a moment, and a
+// capture never waits for a row (WithExportedValues). So when a result's
+// closure reaches a row that's busy now, the export lets go of the capture,
+// waits, and captures again, until every result is captured, ctx ends, or
+// it has waited bundleBusyLimit in all. A result refused for any other
+// reason, or one whose row stays busy until a later evaluation
+// (BusyBookkeeping), fails the export at once.
 func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results []AnyResult, cfg config.RefConfig, w BundleWriter) (rerr error) {
 	if len(results) == 0 {
 		return errors.New("export bundle: no results")
@@ -77,59 +86,145 @@ func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results
 		seen[shared] = true
 		roots = append(roots, res)
 	}
-	selection := ValueSelection{Roots: roots, Outputs: outputs}
-	return c.WithExportedValues(ctx, selection, cfg, func(ctx context.Context, values *ExportedValues) error {
-		if len(values.LeftOut) > 0 {
-			left := values.LeftOut[0]
-			return fmt.Errorf("export bundle: %d of %d results left out, the first (row %d): %w", len(values.LeftOut), len(roots), left.Row, left.Err)
-		}
-		bundle := values.Bundle
-		address := func(addresses map[digest.Digest]BlobAddress, layers []snapshots.ExportLayer) map[digest.Digest]BlobAddress {
-			if addresses == nil {
-				addresses = map[digest.Digest]BlobAddress{}
+	selection := ValueSelection{Roots: roots, Outputs: outputs, EveryRoot: true}
+	// Each wait is logged, and so is the capture after them, with the time
+	// from the first busy capture to the one that captured every result:
+	// the log is where this export meeting another capture shows.
+	var waits int
+	var waitStart time.Time
+	for pause := bundleBusyPause; ; pause = min(2*pause, maxBundleBusyPause) {
+		passStart := time.Now()
+		err := c.WithExportedValues(ctx, selection, cfg, func(ctx context.Context, values *ExportedValues) error {
+			return writeBundle(ctx, values, w)
+		})
+		left := leftOutOnly(err)
+		if left == nil {
+			if err == nil && waits > 0 {
+				slog.Info("export bundle: every result captured after waiting for busy ones", "results", len(roots), "waits", waits, "waited", passStart.Sub(waitStart))
 			}
-			for _, layer := range layers {
-				addresses[layer.Descriptor.Digest] = ImageBlobAddress(layer.Descriptor.Digest)
-			}
-			return addresses
-		}
-		if len(bundle.Layers) > 0 {
-			bundle.Addresses = address(bundle.Addresses, bundle.Layers)
-		}
-		for i := range bundle.Outputs {
-			if chain := bundle.Outputs[i].Chain; chain != nil && len(chain.Layers) > 0 {
-				chain.Addresses = address(chain.Addresses, chain.Layers)
-			}
-		}
-		if err := w.WriteBundle(ctx, bundle); err != nil {
 			return err
 		}
-		written := map[digest.Digest]bool{}
-		for _, entry := range values.Chains.Entries {
-			for _, layer := range entry.Layers {
-				d := layer.Descriptor.Digest
-				if written[d] {
-					continue
-				}
-				written[d] = true
-				if err := d.Validate(); err != nil {
-					return err
-				}
-				r, err := entry.Provider.ReaderAt(ctx, layer.Descriptor)
-				if err != nil {
-					return fmt.Errorf("export bundle: blob %s: %w", d, err)
-				}
-				err = w.WriteBlob(ctx, d, r)
-				if closeErr := r.Close(); err == nil {
-					err = closeErr
-				}
-				if err != nil {
-					return fmt.Errorf("export bundle: blob %s: %w", d, err)
-				}
+		first := left.Roots[0]
+		err = fmt.Errorf("export bundle: %d of %d results left out, the first (row %d): %w", len(left.Roots), len(roots), first.Row, first.Err)
+		if !busyForNow(left.Roots) {
+			return err
+		}
+		if waits == 0 {
+			waitStart = time.Now()
+		}
+		if waited := time.Since(waitStart); waited+pause > bundleBusyLimit {
+			slog.Warn("export bundle: results still busy, giving up", "left_out", len(left.Roots), "results", len(roots), "row", first.Row, "kind", first.Kind, "error", first.Err, "waits", waits, "waited", waited)
+			return err
+		}
+		waits++
+		slog.Info("export bundle: results busy, capturing again", "left_out", len(left.Roots), "results", len(roots), "row", first.Row, "kind", first.Kind, "error", first.Err, "pause", pause)
+		select {
+		case <-ctx.Done():
+			return errors.Join(context.Cause(ctx), err)
+		case <-time.After(pause):
+		}
+	}
+}
+
+// The export's first pause after a busy capture, and its longest: a busy
+// row is mostly another capture's, held for well under a second.
+const (
+	bundleBusyPause    = 10 * time.Millisecond
+	maxBundleBusyPause = time.Second
+)
+
+// bundleBusyLimit is how long the export waits for busy results in all
+// before it fails, so that a row that never frees fails the export instead
+// of hanging it. The longest busy stretch seen was about a second: on a
+// remote-cache engine, the cache's own captures held rows for 86 to 364 ms,
+// and 156 rows one held were clear 975 ms later. Tests lower it.
+var bundleBusyLimit = 2 * time.Minute
+
+// leftOutOnly is the RootsLeftOutError err is when it is nothing more, such
+// as joined with the capture's release error: nil otherwise.
+func leftOutOnly(err error) *RootsLeftOutError {
+	for {
+		switch e := err.(type) {
+		case *RootsLeftOutError:
+			return e
+		case interface{ Unwrap() []error }:
+			errs := e.Unwrap()
+			if len(errs) != 1 {
+				return nil
+			}
+			err = errs[0]
+		default:
+			return nil
+		}
+	}
+}
+
+// busyForNow reports whether every root left out is busy with something
+// that ends on its own: no busy row it reaches waits for a later
+// evaluation.
+func busyForNow(roots []LeftOutRoot) bool {
+	for _, root := range roots {
+		if !errors.Is(root.Err, ErrPersistStateNotReady) || root.Kind == BusyBookkeeping {
+			return false
+		}
+		for _, busy := range root.Busy {
+			if busy.Kind == BusyBookkeeping {
+				return false
 			}
 		}
-		return nil
-	})
+	}
+	return true
+}
+
+// writeBundle writes a bundle from values, every root captured, and then
+// each blob its outputs' chains name, once each.
+func writeBundle(ctx context.Context, values *ExportedValues, w BundleWriter) error {
+	bundle := values.Bundle
+	address := func(addresses map[digest.Digest]BlobAddress, layers []snapshots.ExportLayer) map[digest.Digest]BlobAddress {
+		if addresses == nil {
+			addresses = map[digest.Digest]BlobAddress{}
+		}
+		for _, layer := range layers {
+			addresses[layer.Descriptor.Digest] = ImageBlobAddress(layer.Descriptor.Digest)
+		}
+		return addresses
+	}
+	if len(bundle.Layers) > 0 {
+		bundle.Addresses = address(bundle.Addresses, bundle.Layers)
+	}
+	for i := range bundle.Outputs {
+		if chain := bundle.Outputs[i].Chain; chain != nil && len(chain.Layers) > 0 {
+			chain.Addresses = address(chain.Addresses, chain.Layers)
+		}
+	}
+	if err := w.WriteBundle(ctx, bundle); err != nil {
+		return err
+	}
+	written := map[digest.Digest]bool{}
+	for _, entry := range values.Chains.Entries {
+		for _, layer := range entry.Layers {
+			d := layer.Descriptor.Digest
+			if written[d] {
+				continue
+			}
+			written[d] = true
+			if err := d.Validate(); err != nil {
+				return err
+			}
+			r, err := entry.Provider.ReaderAt(ctx, layer.Descriptor)
+			if err != nil {
+				return fmt.Errorf("export bundle: blob %s: %w", d, err)
+			}
+			err = w.WriteBlob(ctx, d, r)
+			if closeErr := r.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				return fmt.Errorf("export bundle: blob %s: %w", d, err)
+			}
+		}
+	}
+	return nil
 }
 
 // holdBundleRows evaluates results and, for each one with no parts of its
