@@ -333,7 +333,7 @@ func TestWriteBehindFollowsAReplacement(t *testing.T) {
 	before := writeBehindTestTables(t, ctx, cloud)
 	report, err := cloud.WriteBehind(ctx)
 	require.NoError(t, err)
-	require.Equal(t, WriteBehindReport{}, report, "nothing is written while a replacement is in flight")
+	require.Equal(t, WriteBehindReport{Waited: true}, report, "nothing is written while a replacement is in flight")
 	require.Equal(t, before, writeBehindTestTables(t, ctx, cloud))
 	letGo()
 	require.ErrorContains(t, <-merged, "wb-release-failed")
