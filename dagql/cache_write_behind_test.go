@@ -24,7 +24,7 @@ func writeBehindTestTables(t *testing.T, ctx context.Context, c *Cache) map[stri
 	t.Helper()
 	tables := []string{
 		"results", "eq_classes", "eq_class_digests", "terms", "term_inputs",
-		"result_output_eq_classes", "result_deps", "result_calls", "persisted_edges",
+		"result_output_eq_classes", "result_deps", "result_calls", "result_taught", "persisted_edges",
 		"result_snapshot_links", "snapshot_content_links", "snapshot_content_hashes",
 		"imported_layer_blob_index", "imported_layer_diff_index",
 	}
@@ -858,4 +858,48 @@ func TestWriteBehindBudgetNeverWritesACycleThroughAWrittenOwner(t *testing.T) {
 		writeBehindTestMatchesWholeSave(t, ctx, cloud, "a chain turned round, drained")
 		require.NoError(t, cloud.Close(ctx))
 	}
+}
+
+// A content digest a span teaches a stored entry is written behind, and so
+// is the body worker giving the entry's frame that digest afterwards.
+func TestWriteBehindFollowsTaughtContentOnTheCloud(t *testing.T) {
+	t.Parallel()
+	content := testDigest("wb-taught-content")
+	actx, a, asrv := transferTestCache(t)
+	r := persistedListTestResult(t, actx, a, asrv, "wb-taught-root", &transferTestValue{Text: "x"})
+	a.egraphMu.RLock()
+	aNumber := uint64(r.cacheSharedResult().id)
+	a.egraphMu.RUnlock()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	number := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0]
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root")
+
+	// The body worker is held after it rewrites the frame and before it
+	// records the digest given.
+	given, release := make(chan struct{}, 1), make(chan struct{})
+	letGo := sync.OnceFunc(func() { close(release) })
+	defer letGo()
+	cloud.testTaughtContentGiven = func() {
+		select {
+		case given <- struct{}{}:
+		default:
+		}
+		<-release
+	}
+	storedContentTestTeach(t, ctx, cloud, aNumber, content)
+	select {
+	case <-given:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the body worker never gave the frame its taught content digest")
+	}
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a taught content digest, not yet given")
+	letGo()
+	require.Eventually(t, func() bool {
+		cloud.egraphMu.RLock()
+		defer cloud.egraphMu.RUnlock()
+		res := cloud.resultsByID[sharedResultID(number)]
+		return res != nil && len(res.taught) > 0 && res.taughtGiven == len(res.taught)
+	}, 10*time.Second, 5*time.Millisecond, "the body worker records the digest given")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a taught content digest, given")
 }
