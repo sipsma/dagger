@@ -92,14 +92,13 @@ func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results
 	}
 	selection := ValueSelection{Roots: roots, Outputs: outputs, EveryRoot: true}
 	for {
-		passStart := time.Now()
 		err := c.WithExportedValues(ctx, selection, cfg, func(ctx context.Context, values *ExportedValues) error {
 			return writeBundle(ctx, values, w)
 		})
 		left := leftOutOnly(err)
 		if left == nil {
 			if err == nil && wait.waits > 0 {
-				slog.Info("export bundle: every result captured after waiting for busy rows", "results", len(roots), "waits", wait.waits, "waited", passStart.Sub(wait.start))
+				slog.Info("export bundle: every result captured after waiting for busy rows", "results", len(roots), "waits", wait.waits, "waited", wait.waited)
 			}
 			return err
 		}
@@ -114,14 +113,14 @@ func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results
 	}
 }
 
-// bundleWait is an export's wait for busy rows. Every wait of one export,
+// bundleWait is an export's wait for busy rows. Every pause of one export,
 // in its setup's reads and in its capture, counts toward one limit,
-// bundleBusyLimit, and each is logged: the log is where this export meeting
-// another capture shows.
+// bundleBusyLimit, and the work between pauses doesn't. Each pause is
+// logged: the log is where this export meeting another capture shows.
 type bundleWait struct {
-	pause time.Duration
-	waits int
-	start time.Time
+	pause  time.Duration
+	waits  int
+	waited time.Duration
 }
 
 // wait pauses before the export tries again a read that err, a busy row's
@@ -130,10 +129,10 @@ type bundleWait struct {
 // ctx ends. attrs describe the busy read, for the log.
 func (w *bundleWait) wait(ctx context.Context, err error, attrs ...any) error {
 	if w.waits == 0 {
-		w.start, w.pause = time.Now(), bundleBusyPause
+		w.pause = bundleBusyPause
 	}
-	if waited := time.Since(w.start); waited+w.pause > bundleBusyLimit {
-		slog.Warn("export bundle: rows still busy, giving up", append(attrs, "error", err, "waits", w.waits, "waited", waited)...)
+	if w.waited+w.pause > bundleBusyLimit {
+		slog.Warn("export bundle: rows still busy, giving up", append(attrs, "error", err, "waits", w.waits, "waited", w.waited)...)
 		return err
 	}
 	w.waits++
@@ -143,6 +142,7 @@ func (w *bundleWait) wait(ctx context.Context, err error, attrs ...any) error {
 		return errors.Join(context.Cause(ctx), err)
 	case <-time.After(w.pause):
 	}
+	w.waited += w.pause
 	w.pause = min(2*w.pause, maxBundleBusyPause)
 	return nil
 }
@@ -153,7 +153,7 @@ func (w *bundleWait) wait(ctx context.Context, err error, attrs ...any) error {
 func (c *Cache) readRowRecord(ctx context.Context, row *sharedResult, wait *bundleWait) (PersistedRecord, error) {
 	for {
 		record, err := c.captureRowRecord(ctx, row)
-		if err == nil || !errors.Is(err, ErrPersistStateNotReady) {
+		if err == nil || !busyOnly(err) {
 			return record, err
 		}
 		kind := row.busyKind()
@@ -163,6 +163,23 @@ func (c *Cache) readRowRecord(ctx context.Context, row *sharedResult, wait *bund
 		if err := wait.wait(ctx, err, "row", row.id, "kind", kind); err != nil {
 			return record, err
 		}
+	}
+}
+
+// busyOnly reports whether err says only that a row is busy now: not also
+// another error joined with it, such as a failed release, which must not be
+// retried away.
+func busyOnly(err error) bool {
+	for {
+		joined, ok := err.(interface{ Unwrap() []error })
+		if !ok {
+			return errors.Is(err, ErrPersistStateNotReady)
+		}
+		errs := joined.Unwrap()
+		if len(errs) != 1 {
+			return false
+		}
+		err = errs[0]
 	}
 }
 
