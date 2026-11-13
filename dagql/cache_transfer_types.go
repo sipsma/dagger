@@ -134,15 +134,7 @@ type TransferredValue struct {
 func (v TransferredValue) MarshalJSON() ([]byte, error) {
 	type plain TransferredValue
 	if v.encodedRecord != nil {
-		return json.Marshal(encodedValueJSON{
-			Ordinal:            v.Ordinal,
-			SenderNumber:       v.SenderNumber,
-			SenderReplacements: v.SenderReplacements,
-			Record:             v.encodedRecord,
-			DependencyIDs:      v.DependencyIDs,
-			ExpiresAtUnix:      v.ExpiresAtUnix,
-			Held:               v.Held,
-		})
+		return json.Marshal(v.encodedJSON())
 	}
 	if v.storedEnvelope == nil {
 		return json.Marshal(plain(v))
@@ -193,6 +185,20 @@ type storedValueJSON struct {
 	DependencyIDs      []uint64         `json:"dependencyIDs,omitempty"`
 	ExpiresAtUnix      int64            `json:"expiresAtUnix,omitempty"`
 	Held               digest.Digest    `json:"held,omitempty"`
+}
+
+// encodedJSON is the value's encoding with its record as the encoded JSON a
+// bounded capture kept (encodedRecord).
+func (v TransferredValue) encodedJSON() encodedValueJSON {
+	return encodedValueJSON{
+		Ordinal:            v.Ordinal,
+		SenderNumber:       v.SenderNumber,
+		SenderReplacements: v.SenderReplacements,
+		Record:             v.encodedRecord,
+		DependencyIDs:      v.DependencyIDs,
+		ExpiresAtUnix:      v.ExpiresAtUnix,
+		Held:               v.Held,
+	}
 }
 
 // encodedValueJSON is TransferredValue's encoding, field for field, with its
