@@ -206,3 +206,27 @@ func TestIdentityEntryUnavailableTurnsAHitIntoAMiss(t *testing.T) {
 	require.Equal(t, int64(1), counts.HitsMissed)
 	require.Equal(t, int64(1), counts.FetchFailed)
 }
+
+// An engine's export reaching an identity-only entry names it as a held
+// row, by the Cloud entry's recipe: the engine has no record of it to send,
+// and the Cloud has its own.
+func TestExportNamesAnIdentityEntryAsAHeldRow(t *testing.T) {
+	t.Parallel()
+	bctx, b, _, rEntry, pEntry, ctx, cloud, p := identityTestEngine(t)
+	bundle := exportTestBundle(t, bctx, b, Result[Typed]{shared: rEntry})
+	pRecipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p))
+	_ = ctx
+	var held, full int
+	for _, value := range bundle.Values {
+		switch {
+		case value.SenderNumber == uint64(pEntry.id):
+			require.Equal(t, pRecipe, value.Held, "P goes as a held row of the Cloud's recipe")
+			held++
+		case value.SenderNumber == uint64(rEntry.id):
+			require.Empty(t, value.Held)
+			full++
+		}
+	}
+	require.Equal(t, 1, held)
+	require.Equal(t, 1, full)
+}
