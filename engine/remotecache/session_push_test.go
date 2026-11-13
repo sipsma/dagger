@@ -170,3 +170,43 @@ func TestAPushCutOffIsPutBack(t *testing.T) {
 		return len(adapter.pushes.queued) == 1 && adapter.pushes.queued[0] == 7 && adapter.pushes.taken == 0
 	}, 5*time.Second, 10*time.Millisecond)
 }
+
+// A push in flight as a settle begins, which then finds its root busy, is
+// tried once more by the settle and dropped, and the settle goes: the
+// settle doesn't wait for something that will never come.
+func TestASettleFlushesARootFoundBusyAfterItBegan(t *testing.T) {
+	t.Parallel()
+	adapter := newFakeAdapter()
+	adapter.setSettle(SettleState{Period: 1, Live: true})
+	gate := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	adapter.push = func(ctx context.Context, roots []uint64, _ *dagql.PushRows, consume func(context.Context, Export) error) error {
+		mu.Lock()
+		calls++
+		first := calls == 1
+		mu.Unlock()
+		if first {
+			<-gate
+		}
+		return consume(ctx, Export{Skipped: []protocol.SkippedRoot{{Number: roots[0], Reason: protocol.SkipBusy}}})
+	}
+	_, conn, _ := servedSession(t, adapter)
+
+	adapter.pushes.add(7)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls == 1
+	}, 5*time.Second, 10*time.Millisecond, "the push's capture is in flight")
+	adapter.setSettle(SettleState{Period: 1, Sessions: []protocol.SettleSession{{ID: "sess-1"}}})
+	conn.none(t)
+	close(gate)
+
+	settle := conn.next(t)
+	require.Equal(t, protocol.TypeSettle, settle.Type, "the settle goes once the busy root is flushed and dropped")
+	mu.Lock()
+	require.Equal(t, 2, calls)
+	mu.Unlock()
+	require.True(t, pushesIdle(adapter.pushes))
+}

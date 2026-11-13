@@ -253,7 +253,9 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 		if res.boundSession != "" {
 			return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: row %d is bound to its session", res.id)})
 		}
-		knownRow := !carried[res.id] && known.knowsLocked(res)
+		// A row the recipient said it lacks goes in full, though the engine
+		// thought it known: the recipient's word is the newer.
+		knownRow := !carried[res.id] && !(push != nil && push.Full[uint64(res.id)]) && known.knowsLocked(res)
 		pushed := !knownRow && push != nil && !carried[res.id] && !push.Full[uint64(res.id)]
 		if knownRow || pushed {
 			c.incrementIncomingOwnershipLocked(ctx, res)
