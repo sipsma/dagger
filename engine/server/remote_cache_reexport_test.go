@@ -167,8 +167,16 @@ func TestRemoteCacheAdapterReexportLeavesOutTheCloudsOffers(t *testing.T) {
 	require.NotZero(t, cloudRoot)
 	held := cloudRecords(t, cloud, cloudRoot)
 
-	// A fresh engine imports the rows, each with its part's offer.
-	built, err := cloud.StoredBundle(t.Context(), []uint64{cloudRoot}, time.Now().Unix())
+	// A fresh engine imports the rows, each with its part's offer: each a
+	// root of the bundle, since a bundle carries its roots' records and only
+	// identity rows below them.
+	roots := []uint64{cloudRoot}
+	for _, value := range merged.Values {
+		if value.Number != cloudRoot {
+			roots = append(roots, value.Number)
+		}
+	}
+	built, err := cloud.StoredBundle(t.Context(), roots, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Outputs, reexportTestRows)
 	fresh := newAdapterTestEngine(t)
