@@ -459,3 +459,36 @@ func TestWriteBehindWritesNoIdentityAHoldingDoesntChange(t *testing.T) {
 	require.Zero(t, report.Terms, "no term changed")
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "three more engines hold it")
 }
+
+// A term's inputs' provenance is saved with it: when an entry's association
+// changes it, the write behind writes it, as a whole save does.
+func TestWriteBehindFollowsATermsProvenance(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	stored := storedPruneTestRoot(t, ctx, cloud, "wb-provenance")
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-provenance-content"), stored)
+	h := holdingOf("wb-provenance-term")
+	h.Term.Inputs = []digest.Digest{testDigest("wb-provenance-input")}
+	h.ContentDigest = testDigest("wb-provenance-content")
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-p", Number: 1}, h)
+	require.NoError(t, err)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored class with a term of one input")
+
+	cloud.egraphMu.Lock()
+	var termID egraphTermID
+	var provenance []egraphInputProvenanceKind
+	for id, kinds := range cloud.termInputProvenance {
+		if len(kinds) == 1 {
+			termID = id
+			provenance = []egraphInputProvenanceKind{egraphInputProvenanceKindResult}
+			if kinds[0] == egraphInputProvenanceKindResult {
+				provenance = []egraphInputProvenanceKind{egraphInputProvenanceKindDigest}
+			}
+		}
+	}
+	require.NotZero(t, termID)
+	cloud.associateResultWithTermLocked(ctx, cloud.resultsByID[sharedResultID(stored)], termID, provenance)
+	cloud.egraphMu.Unlock()
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the term's provenance changed")
+}
