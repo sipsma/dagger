@@ -85,12 +85,12 @@ func (s *engineSchema) engine(ctx context.Context, parent *core.Query, args stru
 	}, nil
 }
 
+// localCache is open to every client: a nested one, such as an image build in
+// a module function's exec, exports the results it holds with _export, while
+// entrySet and prune check for the main client themselves.
 func (s *engineSchema) localCache(ctx context.Context, parent *core.Engine, args struct{}) (*core.EngineCache, error) {
 	query, err := core.CurrentQuery(ctx)
 	if err != nil {
-		return nil, err
-	}
-	if err := query.RequireMainClient(ctx); err != nil {
 		return nil, err
 	}
 	policy := query.EngineLocalCachePolicy()
