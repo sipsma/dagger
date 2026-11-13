@@ -184,7 +184,6 @@ func TestCloudAnswersTheSameWithFramesCompressed(t *testing.T) {
 	receiver, chain := storedFrameTestChain(t, "answers")
 	ctx, whole, held := storedFrameTestPair(t, receiver, chain, storedBodyTestExport(t))
 	r := storedFrameTestNumber(t, held, "frame-chained")
-	p := storedFrameTestNumber(t, held, "frame-receiver")
 	require.Equal(t, r, storedFrameTestNumber(t, whole, "frame-chained"), "both Clouds numbered the same")
 	var roots []uint64
 	held.egraphMu.RLock()
