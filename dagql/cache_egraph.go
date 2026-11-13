@@ -1593,6 +1593,8 @@ func (c *Cache) TeachContentDigest(ctx context.Context, res AnyResult, contentDi
 			// The new frame goes into a new body, as the old one was held.
 			c.setStoredBodyLocked(shared, shared.persistedEnvelope, body)
 		}
+		// The saved row holds the frame.
+		c.markEntryLocked(shared.id, markSave)
 		c.traceResultCallFrameUpdated(ctx, shared, "teach_content_digest", baseFrame, frame)
 		c.flushShareNotificationsLocked(ctx, notify, notifyOwner)
 		c.egraphMu.Unlock()
