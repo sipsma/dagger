@@ -154,6 +154,7 @@ var deleteMirrorResultRows = []string{
 	`DELETE FROM result_snapshot_links WHERE result_id = ?`,
 	`DELETE FROM persisted_edges WHERE result_id = ?`,
 	`DELETE FROM result_calls WHERE result_id = ?`,
+	`DELETE FROM result_taught WHERE result_id = ?`,
 	`DELETE FROM result_deps WHERE parent_result_id = ?`,
 	`DELETE FROM result_output_eq_classes WHERE result_id = ?`,
 	`DELETE FROM results WHERE id = ?`,

@@ -1422,6 +1422,7 @@ func (c *Cache) teachRemoteIdentityLocked(ctx context.Context, entry *sharedResu
 	if content != "" && entry != nil && entry.id != 0 {
 		if n := len(entry.taught); n == 0 || entry.taught[n-1] != content {
 			entry.taught = append(entry.taught, content)
+			c.markEntryLocked(entry.id, markSave)
 		}
 		c.queueTaughtContentLocked(entry)
 	}

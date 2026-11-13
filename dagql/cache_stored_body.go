@@ -739,6 +739,7 @@ func (c *Cache) queueTaughtContentLocked(res *sharedResult) {
 	if !seeded && known && !slices.ContainsFunc(res.taught[res.taughtGiven:], func(d digest.Digest) bool { return d != carried }) {
 		c.taughtContentCarried.Add(uint64(len(res.taught) - res.taughtGiven))
 		res.taughtGiven = len(res.taught)
+		c.markEntryLocked(res.id, markSave)
 		return
 	}
 	w.mu.Lock()
@@ -794,8 +795,9 @@ func (c *Cache) applyTaughtContent(entries []*sharedResult) {
 		// A frame a replacement installed since has taken none of them, and
 		// its queueing gives it them all. Digests taught meanwhile are
 		// given by their own queueing.
-		if res.taughtFrame == frame && res.taughtGiven == from {
+		if res.taughtFrame == frame && res.taughtGiven == from && applied > 0 {
 			res.taughtGiven = from + applied
+			c.markEntryLocked(res.id, markSave)
 		}
 		c.egraphMu.Unlock()
 	}
@@ -850,6 +852,9 @@ func (c *Cache) adoptReplacedContent(res *sharedResult) {
 	res.taughtFrom = entryFrame{}
 	// Digests taught since the replacement come after the frame's.
 	res.taught = append(run, res.taught...)
+	if len(run) > 0 {
+		c.markEntryLocked(res.id, markSave)
+	}
 }
 
 // TaughtContentStats counts, since the cache opened, what giving entries'
