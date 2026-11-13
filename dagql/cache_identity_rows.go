@@ -25,9 +25,11 @@ import (
 // RowFetcher fetches the Cloud's records of entries by their Cloud numbers:
 // the engine's remote cache session, which asks the service. With decode, the
 // answer follows each record's value children down, so one round trip serves
-// one decode. missing are the numbers the Cloud no longer holds with a value.
+// one decode; with frames, it carries each record's whole call closure as
+// frame rows, so one round trip serves a recipe walk. missing are the numbers
+// the Cloud no longer holds with a value.
 type RowFetcher interface {
-	FetchRows(ctx context.Context, numbers []uint64, decode bool) (bundle ValueBundle, missing []uint64, err error)
+	FetchRows(ctx context.Context, numbers []uint64, decode, frames bool) (bundle ValueBundle, missing []uint64, err error)
 }
 
 // rowFetchTimeout bounds how long a hit's use waits for a fetched row before
@@ -113,8 +115,9 @@ func (c *Cache) localStandInLocked(res *sharedResult, nowUnix int64) *sharedResu
 // needs its value or frame: res itself if it isn't identity-only (a record
 // has landed on it), an entry of its class that holds a value, or res once
 // the Cloud's record of it, fetched, has landed on it. decode asks the fetch
-// for its value children too. Its error wraps errRowUnavailable.
-func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, decode bool) (*sharedResult, error) {
+// for its value children too, and frames for its whole call closure as frame
+// rows. Its error wraps errRowUnavailable.
+func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, decode, frames bool) (*sharedResult, error) {
 	c.egraphMu.RLock()
 	if !res.identityOnly {
 		c.egraphMu.RUnlock()
@@ -140,7 +143,7 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	}
 	fetchCtx, cancel := context.WithTimeout(ctx, rowFetchTimeout)
 	defer cancel()
-	bundle, missing, err := fetcher.FetchRows(fetchCtx, []uint64{key.Number}, decode)
+	bundle, missing, err := fetcher.FetchRows(fetchCtx, []uint64{key.Number}, decode, frames)
 	if err != nil {
 		return fail(err)
 	}
@@ -184,7 +187,7 @@ func (c *Cache) resolveIdentityFrame(ctx context.Context, id sharedResultID) (*R
 		return nil, nil
 	}
 	c.identityRows.recipeWalks.Add(1)
-	resolved, err := c.resolveIdentityEntry(ctx, res, false)
+	resolved, err := c.resolveIdentityEntry(ctx, res, false, true)
 	if err != nil {
 		return nil, err
 	}

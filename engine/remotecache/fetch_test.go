@@ -20,12 +20,12 @@ func TestFetchRows(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		bundle, missing, err := s.FetchRows(context.Background(), []uint64{7, 9}, true)
+		bundle, missing, err := s.FetchRows(context.Background(), []uint64{7, 9}, true, true)
 		done <- result{bundle, missing, err}
 	}()
 	env := conn.next(t)
 	require.Equal(t, protocol.TypeFetchRows, env.Type)
-	require.Equal(t, protocol.FetchRows{Entries: []uint64{7, 9}, Decode: true}, decode[protocol.FetchRows](t, env))
+	require.Equal(t, protocol.FetchRows{Entries: []uint64{7, 9}, Decode: true, Frames: true}, decode[protocol.FetchRows](t, env))
 	answer := protocol.FetchedRows{Bundle: dagql.ValueBundle{Version: 9, Roots: []dagql.TransferredRoot{{Ordinal: 1}}}, Missing: []uint64{9}}
 	reply, err := protocol.NewEnvelope(900+env.ID, env.ID, protocol.TypeFetchedRows, answer)
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestFetchRowsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := s.FetchRows(ctx, []uint64{7}, false)
+		_, _, err := s.FetchRows(ctx, []uint64{7}, false, false)
 		done <- err
 	}()
 	require.Equal(t, protocol.TypeFetchRows, conn.next(t).Type)

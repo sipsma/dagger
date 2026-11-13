@@ -719,13 +719,28 @@ func (c *Cache) privateMergeCache(ctx context.Context, prep *valueMergePrep, hel
 			// or held in the entry's stored body with its recipe. The frame
 			// is the cache's: nothing below relocates or rewires it.
 			rec := PersistedRecord{ResultID: prep.firstID + id - 1}
-			prep.records[id] = rec
 			res := &sharedResult{id: sharedResultID(rec.ResultID), imported: true, expiresAtUnix: row.ExpiresAtUnix, identityRecipe: row.Held}
-			if frame := heldFrames[id]; frame.call != nil {
+			switch frame := heldFrames[id]; {
+			case frame.call != nil:
 				res.storeResultCall(frame.call)
-			} else {
+			case frame.body != nil:
 				res.stored = frame.body
+			case row.Record.Call != nil:
+				// A frame row the engine holds no value of: its own frame,
+				// relocated as a record's is, which the entry it lands on
+				// takes (mergeIdentity).
+				rec.Call = row.Record.Call.clone()
+				if err := visitResultCallReferences(rec.Call, relocateRecord); err != nil {
+					return nil, err
+				}
+				res.storeResultCall(rec.Call)
+				refs := make([]uint64, 0, len(row.DependencyIDs))
+				for _, dep := range row.DependencyIDs {
+					refs = append(refs, prep.firstID+dep-1)
+				}
+				prep.refs[id] = refs
 			}
+			prep.records[id] = rec
 			private.putResultLocked(res)
 			continue
 		}
@@ -1537,6 +1552,9 @@ func (c *Cache) decideMergeRowLocked(row *mergeRow, now int64, fresh sharedResul
 		// A held row lands on the engine's value of its recipe, or on the
 		// entry an earlier identity row made; otherwise it makes one.
 		switch {
+		case cur != nil && cur.identityOnly && cur.loadResultCall() == nil && row.value.Record.Call != nil:
+			// A frame row gives an identity-only entry its frame.
+			row.action, row.res = mergeIdentity, cur
 		case cur != nil && cur.noValueLocked():
 			row.action, row.res = mergeKeep, cur
 		case cur != nil && !c.resultExpiredAtLocked(cur, now):
@@ -1696,6 +1714,27 @@ func (c *Cache) relocateMergeRowsLocked(commit *valueMergeCommit) error {
 	}
 	for _, row := range commit.rows {
 		source := prep.records[row.ordinal]
+		if row.action == mergeIdentity && source.Call != nil {
+			// A frame row's frame, at the final numbers, and its
+			// dependencies, which its entry owns once it takes the frame.
+			call := source.Call.clone()
+			if err := visitResultCallReferences(call, relocate); err != nil {
+				return err
+			}
+			seen := map[sharedResultID]bool{}
+			for _, dep := range row.value.DependencyIDs {
+				n, err := number(dep)
+				if err != nil {
+					return err
+				}
+				if !seen[n] {
+					seen[n] = true
+					row.deps = append(row.deps, n)
+				}
+			}
+			row.rec = PersistedRecord{ResultID: uint64(row.res.id), Call: call}
+			continue
+		}
 		if !row.action.installs() {
 			if !c.blobBacked {
 				offers, err := clonePartOffers(source.Envelope.PendingOffers)
@@ -1954,13 +1993,18 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			c.indexRecipeLocked(row.plan.recipe, row.res)
 			created = append(created, row.res)
 		case mergeIdentity:
-			row.res.imported = true
-			row.res.identityOnly = true
-			row.res.identityRecipe = row.plan.recipe
-			row.res.expiresAtUnix = row.value.ExpiresAtUnix
-			c.putResultLocked(row.res)
-			c.indexRecipeLocked(row.plan.recipe, row.res)
-			created = append(created, row.res)
+			if row.res != row.target {
+				row.res.imported = true
+				row.res.identityOnly = true
+				row.res.identityRecipe = row.plan.recipe
+				row.res.expiresAtUnix = row.value.ExpiresAtUnix
+				c.putResultLocked(row.res)
+				c.indexRecipeLocked(row.plan.recipe, row.res)
+				created = append(created, row.res)
+			}
+			if row.rec.Call != nil && row.res.loadResultCall() == nil {
+				row.res.storeResultCall(row.rec.Call)
+			}
 		case mergeStore:
 			c.installMergedRecordLocked(row.res, row, committedAt)
 			if row.res.onRelease == nil {
@@ -2014,6 +2058,33 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 		}
 		res.dependencyOwnershipRevision++
 		if err := c.bindMergedFrameLocked(res, row.action == mergeReplace || row.action == mergeStore); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
+	// A frame row's entry owns the rows its frame references.
+	for _, row := range commit.rows {
+		if row.action != mergeIdentity || row.rec.Call == nil {
+			continue
+		}
+		res := row.res
+		if res.deps == nil {
+			res.deps = make(map[sharedResultID]struct{}, len(row.deps))
+		}
+		for _, depID := range row.deps {
+			dep := c.resultsByID[depID]
+			if dep == nil {
+				errs = errors.Join(errs, fmt.Errorf("merge values: missing dependency %d of %d", depID, res.id))
+				continue
+			}
+			if _, ok := res.deps[depID]; ok {
+				continue
+			}
+			res.deps[depID] = struct{}{}
+			c.rememberDependencyEdgeLocked(res, dep)
+			c.incrementIncomingOwnershipLocked(ctx, dep)
+		}
+		res.dependencyOwnershipRevision++
+		if err := c.bindMergedFrameLocked(res, false); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
