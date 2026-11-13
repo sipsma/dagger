@@ -56,23 +56,17 @@ func TestExportBundleFailsOnARowBusyUntilALaterEvaluation(t *testing.T) {
 	require.ErrorContains(t, err, "export bundle: 1 of 1 results left out")
 }
 
-// A cache export's wait for busy results has a limit: a row that never
-// frees fails the export with the busy error once the limit has passed,
-// rather than hanging it until its context ends. It isn't parallel: it
-// lowers the package's limit.
-func TestExportBundleStopsWaitingAtItsLimit(t *testing.T) {
-	limit := bundleBusyLimit
-	bundleBusyLimit = 300 * time.Millisecond
-	t.Cleanup(func() { bundleBusyLimit = limit })
+// A cache export waits for a row that never frees until its context ends:
+// the context is the only end of its waiting.
+func TestExportBundleWaitsUntilItsContextEnds(t *testing.T) {
+	t.Parallel()
 	ctx, c, srv := transferTestCache(t)
 	rows := busyBundleRows(t, ctx, c, srv)
 
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	err := c.ExportBundle(ctx, srv, []AnyResult{rows.first}, config.RefConfig{}, nil)
-	require.ErrorIs(t, err, ErrPersistStateNotReady)
-	require.NoError(t, ctx.Err(), "the export stopped at its limit, not at its context's end")
-	require.ErrorContains(t, err, "export bundle: 1 of 1 results left out")
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the export waited until its context ended")
 }
 
 // A cache export reads its results' records before it captures them, to

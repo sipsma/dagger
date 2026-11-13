@@ -47,17 +47,16 @@ type BundleWriter interface {
 // the remote cache's, can hold a row of the closure for a moment, and a
 // capture never waits for a row (WithExportedValues). So when a result's
 // closure reaches a row that's busy now, the export lets go of the capture,
-// waits, and captures again, until every result is captured, ctx ends, or
-// it has waited bundleBusyLimit in all. Its setup's own reads of the
-// results' records wait the same way. A result refused for any other
+// waits, and captures again, until every result is captured or ctx ends.
+// Its setup's own reads of the results' records wait the same way. A result refused for any other
 // reason, or one whose row stays busy until a later evaluation
 // (BusyBookkeeping), fails the export at once.
 func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results []AnyResult, cfg config.RefConfig, w BundleWriter) (rerr error) {
 	if len(results) == 0 {
 		return errors.New("export bundle: no results")
 	}
-	// Every read of a busy row, the setup's and the capture's, waits on one
-	// budget (bundleWait).
+	// Every read of a busy row, the setup's and the capture's, shares one
+	// backoff and one count of the pauses (bundleWait).
 	wait := &bundleWait{}
 	held, release, err := c.holdBundleRows(ctx, resolver, results, wait)
 	if err != nil {
@@ -113,10 +112,10 @@ func (c *Cache) ExportBundle(ctx context.Context, resolver TypeResolver, results
 	}
 }
 
-// bundleWait is an export's wait for busy rows. Every pause of one export,
-// in its setup's reads and in its capture, counts toward one limit,
-// bundleBusyLimit, and the work between pauses doesn't. Each pause is
-// logged: the log is where this export meeting another capture shows.
+// bundleWait is an export's wait for busy rows, in its setup's reads and in
+// its capture. Each pause is logged, and the export's log of its capture
+// after them gives their total: the log is where this export meeting
+// another capture shows.
 type bundleWait struct {
 	pause  time.Duration
 	waits  int
@@ -124,16 +123,12 @@ type bundleWait struct {
 }
 
 // wait pauses before the export tries again a read that err, a busy row's
-// error, refused. It returns nil once it has paused, or the error to fail
-// the export with: err once the limit would pass, or with ctx's cause when
-// ctx ends. attrs describe the busy read, for the log.
+// error, refused. It returns nil once it has paused, or, when ctx ends,
+// the error to fail the export with: err with ctx's cause. attrs describe
+// the busy read, for the log.
 func (w *bundleWait) wait(ctx context.Context, err error, attrs ...any) error {
 	if w.waits == 0 {
 		w.pause = bundleBusyPause
-	}
-	if w.waited+w.pause > bundleBusyLimit {
-		slog.Warn("export bundle: rows still busy, giving up", append(attrs, "error", err, "waits", w.waits, "waited", w.waited)...)
-		return err
 	}
 	w.waits++
 	slog.Info("export bundle: rows busy, reading again", append(attrs, "error", err, "pause", w.pause)...)
@@ -189,13 +184,6 @@ const (
 	bundleBusyPause    = 10 * time.Millisecond
 	maxBundleBusyPause = time.Second
 )
-
-// bundleBusyLimit is how long the export waits for busy results in all
-// before it fails, so that a row that never frees fails the export instead
-// of hanging it. The longest busy stretch seen was about a second: on a
-// remote-cache engine, the cache's own captures held rows for 86 to 364 ms,
-// and 156 rows one held were clear 975 ms later. Tests lower it.
-var bundleBusyLimit = 2 * time.Minute
 
 // leftOutOnly is the RootsLeftOutError err is when it is nothing more, such
 // as joined with the capture's release error: nil otherwise.
