@@ -542,6 +542,32 @@ func TestRemoteCacheAdapterExport(t *testing.T) {
 	require.Equal(t, 1, calls)
 }
 
+// An export asked with a bound sends the roots in order while their records
+// fit, and skips the first that would pass it and every root after it as
+// bound, in order, for the service to ask again at once: under a bound of
+// one record, the first root goes alone.
+func TestRemoteCacheAdapterExportStopsAtItsBound(t *testing.T) {
+	e := newAdapterTestEngine(t)
+	first, second, third := e.file(t, "first"), e.file(t, "second"), e.file(t, "third")
+	require.NoError(t, e.cache.Evaluate(e.ctx, first))
+	require.NoError(t, e.cache.Evaluate(e.ctx, second))
+	require.NoError(t, e.cache.Evaluate(e.ctx, third))
+	req := protocol.Export{Roots: []uint64{entryNumber(t, first), entryNumber(t, second), entryNumber(t, third)}, MaxRecords: 1}
+	calls := 0
+	err := e.adapter.Export(e.ctx, req, nil, func(ctx context.Context, exp remotecache.Export) error {
+		calls++
+		require.NotNil(t, exp.Bundle)
+		require.Equal(t, []uint64{entryNumber(t, first)}, bundleRoots(exp.Bundle))
+		require.Equal(t, []protocol.SkippedRoot{
+			{Number: entryNumber(t, second), Reason: protocol.SkipBound},
+			{Number: entryNumber(t, third), Reason: protocol.SkipBound},
+		}, exp.Skipped)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+}
+
 // An export sends as held rows the rows its known set knows, and hands on
 // the rows it carried; one that selects outputs holds those its parts don't
 // need, and sends the same parts as without them.
