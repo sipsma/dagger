@@ -123,6 +123,9 @@ type Adapter interface {
 	// Restored records what a restore did with one file, for the engine's
 	// stop event.
 	Restored(RestoreReport)
+	// SetRowFetcher sets where the cache fetches the records of rows a merge
+	// carried as identity alone: this connection while it lasts, nil after.
+	SetRowFetcher(dagql.RowFetcher)
 	// StartLookups starts queuing the cache's lookup misses for this
 	// connection, with nothing asked yet, and StopLookups stops it.
 	StartLookups()
