@@ -672,8 +672,8 @@ func TestWriteBehindBudgetNeverNamesATakenClassNumber(t *testing.T) {
 // An entry that leaves the store while the stored row of an entry that owned
 // it still names it takes that owner's rows with it in the same write, so
 // a store written one mark at a time never names an entry it doesn't hold:
-// here the dependency's mark comes first, and the root that depended on it
-// leaves after it.
+// here a root is replaced without its dependency, the dependency is
+// collected, and the dependency's mark comes first.
 func TestWriteBehindBudgetTakesALeavingEntrysOwners(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "cloud.db")
@@ -687,25 +687,26 @@ func TestWriteBehindBudgetTakesALeavingEntrysOwners(t *testing.T) {
 	reply, err := cloud.MergeValues(ctx, "cache-x", exportTestBundle(t, actx, a, r))
 	require.NoError(t, err)
 	root := reply.Imported()[0].ResultID
+	dep := storedPartTestDeps(cloud, root)[0]
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root with a dependency")
-	cloud.egraphMu.RLock()
-	var dep uint64
-	for id := range cloud.resultsByID[sharedResultID(root)].deps {
-		dep = uint64(id)
-	}
-	cloud.egraphMu.RUnlock()
-	require.NotZero(t, dep)
 
-	// The dependency is marked first, then both leave.
+	// Another engine has the root alone.
+	ectx, e, esrv := transferTestCache(t)
+	alone := exportTestBundle(t, ectx, e, persistedListTestResult(t, ectx, e, esrv, "wb-owner-root", &transferTestValue{Text: "root"}))
+
 	stored, _, err := cloud.SetStoredPart(ctx, dep, storedPruneTestPart("snapshot", map[string]int64{"wb-owner-base": 10}), 0)
 	require.NoError(t, err)
-	require.True(t, stored)
-	_, removed, _, err := cloud.removePrunedEdge(ctx, sharedResultID(root))
+	require.True(t, stored, "the dependency is marked first")
+	cloud.egraphMu.Lock()
+	cloud.resultsByID[sharedResultID(root)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	cloud.egraphMu.Unlock()
+	_, err = cloud.MergeValues(ctx, "cache-y", alone)
 	require.NoError(t, err)
-	require.True(t, removed)
+	require.Empty(t, storedPartTestDeps(cloud, root), "the root was replaced without its dependency")
 	_, _, err = cloud.CollectRemoteHoldings(ctx, cloud.ReleaseRemoteCache(ctx, "cache-x").Candidates)
 	require.NoError(t, err)
 	cloud.egraphMu.RLock()
+	require.NotNil(t, cloud.resultsByID[sharedResultID(root)], "the root stays")
 	require.Nil(t, cloud.resultsByID[sharedResultID(dep)], "the dependency is collected")
 	cloud.egraphMu.RUnlock()
 
