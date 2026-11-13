@@ -194,3 +194,35 @@ func findJSONKey(v gjson.Result, key string) gjson.Result {
 	walk(v)
 	return found
 }
+
+// A nested client, such as a module function's exec, can export cache entries
+// for results it holds, as engine-dev's image build does from its exec. The
+// local cache's entry listing and pruning stay with the main client.
+func (CacheSuite) TestCacheExportFromNestedClient(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+	nested := nestedDaggerContainer(t, c, "", "")
+
+	exported, err := nested.WithExec([]string{"sh", "-ec", `
+id=$(echo '{ directory { withNewFile(path: "f", contents: "` + rand.Text() + `") { id } } }' | dagger query | tr -d ' \n' | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+test -n "$id"
+echo "{ engine { localCache { _export(results: [\"$id\"]) { entries } } } }" | dagger query
+`}).Stdout(ctx)
+	require.NoError(t, err)
+	require.Contains(t, exported, dagql.BundleFile)
+
+	for _, query := range []string{
+		`{ engine { localCache { entrySet { diskSpaceBytes } } } }`,
+		`{ engine { localCache { prune } } }`,
+	} {
+		ran := nested.WithExec([]string{"dagger", "query"}, core.ContainerWithExecOpts{
+			Stdin:  query,
+			Expect: core.ReturnTypeAny,
+		})
+		code, err := ran.ExitCode(ctx)
+		require.NoError(t, err)
+		require.NotZero(t, code, query)
+		stderr, err := ran.Stderr(ctx)
+		require.NoError(t, err)
+		require.Contains(t, stderr, "only the main client", query)
+	}
+}
