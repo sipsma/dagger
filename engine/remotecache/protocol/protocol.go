@@ -537,6 +537,19 @@ type FetchedRows struct {
 	Missing []uint64          `json:"missing,omitempty"`
 }
 
+// MarshalJSON encodes an answer with its bundle's layers and addresses listed
+// once (dagql.ShareChainLayers), as a merge's are: a decode's child rows share
+// base layers. The engine's merge of it gives each output its chain back
+// (dagql.ResolveChainPrefixes).
+func (f FetchedRows) MarshalJSON() ([]byte, error) {
+	bundle, err := dagql.ShareChainLayers(f.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	type fetchedRows FetchedRows
+	return json.Marshal(fetchedRows{Bundle: bundle, Missing: f.Missing})
+}
+
 // Lookup asks the service for the Cloud's values of calls the engine's cache
 // missed. The service answers at once with what it will do for each, and
 // sends what it found as ordinary merges that name the lookup.
