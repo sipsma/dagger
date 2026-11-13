@@ -1368,6 +1368,12 @@ func recipeDigestForCachedResult(c *Cache, resultID sharedResultID, visiting map
 	frame := held.call
 	if frame == nil {
 		if held.body == nil {
+			// An entry an identity row made has no frame: its recipe is
+			// the Cloud entry's, which the row carried, and it is all a
+			// reference reads from it.
+			if res.identityRecipe != "" {
+				return res.identityRecipe, nil
+			}
 			return "", fmt.Errorf("missing result call frame for shared result %d", resultID)
 		}
 		// A blob-backed cache's entry holds its frame in its stored body,
