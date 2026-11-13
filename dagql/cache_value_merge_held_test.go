@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagger/dagger/dagql/call"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -348,6 +350,37 @@ func TestMergeHeldRowRefusals(t *testing.T) {
 	bctx, b, _ := transferTestCache(t)
 	_, err = b.MergeValues(bctx, cloudCacheID, bad)
 	require.ErrorContains(t, err, "held row carries a record")
+}
+
+// A held row may name its entry's extra digests; a full row may not, and one
+// that isn't a labelled digest is refused.
+func TestMergeHeldRowExtraDigests(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
+	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	require.NoError(t, err)
+	_, err = validateValueBundleShape(got.Bundle)
+	require.NoError(t, err)
+
+	withExtra := func(extra call.ExtraDigest, held bool) ValueBundle {
+		bad, err := cloneValueBundle(got.Bundle)
+		require.NoError(t, err)
+		for i := range bad.Values {
+			if (bad.Values[i].Held != "") == held {
+				bad.Values[i].Extra = []call.ExtraDigest{extra}
+			}
+		}
+		return bad
+	}
+	_, err = validateValueBundleShape(withExtra(call.ExtraDigest{Digest: digest.FromString("content"), Label: call.ExtraDigestLabelContent}, true))
+	require.NoError(t, err)
+	_, err = validateValueBundleShape(withExtra(call.ExtraDigest{Digest: "not a digest", Label: call.ExtraDigestLabelContent}, true))
+	require.ErrorContains(t, err, "is not a labelled digest")
+	_, err = validateValueBundleShape(withExtra(call.ExtraDigest{Digest: digest.FromString("content")}, true))
+	require.ErrorContains(t, err, "is not a labelled digest")
+	_, err = validateValueBundleShape(withExtra(call.ExtraDigest{Digest: digest.FromString("content"), Label: call.ExtraDigestLabelContent}, false))
+	require.ErrorContains(t, err, "extra digests on a row that isn't held")
 }
 
 // A bundle that carries a held row and a record of the same recipe is
