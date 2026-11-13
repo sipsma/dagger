@@ -148,7 +148,10 @@ func TestCloudRestoreKeepsEveryRecord(t *testing.T) {
 	r := persistedListTestResult(t, actx, a, asrv, "list-holder", &transferTestValue{Text: "holder"})
 	transferTestDependency(a, actx, r, list)
 	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0]
-	before, err := cloud.StoredBundle(ctx, []uint64{root}, time.Now().Unix())
+	// Every record goes as a root: a bundle carries its roots' records.
+	stored := storedTestEveryEntry(cloud)
+	require.Contains(t, stored, root)
+	before, err := cloud.StoredBundle(ctx, stored, time.Now().Unix())
 	require.NoError(t, err)
 	kinds := func(bundle ValueBundle) []string {
 		var out []string
@@ -163,7 +166,8 @@ func TestCloudRestoreKeepsEveryRecord(t *testing.T) {
 
 	ctx, cloud = storedPersistenceTestCloud(t, path)
 	defer func() { require.NoError(t, cloud.Close(ctx)) }()
-	after, err := cloud.StoredBundle(ctx, []uint64{root}, time.Now().Unix())
+	require.Equal(t, stored, storedTestEveryEntry(cloud))
+	after, err := cloud.StoredBundle(ctx, stored, time.Now().Unix())
 	require.NoError(t, err, "every record of the closure is still stored")
 	require.Equal(t, kinds(before.Bundle), kinds(after.Bundle))
 	require.JSONEq(t, string(mustTransferJSON(t, before.Bundle.Values)), string(mustTransferJSON(t, after.Bundle.Values)))
