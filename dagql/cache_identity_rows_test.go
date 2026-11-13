@@ -435,3 +435,57 @@ func TestFillingAFrameRowOwnsItsReferencesOnce(t *testing.T) {
 	require.False(t, rEntry.identityOnly, "R took its record")
 	require.Equal(t, before, pEntry.incomingOwnershipCount.Load(), "P is owned by R once, as before")
 }
+
+// An identity-only entry that takes a value raises the session requirements
+// of the entries already above it: a merged root whose identity-only
+// dependency turns out to hold a session's resource is refused to a session
+// that hasn't bound it.
+func TestFilledIdentityEntryRaisesItsDependentsRequirements(t *testing.T) {
+	t.Parallel()
+	ctx, a, srv := transferTestCache(t)
+	r := persistedListTestResult(t, ctx, a, srv, "req-r", String("r"))
+	sessCtx := currentEntryTestSession(ctx, a, "leaf-session")
+	handle := cacheTestVolatileSessionResourceHandle("identity-fill")
+	require.NoError(t, a.BindSessionResource(sessCtx, "leaf-session", "leaf-session-client", handle, "bound"))
+	leaf, err := cacheTestSessionResourceLeaf(sessCtx, handle)
+	require.NoError(t, err)
+	attached, err := a.AttachResult(sessCtx, "leaf-session", srv, leaf)
+	require.NoError(t, err)
+	require.NoError(t, a.AddExplicitDependency(sessCtx, r, attached, "test"))
+	leafNumber := uint64(attached.cacheSharedResult().id)
+	a.egraphMu.RLock()
+	leafFrame := attached.cacheSharedResult().loadResultCall()
+	a.egraphMu.RUnlock()
+	leafRecipe, err := leafFrame.deriveRecipeDigest(a)
+	require.NoError(t, err)
+
+	// R with its leaf as an identity row: the engine holds no value of it.
+	bundle := exportTestBundle(t, ctx, a, r)
+	var outputs []TransferredOutput
+	for i := range bundle.Values {
+		if bundle.Values[i].SenderNumber == leafNumber {
+			v := bundle.Values[i]
+			bundle.Values[i] = TransferredValue{Ordinal: v.Ordinal, SenderNumber: v.SenderNumber, Record: PersistedRecord{ResultID: v.SenderNumber}, Held: leafRecipe, ExpiresAtUnix: v.ExpiresAtUnix}
+			for _, out := range bundle.Outputs {
+				if out.Ordinal != v.Ordinal {
+					outputs = append(outputs, out)
+				}
+			}
+			bundle.Outputs = outputs
+		}
+	}
+	bctx, b, bsrv := transferTestCache(t)
+	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Committed)
+	rNumber := reply.Imported()[0].ResultID
+
+	// The leaf's record lands on its identity-only entry.
+	_, err = b.MergeFetchedRows(bctx, exportTestBundle(t, ctx, a, attached))
+	require.NoError(t, err)
+	require.NoError(t, cacheRequiredSessionResourcesError(b), "requirements follow the filled graph")
+	unbound := currentEntryTestSession(bctx, b, "unbound-session")
+	_, err = b.LoadResultByResultID(unbound, "unbound-session", bsrv, rNumber)
+	require.ErrorContains(t, err, "has not bound the session resources")
+	require.NoError(t, a.ReleaseSession(sessCtx, "leaf-session"))
+}
