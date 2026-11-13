@@ -2,7 +2,6 @@ package dagql
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -134,17 +133,18 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 			var added []*sharedResult
 			placed := true
 			for _, input := range add {
-				if err := c.storedBundleVisitLocked(build, input, map[sharedResultID]bool{}); err != nil {
-					// An input gone, or left with no value, between the
-					// read's pieces can't be placed, as in a single hold of
-					// that state: the call isn't sent, and what its walk
-					// added no root reaches (dropUnreachable).
-					cur := c.resultsByID[input.id]
-					if build.hold != nil && (errors.Is(err, errStoredEntryGone) || cur == nil || cur.noValueLocked() || cur.persistedEnvelope == nil) {
-						placed = false
-						break
-					}
+				// An input gone, or left with no value, between the read's
+				// pieces can't be placed, as in a single hold of that state:
+				// the call isn't sent, and what its walk added no root
+				// reaches (dropUnreachable). A walk that failed below it is
+				// walked once more, as a root's is (storedBundleRootLocked).
+				gone, noValue, err := c.storedBundleRootLocked(build, input, map[sharedResultID]bool{})
+				if err != nil {
 					return fmt.Errorf("call %s input: %w", chosen.id.recipe, err)
+				}
+				if gone || noValue {
+					placed = false
+					break
 				}
 				added = append(added, input)
 			}

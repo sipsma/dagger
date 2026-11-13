@@ -201,9 +201,8 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 				continue
 			}
 			walked = append(walked, res)
-			for _, entry := range build.order[start:] {
-				build.ordinary[entry.id] = true
-			}
+			// Only the build's own state: done with the lock let go.
+			hold.unlocked(func() { build.markOrdinary(res, start) })
 			if err := c.storedBundleCallsLocked(build, start); err != nil {
 				return nil, fmt.Errorf("stored bundle: %w", err)
 			}
@@ -272,6 +271,42 @@ func (c *Cache) storedBundleRootLocked(build *storedBundleBuild, res *sharedResu
 		}
 		res = cur
 	}
+}
+
+// markOrdinary marks the rows a root's walk added from start that its
+// closure reaches, through what each named when it was added
+// (storedEntrySnap.children), as the bundle's ordinary closure, which a
+// kept call's inputs may be placed on: a row the walk added for an entry
+// replaced between the read's pieces with a record that no longer names it
+// isn't one, and is dropped (dropUnreachable). It reads only the build's
+// own state, so it needs no lock. With no write during the build, every row
+// the walk added is reached.
+func (build *storedBundleBuild) markOrdinary(root *sharedResult, start int) {
+	if build.snaps == nil {
+		for _, entry := range build.order[start:] {
+			build.ordinary[entry.id] = true
+		}
+		return
+	}
+	added := make(map[sharedResultID]bool, len(build.order)-start)
+	for _, entry := range build.order[start:] {
+		added[entry.id] = true
+	}
+	reached := map[sharedResultID]bool{}
+	var reach func(id sharedResultID)
+	reach = func(id sharedResultID) {
+		if reached[id] || build.ordinals[id] == 0 {
+			return
+		}
+		reached[id] = true
+		if added[id] {
+			build.ordinary[id] = true
+		}
+		for _, child := range build.snaps[id].children {
+			reach(child)
+		}
+	}
+	reach(root.id)
 }
 
 // dropUnreachable drops from the build the rows no root reaches, through
