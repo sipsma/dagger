@@ -174,7 +174,7 @@ func TestWriteBehindOneMarkAtATime(t *testing.T) {
 	cloud.testWriteBehindBudget = 1
 	writeBehindTestScenario(t, ctx, cloud, func(step string) {
 		writeBehindTestDrain(t, ctx, cloud, step, func(WriteBehindReport) {
-			writeBehindTestRestorable(t, ctx, cloud, path, step)
+			writeBehindTestRestorable(t, ctx, path, step)
 		})
 		writeBehindTestMatchesWholeSave(t, ctx, cloud, step)
 	})
@@ -543,7 +543,7 @@ func writeBehindTestDrain(t *testing.T, ctx context.Context, c *Cache, step stri
 
 // writeBehindTestRestorable requires that the store, as it is now, restores
 // as it is: a copy of it opens with nothing wiped, as after a crash.
-func writeBehindTestRestorable(t *testing.T, ctx context.Context, c *Cache, path, step string) {
+func writeBehindTestRestorable(t *testing.T, ctx context.Context, path, step string) {
 	t.Helper()
 	dir := t.TempDir()
 	copyPath := filepath.Join(dir, "copy.db")
@@ -601,9 +601,9 @@ func TestWriteBehindBudgetedWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, report.More, "marks are left after the first budgeted write")
 	require.LessOrEqual(t, report.Entries, 2*2, "two marked entries, each with what joins the saved set with it")
-	writeBehindTestRestorable(t, ctx, cloud, path, "after the first budgeted write")
+	writeBehindTestRestorable(t, ctx, path, "after the first budgeted write")
 	writeBehindTestDrain(t, ctx, cloud, "four stored roots", func(WriteBehindReport) {
-		writeBehindTestRestorable(t, ctx, cloud, path, "during the drain")
+		writeBehindTestRestorable(t, ctx, path, "during the drain")
 	})
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "four stored roots, drained")
 
@@ -616,12 +616,12 @@ func TestWriteBehindBudgetedWrites(t *testing.T) {
 	report, err = cloud.WriteBehind(ctx)
 	require.NoError(t, err)
 	require.True(t, report.More, "the join's marks take more than one write")
-	writeBehindTestRestorable(t, ctx, cloud, path, "midway through a join's marks")
+	writeBehindTestRestorable(t, ctx, path, "midway through a join's marks")
 	_, removed, _, err := cloud.removePrunedEdge(ctx, sharedResultID(roots[3]))
 	require.NoError(t, err)
 	require.True(t, removed)
 	writeBehindTestDrain(t, ctx, cloud, "a prune between budgeted writes", func(WriteBehindReport) {
-		writeBehindTestRestorable(t, ctx, cloud, path, "draining after the prune")
+		writeBehindTestRestorable(t, ctx, path, "draining after the prune")
 	})
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the join and the prune, drained")
 }
@@ -664,7 +664,7 @@ func TestWriteBehindBudgetNeverNamesATakenClassNumber(t *testing.T) {
 	require.Positive(t, reused, "the new root's classes take numbers the old root's had")
 
 	writeBehindTestDrain(t, ctx, cloud, "a taken class number", func(WriteBehindReport) {
-		writeBehindTestRestorable(t, ctx, cloud, path, "draining after a class number is taken")
+		writeBehindTestRestorable(t, ctx, path, "draining after a class number is taken")
 	})
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a taken class number, drained")
 }
@@ -711,7 +711,7 @@ func TestWriteBehindBudgetTakesALeavingEntrysOwners(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 
 	writeBehindTestDrain(t, ctx, cloud, "a dependency leaving before its owner", func(WriteBehindReport) {
-		writeBehindTestRestorable(t, ctx, cloud, path, "draining a dependency leaving before its owner")
+		writeBehindTestRestorable(t, ctx, path, "draining a dependency leaving before its owner")
 	})
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a dependency leaving before its owner, drained")
 }
@@ -756,7 +756,7 @@ func TestWriteBehindBudgetNeverWritesADependencyCycle(t *testing.T) {
 	require.Equal(t, []uint64{root}, storedPartTestDeps(cloud, dep), "the dependency was replaced to depend on the root")
 
 	writeBehindTestDrain(t, ctx, cloud, "an inverted dependency", func(WriteBehindReport) {
-		writeBehindTestRestorable(t, ctx, cloud, path, "draining an inverted dependency")
+		writeBehindTestRestorable(t, ctx, path, "draining an inverted dependency")
 	})
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "an inverted dependency, drained")
 }
@@ -853,7 +853,7 @@ func TestWriteBehindBudgetNeverWritesACycleThroughAWrittenOwner(t *testing.T) {
 
 		cloud.testWriteBehindBudget = 2
 		writeBehindTestDrain(t, ctx, cloud, "a chain turned round", func(WriteBehindReport) {
-			writeBehindTestRestorable(t, ctx, cloud, path, "draining a chain turned round")
+			writeBehindTestRestorable(t, ctx, path, "draining a chain turned round")
 		})
 		writeBehindTestMatchesWholeSave(t, ctx, cloud, "a chain turned round, drained")
 		require.NoError(t, cloud.Close(ctx))
