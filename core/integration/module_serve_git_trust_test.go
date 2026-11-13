@@ -48,18 +48,38 @@ func (m *Caller) Nonce(ctx context.Context, address string) string {
 }
 `
 
-// serveGitTrustPrivateRepo serves a repository that requires credentials,
-// holding a hello module and another module, and returns its URL by IP so
-// nested sessions reach it as the engine does.
-func serveGitTrustPrivateRepo(ctx context.Context, t *testctx.T, c *dagger.Client) string {
+// serveGitTrustSessionSource adds to the caller functions whose results are
+// new on every run: one that serves nothing, and one that serves an address
+// and returns a directory it builds, which the engine holds as its own
+// result.
+const serveGitTrustSessionSource = `package main
+
+import (
+	"context"
+	"strconv"
+	"time"
+
+	"dagger/caller/internal/dagger"
+)
+
+func (m *Caller) Plain() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+func (m *Caller) NonceDir(ctx context.Context, address string) *dagger.Directory {
+	if err := dag.ServeModule(ctx, address); err != nil {
+		return dag.Directory().WithNewFile("nonce", err.Error())
+	}
+	return dag.Directory().WithNewFile("nonce", strconv.FormatInt(time.Now().UnixNano(), 10))
+}
+`
+
+// serveGitTrustRepo serves content as a repository anyone may read, and
+// returns its URL by IP so nested sessions reach it as the engine does.
+func serveGitTrustRepo(ctx context.Context, t *testctx.T, c *dagger.Client, content *core.Directory, token *core.Secret) string {
 	t.Helper()
 
-	content := core.NewQuery(c).Directory().
-		WithNewFile("hello/dagger-module.toml", serveModuleHelloManifest).
-		WithNewFile("hello/main.dang", serveModuleHelloSource).
-		WithNewFile("other/dagger-module.toml", strings.ReplaceAll(serveModuleHelloManifest, `"hello"`, `"other"`)).
-		WithNewFile("other/main.dang", strings.ReplaceAll(serveModuleHelloSource, "Hello", "Other"))
-	gitSrv, _ := gitSmartHTTPServiceDirAuth(ctx, t, c, "", makeGitDir(c, content, "main"), "", core.NewQuery(c).SetSecret("serve-git-trust", serveGitTrustToken))
+	gitSrv, _ := gitSmartHTTPServiceDirAuth(ctx, t, c, "", makeGitDir(c, content, "main"), "", token)
 	gitSrv, err := gitSrv.Start(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = gitSrv.Stop(ctx) })
@@ -71,6 +91,23 @@ func serveGitTrustPrivateRepo(ctx context.Context, t *testctx.T, c *dagger.Clien
 	fields := strings.Fields(out)
 	require.NotEmpty(t, fields, "unexpected getent output: %q", out)
 	return "http://" + fields[0] + "/repo.git"
+}
+
+// serveGitTrustPrivateRepo serves a repository that requires credentials,
+// holding a hello module and another module, and returns its URL by IP.
+func serveGitTrustPrivateRepo(ctx context.Context, t *testctx.T, c *dagger.Client) string {
+	t.Helper()
+
+	return serveGitTrustRepo(ctx, t, c, serveGitTrustRepoContent(c), core.NewQuery(c).SetSecret("serve-git-trust", serveGitTrustToken))
+}
+
+// serveGitTrustRepoContent holds a hello module and another module.
+func serveGitTrustRepoContent(c *dagger.Client) *core.Directory {
+	return core.NewQuery(c).Directory().
+		WithNewFile("hello/dagger-module.toml", serveModuleHelloManifest).
+		WithNewFile("hello/main.dang", serveModuleHelloSource).
+		WithNewFile("other/dagger-module.toml", strings.ReplaceAll(serveModuleHelloManifest, `"hello"`, `"other"`)).
+		WithNewFile("other/main.dang", strings.ReplaceAll(serveModuleHelloSource, "Hello", "Other"))
 }
 
 // serveGitTrustBase is a CLI container whose git credential helper answers
@@ -181,6 +218,68 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		out, err := goGitBase(t, connect(ctx, t)).With(withNonce).Stdout(ctx)
 		require.NoError(t, err)
 		require.Contains(t, out, "git authentication failed")
+	})
+
+	// sessionCaller is the caller with every function, declaring client, in
+	// a CLI whose git credentials answer for the private repository when
+	// withCredentials is set.
+	sessionCaller := func(c *dagger.Client, client string, withCredentials bool) *core.Container {
+		base := goGitBase(t, c)
+		if withCredentials {
+			base = serveGitTrustBase(t, c, repoURL)
+		}
+		return base.
+			WithNewFile("dagger.toml", serveGitTrustWorkspaceConfig(client)).
+			WithNewFile("modules/caller/dagger.json", serveTreeCallerManifest).
+			WithNewFile("modules/caller/main.go", serveGitTrustCallerSource).
+			WithNewFile("modules/caller/nonce.go", serveGitTrustNonceSource).
+			WithNewFile("modules/caller/session.go", serveGitTrustSessionSource)
+	}
+	stdout := func(ctr *core.Container) string {
+		out, err := ctr.Stdout(ctx)
+		require.NoError(t, err)
+		return out
+	}
+	nonceDir := func(address string) core.WithContainerFunc {
+		return daggerCallAt("caller", "nonce-dir", "--address="+address, "file", "--path=nonce", "contents")
+	}
+
+	t.Run("a call that borrows no credential hits in another session", func(ctx context.Context, t *testctx.T) {
+		// The declared client needs no credentials: serving it lends none.
+		publicURL := serveGitTrustRepo(ctx, t, c, serveGitTrustRepoContent(c), nil)
+		public := publicURL + "/hello"
+		run := func(c *dagger.Client) (string, string) {
+			ctr := sessionCaller(c, public, false)
+			return stdout(ctr.With(daggerCallAt("caller", "plain"))), stdout(ctr.With(daggerCallAt("caller", "nonce", "--address="+public)))
+		}
+		firstPlain, firstServed := run(connect(ctx, t))
+		require.Regexp(t, `^[0-9]+\s*$`, firstPlain)
+		require.Regexp(t, `^[0-9]+\s*$`, firstServed)
+		secondPlain, secondServed := run(connect(ctx, t))
+		require.Equal(t, firstPlain, secondPlain)
+		require.Equal(t, firstServed, secondServed)
+	})
+
+	t.Run("a result built with credentials misses in a session without them", func(ctx context.Context, t *testctx.T) {
+		// The directory is a result the engine holds under its own key, not
+		// only under the function's.
+		first := stdout(sessionCaller(connect(ctx, t), hello, true).With(nonceDir(hello)))
+		require.Regexp(t, `^[0-9]+\s*$`, first)
+
+		out := stdout(sessionCaller(connect(ctx, t), hello, false).With(nonceDir(hello)))
+		require.Contains(t, out, "git authentication failed")
+	})
+
+	t.Run("a result built with credentials hits in a session holding them", func(ctx context.Context, t *testctx.T) {
+		first := stdout(sessionCaller(connect(ctx, t), hello, true).With(daggerCallAt("caller", "nonce", "--address="+hello)))
+		require.Regexp(t, `^[0-9]+\s*$`, first)
+
+		// The second session holds the same token once serving the client
+		// has lent it; a session is served what requires a credential only
+		// after it holds it.
+		ctr := sessionCaller(connect(ctx, t), hello, true).With(daggerCallAt("caller", "attempt", "--address="+hello))
+		require.Equal(t, "served", stdout(ctr))
+		require.Equal(t, first, stdout(ctr.With(daggerCallAt("caller", "nonce", "--address="+hello))))
 	})
 
 	t.Run("a plain program keeps its own credentials", func(ctx context.Context, t *testctx.T) {

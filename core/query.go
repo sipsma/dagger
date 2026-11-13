@@ -79,6 +79,10 @@ type Server interface {
 	// If the current client is coming from a function, return the function call metadata
 	CurrentFunctionCall(context.Context) (*FunctionCall, error)
 
+	// The function call whose work the current client does: that of the
+	// client whose module ModuleParent returns.
+	ModuleParentFunctionCall(context.Context) (*FunctionCall, error)
+
 	// Return the modules being served to the current client
 	CurrentServedDeps(context.Context) (*SchemaBuilder, error)
 
