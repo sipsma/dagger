@@ -226,7 +226,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 	from, input, prep, restore, hold := p.from, p.input, p.prep, p.restore, p.hold
 	p.input, p.prep = ValueBundle{}, nil
 	prep.unretained = p.unretained
-	fetched := prep.fetched
+	fetched, fetchTargets := prep.fetched, prep.fetchTargets
 	if len(prep.stale) > 0 {
 		return c.staleMergeReply(prep.stale), nil
 	}
@@ -273,7 +273,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 				return MergeReply{}, err
 			}
 			prep.unretained = p.unretained
-			prep.fetched = fetched
+			prep.fetched, prep.fetchTargets = fetched, fetchTargets
 			if len(prep.stale) > 0 {
 				return c.staleMergeReply(prep.stale), nil
 			}
@@ -442,6 +442,10 @@ type valueMergePrep struct {
 	// entries named (MergeFetchedRows): its roots land on those entries,
 	// which their dependents own, so the merge retains none of them.
 	fetched bool
+	// fetchTargets maps a fetched row's sender number, the Cloud entry's,
+	// to the identity-only entry that asked for it, which the row lands on
+	// even when the recipe's current entry has become another.
+	fetchTargets map[uint64]sharedResultID
 	// payloadPreparing is the cache's testRecordPayloadPreparing.
 	payloadPreparing func(uint64) error
 	// prerelocated are the records relocated before the commit took
@@ -1231,6 +1235,11 @@ type mergeRow struct {
 	res *sharedResult
 	// expired marks an incoming record that had expired when merge decided.
 	expired bool
+	// fetchTarget is the identity-only entry a fetched row lands on, and
+	// filledIdentity marks a row whose record lands on an identity-only
+	// entry, whose dependents' session requirements then change.
+	fetchTarget    *sharedResult
+	filledIdentity bool
 	// keptExpired marks a kept value that had expired.
 	keptExpired bool
 	// rec and deps are the record relocated to the final numbers, for an
@@ -1361,6 +1370,9 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 	}
 	for _, row := range commit.rows {
 		if b := best[row.plan.recipe.String()]; b == row {
+			if id, ok := prep.fetchTargets[row.value.SenderNumber]; ok && row.value.Held == "" {
+				row.fetchTarget = c.resultsByID[id]
+			}
 			c.decideMergeRowLocked(row, now, sharedResultID(prep.firstID+row.ordinal-1))
 		}
 	}
@@ -1521,6 +1533,12 @@ func (commit *valueMergeCommit) installsLight() bool {
 func (c *Cache) decideMergeRowLocked(row *mergeRow, now int64, fresh sharedResultID) {
 	cur := c.currentEntryForRecipeLocked(row.plan.recipe)
 	row.target = cur
+	if t := row.fetchTarget; t != nil && t.identityOnly {
+		// The identity-only entry that asked for this record takes it,
+		// whatever the recipe's current entry is now.
+		row.target, row.action, row.res, row.filledIdentity = t, mergeStore, t, true
+		return
+	}
 	if row.value.Held != "" && !c.blobBacked {
 		// A held row lands on the engine's value of its recipe, or on the
 		// entry an earlier identity row made; otherwise it makes one.
@@ -1541,7 +1559,7 @@ func (c *Cache) decideMergeRowLocked(row *mergeRow, now int64, fresh sharedResul
 	case cur == nil:
 		row.action, row.res = mergeCreate, &sharedResult{id: fresh}
 	case cur.noValueLocked():
-		row.action, row.res = mergeStore, cur
+		row.action, row.res, row.filledIdentity = mergeStore, cur, cur.identityOnly
 	case !c.resultExpiredAtLocked(cur, now):
 		row.action, row.res = mergeKeep, cur
 	case row.expired:
@@ -2069,6 +2087,15 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			errs = errors.Join(errs, err)
 		}
 	}
+	// An identity-only entry that took a value can change the requirements
+	// of the entries that already depended on it: they cascade upward.
+	var filled []*sharedResult
+	for _, row := range commit.rows {
+		if row.filledIdentity {
+			filled = append(filled, row.res)
+		}
+	}
+	errs = errors.Join(errs, c.cascadeRequiredSessionResourcesLocked(filled))
 
 	// Identity, and the sender's holding.
 	c.applyMergedIdentitiesLocked(ctx, commit, &change)
