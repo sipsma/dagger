@@ -222,9 +222,18 @@ func busyForNow(roots []LeftOutRoot) bool {
 }
 
 // writeBundle writes a bundle from values, every root captured, and then
-// each blob its outputs' chains name, once each.
+// each blob its outputs' chains name, once each. Its records carry none of
+// their offers: on an engine with the remote cache, a row the Cloud offered
+// a part of holds the Cloud's offer, with the Cloud's addresses and renewal
+// key, which only that engine can use. The bundle carries what the engine
+// holds, as on an engine with no remote cache: a part the engine installed
+// goes as an output, and one it was only offered was never needed.
 func writeBundle(ctx context.Context, values *ExportedValues, w BundleWriter) error {
 	bundle := values.Bundle
+	bundle.Values = slices.Clone(bundle.Values)
+	for i := range bundle.Values {
+		bundle.Values[i].Record.Envelope.PendingOffers = nil
+	}
 	address := func(addresses map[digest.Digest]BlobAddress, layers []snapshots.ExportLayer) map[digest.Digest]BlobAddress {
 		if addresses == nil {
 			addresses = map[digest.Digest]BlobAddress{}
