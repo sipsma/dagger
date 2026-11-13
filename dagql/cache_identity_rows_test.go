@@ -170,7 +170,7 @@ func TestIdentityEntrySavedAndRestored(t *testing.T) {
 	require.Contains(t, rEntry.deps, pEntry.id)
 	require.True(t, pEntry.identityOnly)
 	require.Equal(t, pRecipe, pEntry.identityRecipe)
-	require.Nil(t, b.servableCandidateLocked(pEntry.id, time.Now().Unix()))
+	require.Nil(t, b.servableCandidateLocked(pEntry.id, time.Now().Unix(), nil))
 	key, h := pEntry.cloudHoldingLocked()
 	require.NotNil(t, h)
 	require.Equal(t, p, key.Number)
