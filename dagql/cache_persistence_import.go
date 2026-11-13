@@ -162,6 +162,27 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 
 			frame := row.frame
+			if env.IdentityRecipe != "" {
+				// An identity-only entry: its recipe, its class and its
+				// Cloud holding, no value and no frame.
+				res := &sharedResult{
+					id:                 resultID,
+					imported:           true,
+					identityOnly:       true,
+					identityRecipe:     env.IdentityRecipe,
+					expiresAtUnix:      row.ExpiresAtUnix,
+					replacements:       uint64(row.Replacements),
+					createdAtUnixNano:  row.CreatedAtUnixNano,
+					lastUsedAtUnixNano: row.LastUsedAtUnixNano,
+					description:        row.Description,
+					recordType:         row.RecordType,
+				}
+				if row.CloudHoldingNumber != 0 {
+					res.noteCloudCopyLocked(uint64(row.CloudHoldingNumber), row.CloudHoldingStored, row.CloudHoldingExpiresAtUnix)
+				}
+				c.putResultLocked(res)
+				continue
+			}
 			if frame == nil {
 				return fmt.Errorf("import result %d: empty call_frame_json", resultID)
 			}

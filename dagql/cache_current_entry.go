@@ -259,6 +259,10 @@ func (c *Cache) indexRestoredEntries(indexed map[sharedResultID]struct{}) error 
 	recipes := make([]digest.Digest, len(rows))
 	for i, res := range rows {
 		frame := res.loadResultCall()
+		if frame == nil && res.identityRecipe != "" {
+			recipes[i] = res.identityRecipe
+			continue
+		}
 		if frame == nil {
 			return fmt.Errorf("index restored result %d: missing call frame", res.id)
 		}
