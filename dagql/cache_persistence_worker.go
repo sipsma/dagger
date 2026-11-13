@@ -17,11 +17,12 @@ import (
 // same save as Close's, the closure of the stored roots in one transaction,
 // with each value's stored parts. A crash of the process during a save keeps
 // the previous one, and a blob-backed cache restores the last save however
-// its process ended (NewCache). Its store is written with synchronous=NORMAL
+// its process ended (NewCache). Its store is written with synchronous=FULL
 // (prepareCacheDBs), so an operating-system crash or a power loss leaves it
-// whole too, though it can lose the latest save. Only a blob-backed cache
-// checkpoints while it runs: it never decodes a value, so its save copies
-// stored records as they are.
+// whole too, as of its last commit. Only a blob-backed cache checkpoints
+// while it runs: it never decodes a value, so its save copies stored records
+// as they are. It writes the whole cache; WriteBehind writes what changed,
+// and a Checkpoint leaves the writer behind going on from what it saved.
 //
 // SQLite writes a save to the write-ahead log first, so the log grows to
 // about the store's size, and SQLite then reuses the file without shrinking
@@ -57,6 +58,22 @@ func (c *Cache) Checkpoint(ctx context.Context) error {
 	return nil
 }
 
+// persistOnClose saves the cache as it closes: an engine's whole, a
+// blob-backed cache's by a last write behind. Close runs it once nothing
+// else uses the cache.
+func (c *Cache) persistOnClose(ctx context.Context) error {
+	if !c.blobBacked {
+		return c.persistCurrentState(ctx)
+	}
+	if c.sqlDB == nil || c.pdb == nil {
+		return nil
+	}
+	c.checkpointMu.Lock()
+	defer c.checkpointMu.Unlock()
+	_, err := c.writeBehind(ctx)
+	return err
+}
+
 func (c *Cache) persistCurrentState(ctx context.Context) error {
 	if c.sqlDB == nil || c.pdb == nil {
 		return nil
@@ -69,6 +86,11 @@ func (c *Cache) persistCurrentState(ctx context.Context) error {
 	if err := c.applyPersistStateSnapshot(ctx, snapshot); err != nil {
 		return err
 	}
+	if snapshot.behind != nil {
+		// The store now holds the snapshot: the writer behind goes on from
+		// it, and the marks made since it wait for the next write.
+		c.behind = snapshot.behind
+	}
 	step := c.lockGraphAs(ctx, "dagql.persist")
 	c.persistedResults = len(snapshot.results)
 	c.unlockGraphAs(step)
@@ -77,10 +99,11 @@ func (c *Cache) persistCurrentState(ctx context.Context) error {
 
 // snapshotPersistState copies, under egraphMu for reading, what the save
 // writes. A Checkpoint runs it beside other readers, so it reads class roots
-// without compressing their paths, which writes. It doesn't encode results'
-// rows: applyPersistStateSnapshot encodes each as it writes it.
-//
-//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
+// without compressing their paths, which writes. Its rows come from the same
+// helpers the writer behind uses for one entry, class or term at a time
+// (persistResultRowsLocked, persistEqClassRowsLocked, persistTermRowsLocked),
+// so the two write the same rows. It doesn't encode results' rows:
+// applyPersistStateSnapshot encodes each as it writes it.
 func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot, error) {
 	var snapshot persistStateSnapshot
 
@@ -88,233 +111,69 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 	snapshot.nextResultID = c.nextSharedResultID
 	selectedResultIDs, persistedRootIDs := c.snapshotPersistedRootClosureLocked()
 
-	addEqClassID := func(eqClassIDs map[eqClassID]struct{}, eqID eqClassID) {
-		eqID = c.eqClassRootLocked(eqID)
-		if eqID == 0 {
-			return
-		}
-		eqClassIDs[eqID] = struct{}{}
-	}
-
 	eqClassIDs := make(map[eqClassID]struct{})
 	retainedOutputEqClassIDs := make(map[eqClassID]struct{})
 
-	resultIDs := make([]sharedResultID, 0, len(selectedResultIDs))
-	for resultID := range selectedResultIDs {
-		resultIDs = append(resultIDs, resultID)
-	}
-	slices.Sort(resultIDs)
+	resultIDs := slices.Sorted(maps.Keys(selectedResultIDs))
 	for _, resultID := range resultIDs {
 		res := c.resultsByID[resultID]
 		if res == nil {
 			continue
 		}
-
-		depIDs := make([]sharedResultID, 0, len(res.deps))
-		for depID := range res.deps {
-			depIDs = append(depIDs, depID)
-		}
-		slices.Sort(depIDs)
-		resultDeps := make([]persistdb.MirrorResultDep, 0, len(depIDs))
-		for _, depID := range depIDs {
-			if _, selected := selectedResultIDs[depID]; !selected {
-				c.runlockGraphAs(step)
-				return persistStateSnapshot{}, fmt.Errorf("persist result %d: dependency %d is outside persisted root closure", resultID, depID)
-			}
-			resultDeps = append(resultDeps, persistdb.MirrorResultDep{
-				ParentResultID: int64(resultID),
-				DepResultID:    int64(depID),
-			})
-		}
-
-		outputEqClasses := c.outputEqClassRootsLocked(resultID)
-		outputEqIDs := make([]eqClassID, 0, len(outputEqClasses))
-		for outputEqID := range outputEqClasses {
-			outputEqID = c.eqClassRootLocked(outputEqID)
-			if outputEqID == 0 {
-				continue
-			}
-			retainedOutputEqClassIDs[outputEqID] = struct{}{}
-			addEqClassID(eqClassIDs, outputEqID)
-			outputEqIDs = append(outputEqIDs, outputEqID)
-		}
-		slices.Sort(outputEqIDs)
-		for _, outputEqID := range outputEqIDs {
-			snapshot.resultOutputEqClasses = append(snapshot.resultOutputEqClasses, persistdb.MirrorResultOutputEqClass{
-				ResultID:  int64(resultID),
-				EqClassID: int64(outputEqID),
-			})
-		}
-
-		offers, err := res.pendingOffersLocked()
+		rows, err := c.persistResultRowsLocked(res, func(id sharedResultID) bool {
+			_, selected := selectedResultIDs[id]
+			return selected
+		})
 		if err != nil {
 			c.runlockGraphAs(step)
 			return persistStateSnapshot{}, err
 		}
-		cloudKey, cloud := res.cloudHoldingLocked()
-		var cloudStored bool
-		var cloudExpiresAtUnix int64
-		if cloud != nil {
-			cloudStored = !cloud.unstored
-			cloudExpiresAtUnix = cloud.expiresAtUnix
+		for _, row := range rows.outputs {
+			eqID := eqClassID(row.EqClassID)
+			retainedOutputEqClassIDs[eqID] = struct{}{}
+			eqClassIDs[eqID] = struct{}{}
 		}
-		payload := res.loadPayloadState()
-		if payload.snapshotLinkIntent != nil {
-			payload.snapshotOwnerLinks = cloneSnapshotRefLinks(payload.snapshotLinkIntent.Links)
-		}
-		snapshot.results = append(snapshot.results, persistResultSnapshot{
-			resultID:              resultID,
-			imported:              res.imported,
-			persistDeclined:       res.persistDeclined,
-			boundSession:          res.boundSession,
-			pendingOffers:         offers,
-			storedParts:           res.storedPartsLocked(),
-			frame:                 res.loadResultCall().clone(),
-			self:                  payload.self,
-			isObject:              payload.isObject,
-			hasValue:              payload.hasValue,
-			sessionResourceHandle: res.sessionResourceHandle,
-			persistedEnvelope:     payload.persistedEnvelope,
-			stored:                payload.stored,
-			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
-			row: persistdb.MirrorResult{
-				ID:                        int64(resultID),
-				ExpiresAtUnix:             res.expiresAtUnix,
-				Replacements:              int64(res.replacements),
-				Indexed:                   len(res.recipeKeys) > 0,
-				CloudHoldingNumber:        int64(cloudKey.Number),
-				CloudHoldingStored:        cloudStored,
-				CloudHoldingExpiresAtUnix: cloudExpiresAtUnix,
-				CreatedAtUnixNano:         payload.createdAtUnixNano,
-				LastUsedAtUnixNano:        payload.lastUsedAtUnixNano,
-				RecordType:                res.recordType,
-				Description:               res.description,
-			},
-			resultDeps: resultDeps,
-		})
+		snapshot.resultOutputEqClasses = append(snapshot.resultOutputEqClasses, rows.outputs...)
+		snapshot.results = append(snapshot.results, rows.result)
+		snapshot.resultCalls = append(snapshot.resultCalls, rows.calls...)
+		snapshot.resultTaught = append(snapshot.resultTaught, rows.taught...)
 	}
 
-	termIDs := make([]egraphTermID, 0, len(c.egraphTerms))
-	for termID := range c.egraphTerms {
-		termIDs = append(termIDs, termID)
-	}
-	slices.Sort(termIDs)
+	termIDs := slices.Sorted(maps.Keys(c.egraphTerms))
 	for _, termID := range termIDs {
 		term := c.egraphTerms[termID]
 		if term == nil {
 			continue
 		}
-		outputEqID := c.eqClassRootLocked(term.outputEqID)
-		if _, retained := retainedOutputEqClassIDs[outputEqID]; !retained {
+		if _, retained := retainedOutputEqClassIDs[c.eqClassRootLocked(term.outputEqID)]; !retained {
 			continue
 		}
-		addEqClassID(eqClassIDs, outputEqID)
-		inputProvenance := c.termInputProvenance[termID]
-		if len(inputProvenance) != len(term.inputEqIDs) {
+		rows, err := c.persistTermRowsLocked(termID, term)
+		if err != nil {
 			c.runlockGraphAs(step)
-			return persistStateSnapshot{}, fmt.Errorf("persist term %d: input provenance len %d does not match input eq IDs len %d", termID, len(inputProvenance), len(term.inputEqIDs))
+			return persistStateSnapshot{}, err
 		}
-		inputEqIDs := make([]eqClassID, len(term.inputEqIDs))
-		copy(inputEqIDs, term.inputEqIDs)
-		for i, inputEqID := range inputEqIDs {
-			inputEqID = c.eqClassRootLocked(inputEqID)
-			inputEqIDs[i] = inputEqID
-			addEqClassID(eqClassIDs, inputEqID)
-			snapshot.termInputs = append(snapshot.termInputs, persistdb.MirrorTermInput{
-				TermID:         int64(termID),
-				Position:       int64(i),
-				InputEqClassID: int64(inputEqID),
-				ProvenanceKind: string(inputProvenance[i]),
-			})
+		eqClassIDs[eqClassID(rows.term.OutputEqClassID)] = struct{}{}
+		for _, input := range rows.inputs {
+			if input.InputEqClassID != 0 {
+				eqClassIDs[eqClassID(input.InputEqClassID)] = struct{}{}
+			}
 		}
-		snapshot.terms = append(snapshot.terms, persistdb.MirrorTerm{
-			ID:              int64(termID),
-			SelfDigest:      term.selfDigest.String(),
-			TermDigest:      calcEgraphTermDigest(term.selfDigest, inputEqIDs),
-			OutputEqClassID: int64(outputEqID),
-		})
+		snapshot.terms = append(snapshot.terms, rows.term)
+		snapshot.termInputs = append(snapshot.termInputs, rows.inputs...)
 	}
 
-	for _, resultID := range resultIDs {
-		res := c.resultsByID[resultID]
-		if res == nil {
-			continue
-		}
-		for _, request := range slices.Sorted(maps.Keys(res.calls)) {
-			snapshot.resultCalls = append(snapshot.resultCalls, persistdb.MirrorResultCall{
-				ResultID:      int64(resultID),
-				RequestDigest: request.String(),
-				Call:          res.calls[request].encoded,
-			})
-		}
-		for i, taught := range res.taught {
-			snapshot.resultTaught = append(snapshot.resultTaught, persistdb.MirrorResultTaught{
-				ResultID: int64(resultID),
-				Position: int64(i),
-				Digest:   taught.String(),
-				Given:    i < res.taughtGiven,
-			})
-		}
+	for _, resultID := range slices.Sorted(maps.Keys(persistedRootIDs)) {
+		snapshot.persistedEdges = append(snapshot.persistedEdges, c.persistEdgeRowLocked(resultID))
 	}
 
-	persistedResultIDs := make([]sharedResultID, 0, len(persistedRootIDs))
-	for resultID := range persistedRootIDs {
-		persistedResultIDs = append(persistedResultIDs, resultID)
+	for _, eqID := range slices.Sorted(maps.Keys(eqClassIDs)) {
+		class, digests := c.persistEqClassRowsLocked(eqID)
+		snapshot.eqClasses = append(snapshot.eqClasses, class)
+		snapshot.eqClassDigests = append(snapshot.eqClassDigests, digests...)
 	}
-	slices.Sort(persistedResultIDs)
-	for _, resultID := range persistedResultIDs {
-		edge := c.persistedEdgesByResult[resultID]
-		snapshot.persistedEdges = append(snapshot.persistedEdges, persistdb.MirrorPersistedEdge{
-			ResultID:          int64(resultID),
-			CreatedAtUnixNano: edge.createdAtUnixNano,
-			ExpiresAtUnix:     edge.expiresAtUnix,
-			Unpruneable:       edge.unpruneable,
-		})
-	}
-
-	eqIDs := make([]eqClassID, 0, len(eqClassIDs))
-	for eqID := range eqClassIDs {
-		eqIDs = append(eqIDs, eqID)
-	}
-	slices.Sort(eqIDs)
-	for _, eqID := range eqIDs {
-		snapshot.eqClasses = append(snapshot.eqClasses, persistdb.MirrorEqClass{ID: int64(eqID)})
-
-		digestRows := make(map[string]persistdb.MirrorEqClassDigest, len(c.eqClassToDigests[eqID]))
-		for dig := range c.eqClassToDigests[eqID] {
-			if dig == "" {
-				continue
-			}
-			digestRows[dig+"\x00"] = persistdb.MirrorEqClassDigest{
-				EqClassID: int64(eqID),
-				Digest:    dig,
-				Label:     "",
-			}
-		}
-		for extra := range c.eqClassExtraDigests[eqID] {
-			if extra.Digest == "" {
-				continue
-			}
-			dig := extra.Digest.String()
-			digestRows[dig+"\x00"] = persistdb.MirrorEqClassDigest{
-				EqClassID: int64(eqID),
-				Digest:    dig,
-				Label:     "",
-			}
-			digestRows[dig+"\x01"+extra.Label] = persistdb.MirrorEqClassDigest{
-				EqClassID: int64(eqID),
-				Digest:    dig,
-				Label:     extra.Label,
-			}
-		}
-		rowKeys := make([]string, 0, len(digestRows))
-		for key := range digestRows {
-			rowKeys = append(rowKeys, key)
-		}
-		slices.Sort(rowKeys)
-		for _, key := range rowKeys {
-			snapshot.eqClassDigests = append(snapshot.eqClassDigests, digestRows[key])
-		}
+	if c.blobBacked {
+		snapshot.behind = c.newWriteBehindStateLocked(selectedResultIDs, persistedRootIDs)
 	}
 
 	c.runlockGraphAs(step)
@@ -350,6 +209,201 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 	}
 
 	return snapshot, nil
+}
+
+// persistResultRows are the rows a save writes for one entry, but its
+// edge's: its result row (encoded later, encodePersistedResultRow), with its
+// dependencies, its output classes and its kept calls.
+type persistResultRows struct {
+	result  persistResultSnapshot
+	outputs []persistdb.MirrorResultOutputEqClass
+	calls   []persistdb.MirrorResultCall
+	taught  []persistdb.MirrorResultTaught
+}
+
+// persistResultRowsLocked copies the rows a save writes for res. Each of its
+// dependencies must be saved too (saved), or it fails. Requires egraphMu for
+// reading.
+func (c *Cache) persistResultRowsLocked(res *sharedResult, saved func(sharedResultID) bool) (persistResultRows, error) {
+	resultID := res.id
+	var out persistResultRows
+
+	depIDs := slices.Sorted(maps.Keys(res.deps))
+	resultDeps := make([]persistdb.MirrorResultDep, 0, len(depIDs))
+	for _, depID := range depIDs {
+		if !saved(depID) {
+			return persistResultRows{}, fmt.Errorf("persist result %d: dependency %d is outside persisted root closure", resultID, depID)
+		}
+		resultDeps = append(resultDeps, persistdb.MirrorResultDep{
+			ParentResultID: int64(resultID),
+			DepResultID:    int64(depID),
+		})
+	}
+
+	outputEqIDs := make([]eqClassID, 0, len(c.resultOutputEqClasses[resultID]))
+	for outputEqID := range c.outputEqClassRootsLocked(resultID) {
+		outputEqID = c.eqClassRootLocked(outputEqID)
+		if outputEqID == 0 || slices.Contains(outputEqIDs, outputEqID) {
+			continue
+		}
+		outputEqIDs = append(outputEqIDs, outputEqID)
+	}
+	slices.Sort(outputEqIDs)
+	for _, outputEqID := range outputEqIDs {
+		out.outputs = append(out.outputs, persistdb.MirrorResultOutputEqClass{
+			ResultID:  int64(resultID),
+			EqClassID: int64(outputEqID),
+		})
+	}
+
+	offers, err := res.pendingOffersLocked()
+	if err != nil {
+		return persistResultRows{}, err
+	}
+	cloudKey, cloud := res.cloudHoldingLocked()
+	var cloudStored bool
+	var cloudExpiresAtUnix int64
+	if cloud != nil {
+		cloudStored = !cloud.unstored
+		cloudExpiresAtUnix = cloud.expiresAtUnix
+	}
+	payload := res.loadPayloadState()
+	if payload.snapshotLinkIntent != nil {
+		payload.snapshotOwnerLinks = cloneSnapshotRefLinks(payload.snapshotLinkIntent.Links)
+	}
+	out.result = persistResultSnapshot{
+		resultID:              resultID,
+		imported:              res.imported,
+		persistDeclined:       res.persistDeclined,
+		boundSession:          res.boundSession,
+		pendingOffers:         offers,
+		storedParts:           res.storedPartsLocked(),
+		frame:                 res.loadResultCall().clone(),
+		self:                  payload.self,
+		isObject:              payload.isObject,
+		hasValue:              payload.hasValue,
+		sessionResourceHandle: res.sessionResourceHandle,
+		persistedEnvelope:     payload.persistedEnvelope,
+		stored:                payload.stored,
+		snapshotOwnerLinks:    payload.snapshotOwnerLinks,
+		row: persistdb.MirrorResult{
+			ID:                        int64(resultID),
+			ExpiresAtUnix:             res.expiresAtUnix,
+			Replacements:              int64(res.replacements),
+			Indexed:                   len(res.recipeKeys) > 0,
+			CloudHoldingNumber:        int64(cloudKey.Number),
+			CloudHoldingStored:        cloudStored,
+			CloudHoldingExpiresAtUnix: cloudExpiresAtUnix,
+			CreatedAtUnixNano:         payload.createdAtUnixNano,
+			LastUsedAtUnixNano:        payload.lastUsedAtUnixNano,
+			RecordType:                res.recordType,
+			Description:               res.description,
+		},
+		resultDeps: resultDeps,
+	}
+
+	for _, request := range slices.Sorted(maps.Keys(res.calls)) {
+		out.calls = append(out.calls, persistdb.MirrorResultCall{
+			ResultID:      int64(resultID),
+			RequestDigest: request.String(),
+			Call:          res.calls[request].encoded,
+		})
+	}
+	for i, taught := range res.taught {
+		out.taught = append(out.taught, persistdb.MirrorResultTaught{
+			ResultID: int64(resultID),
+			Position: int64(i),
+			Digest:   taught.String(),
+			Given:    i < res.taughtGiven,
+		})
+	}
+	return out, nil
+}
+
+// persistEdgeRowLocked is the row a save writes for the persisted edge of
+// the entry numbered resultID. Requires egraphMu for reading.
+func (c *Cache) persistEdgeRowLocked(resultID sharedResultID) persistdb.MirrorPersistedEdge {
+	edge := c.persistedEdgesByResult[resultID]
+	return persistdb.MirrorPersistedEdge{
+		ResultID:          int64(resultID),
+		CreatedAtUnixNano: edge.createdAtUnixNano,
+		ExpiresAtUnix:     edge.expiresAtUnix,
+		Unpruneable:       edge.unpruneable,
+	}
+}
+
+// persistTermRows are the rows a save writes for one term: the term, with
+// its inputs' class roots.
+type persistTermRows struct {
+	term   persistdb.MirrorTerm
+	inputs []persistdb.MirrorTermInput
+}
+
+// persistTermRowsLocked copies the rows a save writes for term, naming its
+// classes by their roots. Requires egraphMu for reading.
+func (c *Cache) persistTermRowsLocked(termID egraphTermID, term *egraphTerm) (persistTermRows, error) {
+	var out persistTermRows
+	outputEqID := c.eqClassRootLocked(term.outputEqID)
+	inputProvenance := c.termInputProvenance[termID]
+	if len(inputProvenance) != len(term.inputEqIDs) {
+		return persistTermRows{}, fmt.Errorf("persist term %d: input provenance len %d does not match input eq IDs len %d", termID, len(inputProvenance), len(term.inputEqIDs))
+	}
+	inputEqIDs := make([]eqClassID, len(term.inputEqIDs))
+	for i, inputEqID := range term.inputEqIDs {
+		inputEqID = c.eqClassRootLocked(inputEqID)
+		inputEqIDs[i] = inputEqID
+		out.inputs = append(out.inputs, persistdb.MirrorTermInput{
+			TermID:         int64(termID),
+			Position:       int64(i),
+			InputEqClassID: int64(inputEqID),
+			ProvenanceKind: string(inputProvenance[i]),
+		})
+	}
+	out.term = persistdb.MirrorTerm{
+		ID:              int64(termID),
+		SelfDigest:      term.selfDigest.String(),
+		TermDigest:      calcEgraphTermDigest(term.selfDigest, inputEqIDs),
+		OutputEqClassID: int64(outputEqID),
+	}
+	return out, nil
+}
+
+// persistEqClassRowsLocked copies the rows a save writes for the class
+// rooted at eqID: the class and its digests, an extra digest both bare and
+// with its label. Requires egraphMu for reading.
+func (c *Cache) persistEqClassRowsLocked(eqID eqClassID) (persistdb.MirrorEqClass, []persistdb.MirrorEqClassDigest) {
+	digestRows := make(map[string]persistdb.MirrorEqClassDigest, len(c.eqClassToDigests[eqID]))
+	for dig := range c.eqClassToDigests[eqID] {
+		if dig == "" {
+			continue
+		}
+		digestRows[dig+"\x00"] = persistdb.MirrorEqClassDigest{
+			EqClassID: int64(eqID),
+			Digest:    dig,
+			Label:     "",
+		}
+	}
+	for extra := range c.eqClassExtraDigests[eqID] {
+		if extra.Digest == "" {
+			continue
+		}
+		dig := extra.Digest.String()
+		digestRows[dig+"\x00"] = persistdb.MirrorEqClassDigest{
+			EqClassID: int64(eqID),
+			Digest:    dig,
+			Label:     "",
+		}
+		digestRows[dig+"\x01"+extra.Label] = persistdb.MirrorEqClassDigest{
+			EqClassID: int64(eqID),
+			Digest:    dig,
+			Label:     extra.Label,
+		}
+	}
+	digests := make([]persistdb.MirrorEqClassDigest, 0, len(digestRows))
+	for _, key := range slices.Sorted(maps.Keys(digestRows)) {
+		digests = append(digests, digestRows[key])
+	}
+	return persistdb.MirrorEqClass{ID: int64(eqID)}, digests
 }
 
 // encodePersistedResultRow encodes one entry's saved row from its snapshot:

@@ -63,4 +63,7 @@ type persistStateSnapshot struct {
 	snapshotContentHashes []persistdb.MirrorSnapshotContentHash
 	importedLayerByBlob   []persistdb.MirrorImportedLayerBlobIndex
 	importedLayerByDiff   []persistdb.MirrorImportedLayerDiffIndex
+	// behind is the writer behind's state for a store that holds this
+	// snapshot, on a blob-backed cache.
+	behind *writeBehindState
 }

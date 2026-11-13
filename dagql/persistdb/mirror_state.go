@@ -147,6 +147,56 @@ func (q *Queries) ClearMirrorState(ctx context.Context) error {
 	return nil
 }
 
+// deleteMirrorResultRows are the statements that delete one entry's rows,
+// each by the entry's number: what a save writes for it, but the classes
+// and terms, which are a class's.
+var deleteMirrorResultRows = []string{
+	`DELETE FROM result_snapshot_links WHERE result_id = ?`,
+	`DELETE FROM persisted_edges WHERE result_id = ?`,
+	`DELETE FROM result_calls WHERE result_id = ?`,
+	`DELETE FROM result_deps WHERE parent_result_id = ?`,
+	`DELETE FROM result_output_eq_classes WHERE result_id = ?`,
+	`DELETE FROM results WHERE id = ?`,
+}
+
+// DeleteMirrorResultRows deletes the rows of the entry numbered id: its
+// result row, dependencies, output classes, kept calls, persisted edge and
+// snapshot links. Each delete reads its table's primary key.
+func (q *Queries) DeleteMirrorResultRows(ctx context.Context, id int64) error {
+	for _, stmt := range deleteMirrorResultRows {
+		if _, err := q.exec(ctx, nil, stmt, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteMirrorEqClassRows deletes the class numbered id and its digests.
+func (q *Queries) DeleteMirrorEqClassRows(ctx context.Context, id int64) error {
+	for _, stmt := range []string{
+		`DELETE FROM eq_class_digests WHERE eq_class_id = ?`,
+		`DELETE FROM eq_classes WHERE id = ?`,
+	} {
+		if _, err := q.exec(ctx, nil, stmt, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteMirrorTermRows deletes the term numbered id and its inputs.
+func (q *Queries) DeleteMirrorTermRows(ctx context.Context, id int64) error {
+	for _, stmt := range []string{
+		`DELETE FROM term_inputs WHERE term_id = ?`,
+		`DELETE FROM terms WHERE id = ?`,
+	} {
+		if _, err := q.exec(ctx, nil, stmt, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 const insertMirrorResult = `
 INSERT INTO results (
 	id, call_frame_json, self_payload, output_effect_ids_json,

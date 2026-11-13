@@ -169,10 +169,6 @@ type RemoteChange struct {
 	Recipes    []digest.Digest
 	Holdings   []HolderKey
 	Entries    []uint64
-	// Saved reports that the operation changed what a save of the cache
-	// writes, beyond the holdings, which aren't saved: a call kept on a
-	// stored entry, or the entry's expiry.
-	Saved bool
 	// recipes is the set of Recipes, which a merge's change can list by the
 	// thousand.
 	recipes map[digest.Digest]struct{}
@@ -438,7 +434,7 @@ func (c *Cache) indexRecipeLocked(recipe digest.Digest, res *sharedResult) {
 	}
 	c.entriesByRecipe[recipe] = res.id
 	res.recipeKeys = append(res.recipeKeys, recipe)
-	c.markEntryLocked(res.id)
+	c.markEntryLocked(res.id, markBoth)
 }
 
 // unindexRecipesLocked removes the recipe keys that still name res. Requires
@@ -512,7 +508,7 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		affected = true
 	}
 	c.teachRemoteIdentityLocked(ctx, entry, desc.Field, desc.Recipe, desc.Request, desc.ContentDigest, desc.Term)
-	change.Saved = c.keepCallLocked(entry, desc, kept)
+	c.keepCallLocked(entry, desc, kept)
 	if desc.TypeName != "" && desc.TypeName != handleString(h.typeName) {
 		h.typeName = internString(desc.TypeName)
 		c.markHoldingLocked(key)
@@ -525,7 +521,7 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		h.image = desc.Image
 		c.markHoldingLocked(key)
 	}
-	touchSharedResultLastUsed(entry, desc.UsedAtUnixNano)
+	c.touchLastUsed(entry, desc.UsedAtUnixNano)
 	candidates, changed := c.applyHeldValueStateLocked(ctx, state, key, entry, h, HeldValueState{
 		Replacements:  desc.Replacements,
 		Deps:          desc.Deps,
@@ -564,7 +560,7 @@ func (c *Cache) addHoldingLocked(ctx context.Context, state *remoteCacheState, k
 	state.graphVersion++
 	entry.putHolderLocked(key, h)
 	c.markHoldingLocked(key)
-	c.markEntryLocked(entry.id)
+	c.markEntryLocked(entry.id, markSelection)
 	state.entries[key.Number] = entry.id
 	// Each holding is one ownership unit of its entry.
 	c.incrementIncomingOwnershipLocked(ctx, entry)
@@ -1178,7 +1174,7 @@ func (c *Cache) removeHoldingLocked(ctx context.Context, state *remoteCacheState
 	entry.deleteHolderLocked(key)
 	state.graphVersion++
 	c.markHoldingLocked(key)
-	c.markEntryLocked(entry.id)
+	c.markEntryLocked(entry.id, markSelection)
 	delete(state.entries, key.Number)
 	state.holdings--
 	var deps []HolderKey
@@ -1497,6 +1493,7 @@ func (c *Cache) writeRemoteIdentityLocked(ctx context.Context, entry *sharedResu
 	c.addResultOutputEqClassLocked(entry.id, outputEqID)
 	if len(extras) > 0 {
 		outputEqID = c.findEqClassLocked(outputEqID)
+		c.markSavedClassLocked(outputEqID)
 		classExtras := c.eqClassExtraDigests[outputEqID]
 		if classExtras == nil {
 			classExtras = make(map[call.ExtraDigest]struct{})
