@@ -492,3 +492,17 @@ func TestWriteBehindFollowsATermsProvenance(t *testing.T) {
 	cloud.egraphMu.Unlock()
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the term's provenance changed")
 }
+
+// A taught content digest replaces an entry's call frame, held in its body
+// once compressed: the write behind writes the new frame, as a whole save
+// does.
+func TestWriteBehindFollowsATaughtContentDigest(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	root := storedPruneTestRoot(t, ctx, cloud, "wb-taught")
+	storedTestCompress(cloud)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root, compressed")
+	require.NoError(t, cloud.TeachContentDigest(ctx, Result[Typed]{shared: storedBundleTestEntry(cloud, root)}, testDigest("wb-taught-content")))
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a content digest taught")
+}
