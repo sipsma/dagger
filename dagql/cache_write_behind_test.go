@@ -67,6 +67,13 @@ func writeBehindTestTables(t *testing.T, ctx context.Context, c *Cache) map[stri
 func writeBehindTestMatchesWholeSave(t *testing.T, ctx context.Context, c *Cache, step string) {
 	t.Helper()
 	writeBehindTestSettle(t, c, step)
+	writeBehindTestMatchesWholeSaveNow(t, ctx, c, step)
+}
+
+// writeBehindTestMatchesWholeSaveNow is writeBehindTestMatchesWholeSave
+// without waiting for the body worker, for a test that holds it.
+func writeBehindTestMatchesWholeSaveNow(t *testing.T, ctx context.Context, c *Cache, step string) {
+	t.Helper()
 	writeBehindTestDrain(t, ctx, c, step, nil)
 	behind := writeBehindTestTables(t, ctx, c)
 	require.NoError(t, c.Checkpoint(ctx), step)
@@ -918,7 +925,7 @@ func TestWriteBehindFollowsTaughtContentOnTheCloud(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the body worker never gave the frame its taught content digest")
 	}
-	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a taught content digest, not yet given")
+	writeBehindTestMatchesWholeSaveNow(t, ctx, cloud, "a taught content digest, not yet given")
 	letGo()
 	require.Eventually(t, func() bool {
 		cloud.egraphMu.RLock()
