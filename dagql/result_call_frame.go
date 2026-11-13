@@ -1860,6 +1860,15 @@ func (frame *ResultCall) resolveRefRecipeID(ctx context.Context, c *Cache, ref *
 		refFrame = c.resultCallByResultID(refID)
 	}
 	if refFrame == nil {
+		// A row a merge carried as identity alone: the frame of an entry
+		// of its class, or of the Cloud's record of it, fetched.
+		identityFrame, err := c.resolveIdentityFrame(ctx, refID)
+		if err != nil {
+			return nil, err
+		}
+		refFrame = identityFrame
+	}
+	if refFrame == nil {
 		c.traceRecipeIDRebuildFailed(ctx, frame, ref, "missing_result_call_frame")
 		return nil, fmt.Errorf("missing result call frame for shared result %d", ref.ResultID)
 	}

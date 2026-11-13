@@ -716,6 +716,10 @@ const (
 	// CacheMissRequirementsGrewAttr: the hit's session-resource requirements
 	// grew after it was chosen, beyond what this session has loaded.
 	CacheMissRequirementsGrewAttr = "dagger.io/cache.miss.requirements_grew"
+	// CacheMissRowUnavailableAttr: the hit's value needed a row a merge
+	// carried as identity alone, which was neither on the engine nor
+	// fetched in time, so the call ran.
+	CacheMissRowUnavailableAttr = "dagger.io/cache.miss.row_unavailable"
 
 	// Remote candidates a miss lost, each "true", executed misses only,
 	// absent otherwise. A remote candidate is a value a Cloud merge installed
