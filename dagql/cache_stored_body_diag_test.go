@@ -119,5 +119,20 @@ func TestStoredBodyDiagSavedStore(t *testing.T) {
 	n := int64(len(restored.resultsByID))
 	restored.egraphMu.RUnlock()
 	t.Logf("DIAG restore compressed: %d entries in %s; heap %d bytes, %d a record", n, took, h, h/n)
-	require.NoError(t, restored.CloseDiscardingPersistence())
+	// What the decoded call frames hold: the heap each gives back when no
+	// entry keeps it.
+	restored.closeStoredBodies()
+	restored.egraphMu.Lock()
+	for _, res := range restored.resultsByID {
+		res.resultCallMu.Lock()
+		res.resultCall = nil
+		res.resultCallMu.Unlock()
+		if res.stored != nil {
+			res.stored.call = nil
+		}
+	}
+	restored.egraphMu.Unlock()
+	without := heap() - base
+	t.Logf("DIAG heap without call frames: %d bytes, %d a record; frames held %d a record", without, without/n, (h-without)/n)
+	runtime.KeepAlive(restored)
 }
