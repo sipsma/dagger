@@ -128,7 +128,7 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	c.egraphMu.RUnlock()
 	if standIn != nil {
 		c.identityRows.resolvedLocally.Add(1)
-		return standIn, nil
+		return c.ownStandIn(ctx, res, standIn), nil
 	}
 	fail := func(err error) (*sharedResult, error) {
 		c.identityRows.fetchFailed.Add(1)
@@ -150,7 +150,7 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	if slices.Contains(missing, key.Number) || len(bundle.Values) == 0 {
 		return fail(fmt.Errorf("the Cloud no longer holds entry %d", key.Number))
 	}
-	if _, err := c.MergeFetchedRows(ctx, bundle); err != nil {
+	if _, err := c.mergeFetchedRowsInto(ctx, bundle, map[uint64]sharedResultID{key.Number: res.id}); err != nil {
 		return fail(err)
 	}
 	c.egraphMu.RLock()
@@ -162,7 +162,7 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	switch {
 	case landed:
 	case standIn != nil:
-		res = standIn
+		res = c.ownStandIn(ctx, res, standIn)
 	default:
 		return fail(fmt.Errorf("the fetched record of Cloud entry %d didn't land", key.Number))
 	}
@@ -173,6 +173,29 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 		}
 	}
 	return res, nil
+}
+
+// ownStandIn makes the identity-only entry res own the entry that stands in
+// for it, so that what owns res (the record whose value or frame needed it)
+// keeps the stand-in alive as long as it keeps res, though the stand-in's
+// own session releases it. It returns the stand-in.
+func (c *Cache) ownStandIn(ctx context.Context, res, standIn *sharedResult) *sharedResult {
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	defer c.egraphMu.Unlock()
+	if c.resultsByID[res.id] != res || c.resultsByID[standIn.id] != standIn {
+		return standIn
+	}
+	if _, ok := res.deps[standIn.id]; ok {
+		return standIn
+	}
+	if res.deps == nil {
+		res.deps = map[sharedResultID]struct{}{}
+	}
+	res.deps[standIn.id] = struct{}{}
+	c.rememberDependencyEdgeLocked(res, standIn)
+	c.incrementIncomingOwnershipLocked(ctx, standIn)
+	res.dependencyOwnershipRevision++
+	return standIn
 }
 
 // resolveIdentityFrame returns the call frame that stands for an
@@ -216,10 +239,44 @@ func (c *Cache) markRowUnavailable(ctx context.Context, res *sharedResult) {
 // lands on an entry with no value (mergeStore), and the merge retains none
 // of them, since those entries' dependents own them.
 func (c *Cache) MergeFetchedRows(ctx context.Context, bundle ValueBundle) (MergeReply, error) {
+	return c.mergeFetchedRowsInto(ctx, bundle, nil)
+}
+
+// mergeFetchedRowsInto is MergeFetchedRows, with each fetched row whose
+// sender number targets names landing on that identity-only entry.
+func (c *Cache) mergeFetchedRowsInto(ctx context.Context, bundle ValueBundle, targets map[uint64]sharedResultID) (MergeReply, error) {
 	p, err := c.PrepareValueMerge(ctx, cloudCacheID, bundle)
 	if err != nil {
 		return MergeReply{}, err
 	}
 	p.prep.fetched = true
+	p.prep.fetchTargets = targets
 	return c.CommitValueMerge(ctx, p)
+}
+
+// cascadeRequiredSessionResourcesLocked recomputes the session requirements
+// of each start entry and, where they change, of every entry above it, as an
+// explicit dependency added to a published entry does. Requires egraphMu for
+// writing.
+func (c *Cache) cascadeRequiredSessionResourcesLocked(start []*sharedResult) error {
+	queue := slices.Clone(start)
+	var errs error
+	for len(queue) > 0 {
+		res := queue[0]
+		queue = queue[1:]
+		changed, err := c.recomputeRequiredSessionResourcesLocked(res)
+		if err != nil {
+			errs = errors.Join(errs, err)
+			continue
+		}
+		if !changed || res.depParents == nil {
+			continue
+		}
+		for ancestorID := range res.depParents.Items() {
+			if ancestor := c.resultsByID[ancestorID]; ancestor != nil {
+				queue = append(queue, ancestor)
+			}
+		}
+	}
+	return errs
 }
