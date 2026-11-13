@@ -242,16 +242,16 @@ func TestOfferShape(t *testing.T) {
 // Every request has a reply type, and nothing else does.
 func TestReplyType(t *testing.T) {
 	for request, reply := range map[Type]Type{
-		TypeHello:  TypeWelcome,
-		TypeExport: TypeExported,
-		TypeUpload: TypeUploaded,
-		TypeMerge:  TypeMerged,
-		TypeOffer:  TypeOffered,
-		TypeRenew:  TypeRenewed,
-		TypeLookup: TypeLookedUp,
-		TypeOpen:   TypeOpened,
-		TypeSettle: TypeSettled,
-		TypeClaims: TypeClaimed,
+		TypeHello:     TypeWelcome,
+		TypeExport:    TypeExported,
+		TypeUpload:    TypeUploaded,
+		TypeMerge:     TypeMerged,
+		TypeOffer:     TypeOffered,
+		TypeRenew:     TypeRenewed,
+		TypeLookup:    TypeLookedUp,
+		TypeOpen:      TypeOpened,
+		TypeSettle:    TypeSettled,
+		TypeClaims:    TypeClaimed,
 		TypePush:      TypePushed,
 		TypeCheckRows: TypeCheckedRows,
 	} {
