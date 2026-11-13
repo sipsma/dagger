@@ -16,6 +16,10 @@ import "sync"
 type KnownRows struct {
 	mu   sync.Mutex
 	rows map[uint64]RowRevision
+	// refused are the held rows the recipient refused as stale. An
+	// identity-only row among them can't be sent in full, so an export
+	// that reaches it again is blocked there (refusedLocked).
+	refused map[uint64]bool
 }
 
 // RowRevision is an entry's revisions as an export captured it: its
@@ -75,8 +79,23 @@ func (k *KnownRows) Stale(rows ExportedRows, stale []uint64) {
 	for _, number := range rows.Held {
 		if named[number] {
 			delete(k.rows, number)
+			if k.refused == nil {
+				k.refused = map[uint64]bool{}
+			}
+			k.refused[number] = true
 		}
 	}
+}
+
+// refusedLocked reports whether the recipient refused res as a stale held
+// row over this connection. A nil KnownRows refused nothing.
+func (k *KnownRows) refusedLocked(res *sharedResult) bool {
+	if k == nil {
+		return false
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.refused[uint64(res.id)]
 }
 
 // knowsLocked reports whether the recipient merged res as it stands: an
