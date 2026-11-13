@@ -46,6 +46,9 @@ import (
 type changeMarks struct {
 	saveEntries []sharedResultID
 	saveClasses []eqClassID
+	// opened are the entries whose attachment opened (attachDepsWaitCh), for
+	// the save: until it closes cleanly, a whole save leaves them out.
+	opened []sharedResultID
 
 	// entries are marked as they are, and classes widened to their classes'
 	// entries when handed back.
@@ -106,6 +109,17 @@ func (c *Cache) markSavedClassLocked(id eqClassID) {
 		return
 	}
 	c.changes.saveClasses = append(c.changes.saveClasses, id)
+}
+
+// noteAttachmentOpenedLocked notes, for the save, that the attachment of the
+// entry numbered id opened: until it closes cleanly, a whole save leaves the
+// entry, and every saved entry that owns it, out
+// (snapshotPersistedRootClosureLocked). Requires egraphMu for writing.
+func (c *Cache) noteAttachmentOpenedLocked(id sharedResultID) {
+	if c.changes == nil || id == 0 {
+		return
+	}
+	c.changes.opened = append(c.changes.opened, id)
 }
 
 // markSavedTermLocked marks, for the save, the classes of term: its output,

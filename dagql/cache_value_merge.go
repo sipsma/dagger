@@ -1915,6 +1915,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			row.res.expiresAtUnix = row.value.ExpiresAtUnix
 			// The old value's release runs after the lock; until it has,
 			// readers wait on the entry's attachment.
+			c.noteAttachmentOpenedLocked(row.res.id)
 			row.res.attachDepsMu.Lock()
 			row.res.attachDepsWaitCh = make(chan struct{})
 			row.res.attachDepsErr = nil

@@ -389,6 +389,8 @@ func (c *Cache) mergeEqClassesNoRepairLocked(a, b eqClassID) (root eqClassID, ab
 		}
 		for resID := range srcResults {
 			dstResults[resID] = struct{}{}
+			// Each moved entry's saved output classes name the survivor now.
+			c.markEntryLocked(resID, markSave)
 			if outputEqClasses := c.resultOutputEqClasses[resID]; outputEqClasses != nil {
 				delete(outputEqClasses, rb)
 				outputEqClasses[ra] = struct{}{}
