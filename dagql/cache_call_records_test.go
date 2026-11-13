@@ -415,19 +415,22 @@ func TestCallRecordPrefersAnInputTheRecipientHolds(t *testing.T) {
 	require.Equal(t, encodedB, built.Bundle.Calls[0].Call)
 }
 
-// Keeping a call on a stored entry, or giving it a call's expiry, is a change
-// a save writes; a second report of the same call is not.
-func TestCallRecordReportsWhatASaveWrites(t *testing.T) {
+// A call kept on a stored entry is written behind, as a whole save writes
+// it, and a second report of the same call leaves the store so.
+func TestCallRecordIsWrittenBehind(t *testing.T) {
 	t.Parallel()
-	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	t.Cleanup(func() { require.NoError(t, cloud.Close(ctx)) })
 	test := newCallRecordTest(t, ctx, cloud)
 	key := HolderKey{Cache: "cache-a", Number: uint64(test.inner.cacheSharedResult().id)}
-	change, err := cloud.AttachRemoteHolding(ctx, key, test.span(t, true, 0))
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the stored entry")
+	_, err := cloud.AttachRemoteHolding(ctx, key, test.span(t, true, 0))
 	require.NoError(t, err)
-	require.True(t, change.Saved, "a new call")
-	change, err = cloud.AttachRemoteHolding(ctx, key, test.span(t, true, 0))
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a new call")
+	require.Len(t, writeBehindTestTables(t, ctx, cloud)["result_calls"], 1)
+	_, err = cloud.AttachRemoteHolding(ctx, key, test.span(t, true, 0))
 	require.NoError(t, err)
-	require.False(t, change.Saved, "the same call again")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the same call again")
 }
 
 // A call span with an expiry already past reports a call that has expired:
