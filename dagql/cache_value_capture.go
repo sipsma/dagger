@@ -158,6 +158,9 @@ func (capture *HeldCapturedClosure) block(id sharedResultID, kind BusyKind, err 
 func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelection, carried map[sharedResultID]bool) (*HeldCapturedClosure, error) {
 	capture := &HeldCapturedClosure{cache: c, rows: map[sharedResultID]*capturedTransferRow{}, owners: map[offerOwnerID]*offerOwner{}, blocked: map[sharedResultID]blockedRow{}, unheld: map[sharedResultID][]sharedResultID{}}
 	known := selection.Known
+	// A refused identity-only row stays refused whatever the export
+	// selects (refusedLocked); only held rows depend on outputs.
+	refused := selection.Known
 	if len(selection.Outputs) > 0 {
 		known = nil
 	}
@@ -242,8 +245,10 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 			// export names it as a held row, by its recipe. Once the Cloud
 			// has refused it, having no value of it any more, the roots
 			// above it stay here.
-			if known.refusedLocked(res) {
-				return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: identity-only row %d was refused: the Cloud holds no value of it", res.id)})
+			// It can't be carried in full either: an export whose shared
+			// recipe asks for that (deriveHeldRecipes) stays here.
+			if refused.refusedLocked(res) || carried[res.id] {
+				return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: identity-only row %d can be neither held nor carried in full", res.id)})
 			}
 			c.incrementIncomingOwnershipLocked(ctx, res)
 			row := &capturedTransferRow{shared: res, held: true, imported: true, recipe: res.identityRecipe, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
