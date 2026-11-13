@@ -28,10 +28,13 @@ type RowRevision struct {
 }
 
 // ExportedRows are the rows one export carried: in full, by number, with the
-// revisions it captured, and as held rows, by number.
+// revisions it captured, as held rows the recipient was known to have, by
+// number, and, in a push, as held rows it wasn't known to have, with the
+// revisions it captured (Pushed).
 type ExportedRows struct {
-	Full map[uint64]RowRevision
-	Held []uint64
+	Full   map[uint64]RowRevision
+	Held   []uint64
+	Pushed map[uint64]RowRevision
 }
 
 func NewKnownRows() *KnownRows {
@@ -39,12 +42,15 @@ func NewKnownRows() *KnownRows {
 }
 
 // Merged records that the recipient merged the export that carried rows: its
-// full rows are known, at the revisions it captured. Its held rows were known
-// already, and stay as they were.
+// full rows and a push's held rows are known, at the revisions it captured.
+// Its other held rows were known already, and stay as they were.
 func (k *KnownRows) Merged(rows ExportedRows) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	for number, rev := range rows.Full {
+		k.rows[number] = rev
+	}
+	for number, rev := range rows.Pushed {
 		k.rows[number] = rev
 	}
 }
