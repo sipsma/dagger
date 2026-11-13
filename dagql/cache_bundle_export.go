@@ -221,6 +221,10 @@ func busyForNow(roots []LeftOutRoot) bool {
 	return true
 }
 
+// maxLoggedDroppedOffers bounds the (row, part) pairs an export's log of the
+// offers it left out names: past it, they are only counted.
+const maxLoggedDroppedOffers = 8
+
 // writeBundle writes a bundle from values, every root captured, and then
 // each blob its outputs' chains name, once each. Its records carry none of
 // their offers: on an engine with the remote cache, a row the Cloud offered
@@ -231,8 +235,26 @@ func busyForNow(roots []LeftOutRoot) bool {
 func writeBundle(ctx context.Context, values *ExportedValues, w BundleWriter) error {
 	bundle := values.Bundle
 	bundle.Values = slices.Clone(bundle.Values)
+	var offered int
+	var named []string
 	for i := range bundle.Values {
+		offers := bundle.Values[i].Record.Envelope.PendingOffers
+		if len(offers) == 0 {
+			continue
+		}
+		offered++
+		for _, offer := range offers {
+			if len(named) < maxLoggedDroppedOffers {
+				key, _ := partAddressKey(offer.Address)
+				named = append(named, fmt.Sprintf("%d:%s", bundle.Values[i].SenderNumber, key))
+			}
+		}
 		bundle.Values[i].Record.Envelope.PendingOffers = nil
+	}
+	if offered > 0 {
+		// A record of the export held an offer for a part the engine never
+		// installed: the log names the rows, since nothing else will.
+		slog.InfoContext(ctx, "export bundle: left out the Cloud's offers", "records", offered, "offers", named)
 	}
 	address := func(addresses map[digest.Digest]BlobAddress, layers []snapshots.ExportLayer) map[digest.Digest]BlobAddress {
 		if addresses == nil {
