@@ -1871,6 +1871,13 @@ func compactOfferOwners(offers []PersistedPartOffer) {
 // like any failed check. Requires egraphMu.
 func (c *Cache) checkMergeGraphLocked(commit *valueMergeCommit) error {
 	installed := commit.installed
+	// A frame row's entry takes its frame's references as dependencies too.
+	framed := map[*sharedResult]*mergeRow{}
+	for _, row := range commit.rows {
+		if row.action == mergeIdentity && row.rec.Call != nil {
+			framed[row.res] = row
+		}
+	}
 	// An entry's children are its dependencies, the installed record's for
 	// an entry that takes one, and the owners of its offers as the commit
 	// leaves them: an entry that takes a record starts with none, and one a
@@ -1884,6 +1891,11 @@ func (c *Cache) checkMergeGraphLocked(commit *valueMergeCommit) error {
 		} else {
 			for id := range res.deps {
 				out = append(out, c.resultsByID[id])
+			}
+			if row := framed[res]; row != nil {
+				for _, dep := range row.deps {
+					out = append(out, c.mergeEntryLocked(commit, dep))
+				}
 			}
 		}
 		if offers, ok := commit.finalOffers[res]; ok {
@@ -1918,7 +1930,7 @@ func (c *Cache) checkMergeGraphLocked(commit *valueMergeCommit) error {
 				}
 			}
 		}
-		if len(row.admitted) > 0 || installed[row.res] == row {
+		if len(row.admitted) > 0 || installed[row.res] == row || framed[row.res] == row {
 			changed = append(changed, row.res)
 		}
 	}
@@ -2084,6 +2096,11 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 				errs = errors.Join(errs, fmt.Errorf("merge values: missing dependency %d of %d", depID, res.id))
 				continue
 			}
+			if _, owned := res.deps[depID]; owned {
+				// An identity-only entry filled now may own it already,
+				// through its frame or a stand-in.
+				continue
+			}
 			res.deps[depID] = struct{}{}
 			c.rememberDependencyEdgeLocked(res, dep)
 			c.incrementIncomingOwnershipLocked(ctx, dep)
@@ -2119,6 +2136,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 		if err := c.bindMergedFrameLocked(res, false); err != nil {
 			errs = errors.Join(errs, err)
 		}
+		errs = errors.Join(errs, c.cascadeRequiredSessionResourcesLocked([]*sharedResult{res}, false))
 	}
 	// Requirements are recomputed one level deep, so dependencies first: in
 	// the final graph's order, which a recipe's best record can change from
@@ -2136,7 +2154,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			filled = append(filled, row.res)
 		}
 	}
-	errs = errors.Join(errs, c.cascadeRequiredSessionResourcesLocked(filled))
+	errs = errors.Join(errs, c.cascadeRequiredSessionResourcesLocked(filled, true))
 
 	// Identity, and the sender's holding.
 	c.applyMergedIdentitiesLocked(ctx, commit, &change)
@@ -2325,6 +2343,7 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, comm
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil
 	res.identityOnly = false
+	res.rowUnavailable = false
 	if !c.blobBacked {
 		res.mergedAtUnixNano = committedAt
 	}

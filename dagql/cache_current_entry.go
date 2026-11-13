@@ -116,6 +116,8 @@ type replacedValue struct {
 // after adding the new value's, so a dependency both values share is never
 // collected in between. Requires egraphMu.
 func (c *Cache) replaceResultValueInPlaceLocked(ctx context.Context, cur, fresh *sharedResult, retentionExpiresAtUnix int64) (replacedValue, collectionQueue, error) {
+	// A fresh value replaces the one whose decode needed an unavailable row.
+	cur.rowUnavailable = false
 	var (
 		queue collectionQueue
 		rerr  error
