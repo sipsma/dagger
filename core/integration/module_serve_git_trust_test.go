@@ -127,6 +127,60 @@ clients = [%q]
 `, client, client)
 }
 
+// serveGitTrustEntrypointManifest is a module that runs its calls through
+// its own entrypoint.
+const serveGitTrustEntrypointManifest = `name = "epcaller"
+
+[entrypoint]
+kind = "dang"
+source = "./entrypoint"
+`
+
+// serveGitTrustEntrypoint runs Nonce in a process it starts, which it keys
+// on the call through callDigest, as a generated entrypoint does: the
+// process serves an address and prints a new nonce, or the error serving
+// gave it.
+var serveGitTrustEntrypoint = fmt.Sprintf(`type Entrypoint implements ModuleEntrypoint {
+  pub types: [TypeDef!]! {
+    [
+      typeDef
+        .withObject("Epcaller")
+        .withConstructor(function("", typeDef.withObject("Epcaller")))
+        .withFunction(function("Nonce", typeDef.withKind(TypeDefKind.STRING_KIND))),
+    ]
+  }
+
+  pub call(receiverType: String!, receiverValue: JSON, fnName: String!, fnArgs: JSON!, callDigest: String): JSON! {
+    if (fnName == "") {
+      ("{}" :: JSON!)
+    } else {
+      (JSON.encode(
+        container
+          .from(%q)
+          .withEnvVariable("DAGGER_MODULE_CALL_DIGEST", callDigest ?? "")
+          .withFile("/serve.sh", currentModule.source.file("serve.sh"))
+          .withExec(["sh", "/serve.sh"], experimentalPrivilegedNesting: true)
+          .stdout
+      ) :: JSON!)
+    }
+  }
+}
+`, alpineImage)
+
+// serveGitTrustEntrypointScript is the process: it serves address and prints
+// a new nonce, or what serving answered when it failed.
+func serveGitTrustEntrypointScript(address string) string {
+	return fmt.Sprintf(`set -e
+apk add -q curl
+q() { curl -s -u "$DAGGER_SESSION_TOKEN:" -H 'Content-Type: application/json' -d "$1" "http://127.0.0.1:$DAGGER_SESSION_PORT/query"; }
+out=$(q '{"query":"{serveModule(address: \"%s\")}"}')
+case "$out" in
+  *errors*) printf '%%s' "$out" ;;
+  *) date +%%s%%N | tr -d '\n' ;;
+esac
+`, address)
+}
+
 // serveGitTrustRepo serves content as a repository anyone may read, and
 // returns its URL by IP so nested sessions reach it as the engine does.
 func serveGitTrustRepo(ctx context.Context, t *testctx.T, c *dagger.Client, content *core.Directory, token *core.Secret) string {
@@ -360,6 +414,34 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		ctr = relayCaller(connect(ctx, t), false)
 		require.Contains(t, stdout(ctr.With(relay("relay"))), "git authentication failed")
 		require.Contains(t, stdout(ctr.With(relay("relay-again"))), "git authentication failed")
+	})
+
+	t.Run("an entrypoint's process that used credentials misses in a session without them", func(ctx context.Context, t *testctx.T) {
+		// The process serves the client; the call's result is what the
+		// process printed, and the exec that printed it is a result of its own.
+		epCaller := func(c *dagger.Client, withCredentials bool, n string) *core.Container {
+			base := goGitBase(t, c)
+			if withCredentials {
+				base = serveGitTrustBase(t, c, repoURL)
+			}
+			return base.
+				WithEnvVariable("SERVE_MODULE_RUN", n).
+				WithNewFile("dagger.toml", fmt.Sprintf(`[modules.epcaller]
+source = "modules/epcaller"
+
+[sdks.go.scopes."modules/epcaller"]
+is-module = true
+clients = [%q]
+`, hello)).
+				WithNewFile("modules/epcaller/dagger-module.toml", serveGitTrustEntrypointManifest).
+				WithNewFile("modules/epcaller/entrypoint/main.dang", serveGitTrustEntrypoint).
+				WithNewFile("modules/epcaller/serve.sh", serveGitTrustEntrypointScript(hello)).
+				With(daggerCallAt("epcaller", "nonce"))
+		}
+		first := stdout(epCaller(connect(ctx, t), true, "1"))
+		require.Regexp(t, `^[0-9]+\s*$`, first)
+
+		require.Contains(t, stdout(epCaller(connect(ctx, t), false, "2")), "git authentication failed")
 	})
 
 	t.Run("a plain program keeps its own credentials", func(ctx context.Context, t *testctx.T) {
