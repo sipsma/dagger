@@ -145,6 +145,12 @@ type fakeAdapter struct {
 	restoreSeen chan dagql.ValueBundle
 	// unretainedSeen receives each part's unretained roots.
 	unretainedSeen chan []dagql.TransferOrdinal
+	// push captures a push, as Push does; nil captures nothing. pushes is
+	// the push queue Pushes returns, and pushKnown the known set the last
+	// push was given.
+	push      func(context.Context, []uint64, *dagql.PushRows, func(context.Context, Export) error) error
+	pushes    *fakePushQueue
+	pushKnown atomic.Pointer[dagql.KnownRows]
 }
 
 type settledCall struct {
@@ -164,6 +170,7 @@ func newFakeAdapter() *fakeAdapter {
 		restored:       make(chan RestoreReport, 64),
 		restoreSeen:    make(chan dagql.ValueBundle, 64),
 		unretainedSeen: make(chan []dagql.TransferOrdinal, 64),
+		pushes:   newFakePushQueue(),
 	}
 }
 
@@ -261,6 +268,107 @@ func (a *fakeAdapter) TakeLookupMisses(ctx context.Context, limit int, _ time.Du
 	case <-ctx.Done():
 		return nil, 0, context.Cause(ctx)
 	}
+}
+
+func (a *fakeAdapter) Push(ctx context.Context, roots []uint64, known *dagql.KnownRows, rows *dagql.PushRows, consume func(context.Context, Export) error) error {
+	a.pushKnown.Store(known)
+	if a.push == nil {
+		return consume(ctx, Export{})
+	}
+	return a.push(ctx, roots, rows, consume)
+}
+
+func (a *fakeAdapter) Pushes() PushQueue { return a.pushes }
+
+// fakePushQueue is a push queue a test fills (add): it hands out what is
+// queued, and is idle once every result it handed out has its fate.
+type fakePushQueue struct {
+	mu      sync.Mutex
+	queued  []uint64
+	busy    []uint64
+	taken   int
+	flush   bool
+	notify  chan struct{}
+	changed chan struct{}
+}
+
+func newFakePushQueue() *fakePushQueue {
+	return &fakePushQueue{notify: make(chan struct{}, 1), changed: make(chan struct{})}
+}
+
+func (q *fakePushQueue) changedLocked() {
+	close(q.changed)
+	q.changed = make(chan struct{})
+	select {
+	case q.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (q *fakePushQueue) add(numbers ...uint64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.queued = append(q.queued, numbers...)
+	q.changedLocked()
+}
+
+func (q *fakePushQueue) TakeRemotePushes(ctx context.Context) ([]uint64, bool, error) {
+	for {
+		q.mu.Lock()
+		if len(q.queued) > 0 || q.flush && len(q.busy) > 0 {
+			numbers, flushed := append(q.busy, q.queued...), q.flush
+			q.busy, q.queued, q.flush = nil, nil, false
+			q.taken += len(numbers)
+			q.mu.Unlock()
+			return numbers, flushed, nil
+		}
+		q.flush = false
+		q.mu.Unlock()
+		select {
+		case <-q.notify:
+		case <-ctx.Done():
+			return nil, false, context.Cause(ctx)
+		}
+	}
+}
+
+func (q *fakePushQueue) RemotePushesDone(n int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.taken -= n
+	q.changedLocked()
+}
+
+func (q *fakePushQueue) RequeueRemotePushes(numbers []uint64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.taken -= len(numbers)
+	q.queued = append(slices.Clone(numbers), q.queued...)
+	q.changedLocked()
+}
+
+func (q *fakePushQueue) WaitRemotePushesBusy(numbers []uint64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.taken -= len(numbers)
+	q.busy = append(q.busy, numbers...)
+	close(q.changed)
+	q.changed = make(chan struct{})
+}
+
+func (q *fakePushQueue) FlushRemotePushes() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.busy) > 0 {
+		q.flush = true
+		q.changedLocked()
+	}
+}
+
+func (q *fakePushQueue) RemotePushesIdle() (bool, <-chan struct{}) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.queued) == 0 && len(q.busy) == 0 && q.taken == 0, q.changed
 }
 
 type blobs map[digest.Digest]string

@@ -73,6 +73,10 @@ const (
 	TypeClaimed  Type = "claimed"
 	TypeRestore  Type = "restore"
 	TypeRestored Type = "restored"
+	TypePush        Type = "push"
+	TypePushed      Type = "pushed"
+	TypeCheckRows   Type = "checkRows"
+	TypeCheckedRows Type = "checkedRows"
 	TypeError    Type = "error"
 )
 
@@ -102,6 +106,10 @@ func ReplyType(request Type) (Type, bool) {
 		return TypeClaimed, true
 	case TypeRestore:
 		return TypeRestored, true
+	case TypePush:
+		return TypePushed, true
+	case TypeCheckRows:
+		return TypeCheckedRows, true
 	}
 	return "", false
 }
@@ -511,6 +519,41 @@ const (
 	// LookupExtras is the most extra digests one miss names.
 	LookupExtras = 8
 )
+
+// CheckRows asks the Cloud which of Rows it lacks, before a push: Rows are
+// identity rows (held rows, with no record and no dependencies) for every
+// row of the push's closures the engine doesn't know the Cloud has. The
+// service reads the Cloud cache to answer, without its work lock.
+type CheckRows struct {
+	Rows []dagql.TransferredValue `json:"rows"`
+}
+
+// CheckedRows answers CheckRows: Lacks names, by the engine's numbers, the
+// rows whose recipe the Cloud has no live value of. It's a hint, which the
+// push's merge judges again.
+type CheckedRows struct {
+	Lacks []uint64 `json:"lacks,omitempty"`
+}
+
+// Push sends the Cloud the records of results the engine computed, as each
+// is retained: Bundle's roots are those results, and its rows their
+// closures, cut where the engine knows the Cloud has a row. An engine has
+// one push in flight on a connection. It sends in full the rows the Cloud
+// said it lacks (CheckRows), and the others as held rows. A held row the
+// Cloud has teaches it the engine's holding of the row.
+type Push struct {
+	Bundle dagql.ValueBundle `json:"bundle"`
+}
+
+// Pushed answers Push. With no Stale, the Cloud has committed the bundle:
+// every record the engine pushed is in the Cloud, and every held row's
+// holding too. Stale names, by the engine's numbers, the held rows whose
+// recipe the Cloud has no live value of after all, and then nothing was
+// committed: the engine pushes again with those in full. A push the Cloud
+// can't merge is answered with an error.
+type Pushed struct {
+	Stale []uint64 `json:"stale,omitempty"`
+}
 
 // Lookup asks the service for the Cloud's values of calls the engine's cache
 // missed. The service answers at once with what it will do for each, and
