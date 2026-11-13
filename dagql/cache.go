@@ -3115,6 +3115,10 @@ type sharedResult struct {
 	// value is installed, the entry depends on the stand-in in its place
 	// (settleStandIns). Guarded by egraphMu.
 	pendingStandIns map[sharedResultID]sharedResultID
+	// loadedDirect holds the entries of pendingStandIns that a later load of
+	// the same decode returned as themselves, filled in between: the decoded
+	// value names them, so settlement keeps them. Guarded by egraphMu.
+	loadedDirect map[sharedResultID]struct{}
 	// Origin is immutable; slots and graph revisions are guarded by egraphMu.
 	imported bool
 	// persistDeclined records that the call that computed the entry's value
