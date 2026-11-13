@@ -31,7 +31,8 @@ type ValueSelection struct {
 	// ErrOverBound. The first root it keeps always goes, whatever it adds.
 	// The bytes are the values' JSON as the bundle encodes it, its roots'
 	// included, counted as an upper bound; a selection's outputs are
-	// outside it.
+	// outside it. A bound of bytes requires WithoutOffers: a record's
+	// offers are relocated after it is counted.
 	MaxBytes   int64
 	MaxRecords int
 	// WithoutOffers sends the bundle's records without the offers of parts
