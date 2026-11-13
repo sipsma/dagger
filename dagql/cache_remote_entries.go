@@ -381,6 +381,9 @@ type remoteCacheState struct {
 // which also has neither but is served, even when the Cloud holds it too.
 // Requires egraphMu.
 func (res *sharedResult) noValueLocked() bool {
+	if res.identityOnly {
+		return true
+	}
 	engineHolding := false
 	for _, ref := range res.holderRefsLocked() {
 		if !senderCache(ref.key.Cache) {
@@ -1518,6 +1521,53 @@ func (c *Cache) remoteIdentityTeachesNothingLocked(entry *sharedResult, recipe, 
 		}
 	}
 	return true
+}
+
+// teachHeldRowDigestsLocked teaches an engine's entry that a held row landed
+// on the digests the Cloud's record of it carries: its recipe and its extra
+// digests join the entry's class, and the entry is posted under each, as a
+// call that completed teaches its recipe and content digests
+// (writeRemoteIdentityLocked). An identity-only entry has no frame to learn
+// them from, and after an edit its content digest is what joins it to the
+// engine's own input of a new recipe. Requires egraphMu for writing.
+func (c *Cache) teachHeldRowDigestsLocked(ctx context.Context, res *sharedResult, recipe digest.Digest, extras []call.ExtraDigest) {
+	ids := make([]eqClassID, 0, 1+len(extras))
+	for classID := range c.outputEqClassesForResultLocked(res.id) {
+		ids = append(ids, classID)
+	}
+	for _, dig := range append([]digest.Digest{recipe}, extraDigestValues(extras)...) {
+		if dig == "" {
+			continue
+		}
+		ids = append(ids, c.ensureEqClassForDigestLocked(ctx, dig.String()))
+		c.addResultDigestPostingLocked(res.id, dig.String())
+	}
+	root := c.mergeEqClassesLocked(ctx, ids...)
+	if root == 0 {
+		return
+	}
+	c.addResultOutputEqClassLocked(res.id, root)
+	if len(extras) == 0 {
+		return
+	}
+	root = c.findEqClassLocked(root)
+	classExtras := c.eqClassExtraDigests[root]
+	if classExtras == nil {
+		classExtras = make(map[call.ExtraDigest]struct{})
+		c.eqClassExtraDigests[root] = classExtras
+	}
+	for _, extra := range extras {
+		classExtras[extra] = struct{}{}
+	}
+}
+
+// extraDigestValues returns the extra digests' digests.
+func extraDigestValues(extras []call.ExtraDigest) []digest.Digest {
+	out := make([]digest.Digest, 0, len(extras))
+	for _, extra := range extras {
+		out = append(out, extra.Digest)
+	}
+	return out
 }
 
 // writeRemoteIdentityLocked is teachRemoteIdentityLocked's write. Requires

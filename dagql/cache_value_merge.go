@@ -714,7 +714,7 @@ func (c *Cache) privateMergeCache(ctx context.Context, prep *valueMergePrep, hel
 			// is the cache's: nothing below relocates or rewires it.
 			rec := PersistedRecord{ResultID: prep.firstID + id - 1}
 			prep.records[id] = rec
-			res := &sharedResult{id: sharedResultID(rec.ResultID), imported: true, expiresAtUnix: row.ExpiresAtUnix}
+			res := &sharedResult{id: sharedResultID(rec.ResultID), imported: true, expiresAtUnix: row.ExpiresAtUnix, identityRecipe: row.Held}
 			if frame := heldFrames[id]; frame.call != nil {
 				res.storeResultCall(frame.call)
 			} else {
@@ -914,6 +914,13 @@ func (c *Cache) resolveHeldRows(prep *valueMergePrep) map[uint64]entryFrame {
 			frame = cur.entryFrameLocked()
 		}
 		if !frame.ok() {
+			// An engine that holds no value of the recipe lands the row
+			// with its identity alone (mergeIdentity): the rows that
+			// depend on it derive their digests from its recipe. The
+			// Cloud, the store other engines are served from, refuses it.
+			if !c.blobBacked {
+				continue
+			}
 			prep.stale = append(prep.stale, row.Ordinal)
 			continue
 		}
@@ -1206,11 +1213,15 @@ const (
 	// mergeRetire: the current entry's expired value is in use; the entry is
 	// retired and a new entry stores the record.
 	mergeRetire
+	// mergeIdentity: on an engine, a held row of a recipe the engine holds
+	// no unexpired value of: a new entry takes its identity alone, with no
+	// value, until the Cloud's record of it lands on it.
+	mergeIdentity
 )
 
 // installs reports whether the action stores the record as a value.
 func (a mergeAction) installs() bool {
-	return a != mergeKeep
+	return a != mergeKeep && a != mergeIdentity
 }
 
 // mergeRow is one record's decision.
@@ -1411,6 +1422,11 @@ func (prep *valueMergePrep) liveClosure(now int64) (map[uint64]bool, []MergedRoo
 // (applyMergedIdentitiesLocked). Requires egraphMu.
 func (c *Cache) staleHeldRowsLocked(prep *valueMergePrep, now int64) []TransferOrdinal {
 	var stale []TransferOrdinal
+	if !c.blobBacked {
+		// An engine lands a held row it doesn't hold with its identity
+		// alone (mergeIdentity), so none is stale.
+		return nil
+	}
 	for _, id := range prep.order {
 		if !prep.held[id] {
 			continue
@@ -1511,6 +1527,19 @@ func (commit *valueMergeCommit) installsLight() bool {
 func (c *Cache) decideMergeRowLocked(row *mergeRow, now int64, fresh sharedResultID) {
 	cur := c.currentEntryForRecipeLocked(row.plan.recipe)
 	row.target = cur
+	if row.value.Held != "" && !c.blobBacked {
+		// A held row lands on the engine's value of its recipe, or on the
+		// entry an earlier identity row made; otherwise it makes one.
+		switch {
+		case cur != nil && cur.noValueLocked():
+			row.action, row.res = mergeKeep, cur
+		case cur != nil && !c.resultExpiredAtLocked(cur, now):
+			row.action, row.res = mergeKeep, cur
+		default:
+			row.action, row.res = mergeIdentity, &sharedResult{id: fresh}
+		}
+		return
+	}
 	switch {
 	case cur == nil:
 		row.action, row.res = mergeCreate, &sharedResult{id: fresh}
@@ -1918,6 +1947,14 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			row.res.onRelease = c.resultSnapshotLeaseCleanup(row.res)
 			c.indexRecipeLocked(row.plan.recipe, row.res)
 			created = append(created, row.res)
+		case mergeIdentity:
+			row.res.imported = true
+			row.res.identityOnly = true
+			row.res.identityRecipe = row.plan.recipe
+			row.res.expiresAtUnix = row.value.ExpiresAtUnix
+			c.putResultLocked(row.res)
+			c.indexRecipeLocked(row.plan.recipe, row.res)
+			created = append(created, row.res)
 		case mergeStore:
 			c.installMergedRecordLocked(row.res, row, committedAt)
 			if row.res.onRelease == nil {
@@ -2091,7 +2128,12 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 			// value. On the Cloud, it teaches the sender's holding of it
 			// when the Cloud has none yet (mergeHeldSenderHoldingLocked).
 			if !c.blobBacked {
+				// It names the Cloud's entry, so the engine can ask for
+				// its record by that number, and its class learns the
+				// digests the Cloud's record carries: after an edit, the
+				// content digest is what joins it to the engine's own.
 				row.res.noteSenderCopyLocked(commit.from, row.value.SenderNumber, true, row.value.ExpiresAtUnix)
+				c.teachHeldRowDigestsLocked(ctx, row.res, row.plan.recipe, row.value.Extra)
 			} else {
 				c.mergeHeldSenderHoldingLocked(ctx, cloudState, commit, row, change)
 			}
@@ -2163,6 +2205,7 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, comm
 	rec := row.rec
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil
+	res.identityOnly = false
 	if !c.blobBacked {
 		res.mergedAtUnixNano = committedAt
 	}
@@ -2528,6 +2571,12 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 		if c.resultsByID[res.id] != res {
 			// The commit's collection removed an entry the merge created
 			// that nothing owns: there is no target to report.
+			continue
+		}
+		if res.identityOnly {
+			// An identity row that landed with no value: the engine holds
+			// nothing of it, so the reply, and with it what the engine
+			// marks as known to the Cloud, leaves it out.
 			continue
 		}
 		value := MergedValue{Ordinal: row.value.Ordinal, Number: uint64(res.id), Replacements: res.replacements, Revision: RowRevision{Replacements: res.replacements, Transfer: res.transferRevision, Dependencies: res.dependencyOwnershipRevision}, ExpiresAtUnix: res.expiresAtUnix}

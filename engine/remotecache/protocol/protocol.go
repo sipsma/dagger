@@ -384,11 +384,6 @@ type Merged struct {
 	Values     []MergedValue  `json:"values"`
 	Retained   []RetainedRoot `json:"retained"`
 	Skipped    []SkippedValue `json:"skipped,omitempty"`
-	// Stale are the bundle's held rows the engine didn't hold when the
-	// merge decided: no current entry for the recipe, one with no value of
-	// its own, or an expired one the row hasn't outlived. A reply with Stale
-	// committed nothing, and its Values, Retained and Skipped are empty.
-	Stale []dagql.TransferOrdinal `json:"stale"`
 }
 
 // MergedValue is the engine entry a bundle record landed on, and its value
