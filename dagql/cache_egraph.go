@@ -1917,10 +1917,12 @@ func (c *Cache) associateResultWithTermLocked(
 	if existing, ok := c.termInputProvenance[termID]; ok {
 		if !sameInputProvenance(existing, inputProvenance) {
 			c.termInputProvenance[termID] = slices.Clone(inputProvenance)
+			c.markSavedTermIDLocked(termID)
 			c.traceResultTermAssocUpdated(ctx, res.id, termID, inputProvenance)
 		}
 	} else {
 		c.termInputProvenance[termID] = slices.Clone(inputProvenance)
+		c.markSavedTermIDLocked(termID)
 	}
 
 	c.addResultOutputEqClassLocked(res.id, outputEqID)
