@@ -489,3 +489,61 @@ func TestFilledIdentityEntryRaisesItsDependentsRequirements(t *testing.T) {
 	require.ErrorContains(t, err, "has not bound the session resources")
 	require.NoError(t, a.ReleaseSession(sessCtx, "leaf-session"))
 }
+
+// A value that names an identity-only child, decoded through a local stand-in
+// of the child's recipe, depends on the stand-in from then on, not on the
+// identity-only entry, so an export of the live value carries the stand-in
+// and nothing held of the same recipe.
+func TestDecodedParentExportsItsStandIn(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	p := persistedListTestResult(t, actx, a, asrv, "bundle-dep", &transferTestValue{Text: "dep"})
+	pNumber := uint64(p.cacheSharedResult().id)
+	r := persistedListTestResult(t, actx, a, asrv, "child-parent", &transferTestValue{Text: "parent", Child: pNumber})
+	require.NoError(t, a.AddExplicitDependency(actx, r, p, "test"))
+	bundle := exportTestBundle(t, actx, a, r)
+	pRecipe, err := p.cacheSharedResult().loadResultCall().deriveRecipeDigest(a)
+	require.NoError(t, err)
+	for i := range bundle.Values {
+		if bundle.Values[i].SenderNumber == pNumber {
+			v := bundle.Values[i]
+			bundle.Values[i] = TransferredValue{Ordinal: v.Ordinal, SenderNumber: v.SenderNumber, Record: PersistedRecord{ResultID: v.SenderNumber}, Held: pRecipe, ExpiresAtUnix: v.ExpiresAtUnix}
+		}
+	}
+	var outputs []TransferredOutput
+	for _, out := range bundle.Outputs {
+		if out.Ordinal != heldTestRow(t, bundle, pNumber).Ordinal {
+			outputs = append(outputs, out)
+		}
+	}
+	bundle.Outputs = outputs
+
+	bctx, b, bsrv := transferTestCache(t)
+	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	rNumber := reply.Imported()[0].ResultID
+	own := heldTestSessionValue(t, bctx, b, bsrv)
+	transferDecodeHooks.Store(rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
+		child, err := dec.ResultRef(ctx, value.Child)
+		if err != nil {
+			return err
+		}
+		value.Child = uint64(child.cacheSharedResult().id)
+		return nil
+	})
+	t.Cleanup(func() { transferDecodeHooks.Delete(rNumber) })
+
+	_, err = b.LoadResultByResultID(bctx, "", bsrv, rNumber)
+	require.NoError(t, err)
+	b.egraphMu.RLock()
+	rEntry := b.resultsByID[sharedResultID(rNumber)]
+	require.Contains(t, rEntry.deps, sharedResultID(own), "R owns the stand-in")
+	require.Len(t, rEntry.deps, 1, "and no longer the identity-only entry")
+	b.egraphMu.RUnlock()
+
+	exported := exportTestBundle(t, bctx, b, Result[Typed]{shared: rEntry})
+	for _, value := range exported.Values {
+		require.Empty(t, value.Held, "nothing held of the child's recipe")
+	}
+	require.Len(t, exported.Values, 2)
+}
