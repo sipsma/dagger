@@ -51,29 +51,31 @@ const (
 type Type string
 
 const (
-	TypeHello    Type = "hello"
-	TypeWelcome  Type = "welcome"
-	TypeExport   Type = "export"
-	TypeExported Type = "exported"
-	TypeUpload   Type = "upload"
-	TypeUploaded Type = "uploaded"
-	TypeMerge    Type = "merge"
-	TypeMerged   Type = "merged"
-	TypeOffer    Type = "offer"
-	TypeOffered  Type = "offered"
-	TypeRenew    Type = "renew"
-	TypeRenewed  Type = "renewed"
-	TypeLookup   Type = "lookup"
-	TypeLookedUp Type = "lookedUp"
-	TypeOpen     Type = "open"
-	TypeOpened   Type = "opened"
-	TypeSettle   Type = "settle"
-	TypeSettled  Type = "settled"
-	TypeClaims   Type = "claims"
-	TypeClaimed  Type = "claimed"
-	TypeRestore  Type = "restore"
-	TypeRestored Type = "restored"
-	TypeError    Type = "error"
+	TypeHello       Type = "hello"
+	TypeWelcome     Type = "welcome"
+	TypeExport      Type = "export"
+	TypeExported    Type = "exported"
+	TypeUpload      Type = "upload"
+	TypeUploaded    Type = "uploaded"
+	TypeMerge       Type = "merge"
+	TypeMerged      Type = "merged"
+	TypeOffer       Type = "offer"
+	TypeOffered     Type = "offered"
+	TypeRenew       Type = "renew"
+	TypeRenewed     Type = "renewed"
+	TypeLookup      Type = "lookup"
+	TypeLookedUp    Type = "lookedUp"
+	TypeOpen        Type = "open"
+	TypeOpened      Type = "opened"
+	TypeSettle      Type = "settle"
+	TypeSettled     Type = "settled"
+	TypeClaims      Type = "claims"
+	TypeClaimed     Type = "claimed"
+	TypeRestore     Type = "restore"
+	TypeRestored    Type = "restored"
+	TypeFetchRows   Type = "fetchRows"
+	TypeFetchedRows Type = "fetchedRows"
+	TypeError       Type = "error"
 )
 
 // ReplyType returns the type of a successful reply to a request, and false
@@ -102,6 +104,8 @@ func ReplyType(request Type) (Type, bool) {
 		return TypeClaimed, true
 	case TypeRestore:
 		return TypeRestored, true
+	case TypeFetchRows:
+		return TypeFetchedRows, true
 	}
 	return "", false
 }
@@ -511,6 +515,27 @@ const (
 	// LookupExtras is the most extra digests one miss names.
 	LookupExtras = 8
 )
+
+// FetchRows asks the service for the records of Cloud entries a merge sent
+// the engine as held rows, which the engine holds no value of: something on
+// the engine needs them now. Entries are the held rows' sender numbers. With
+// Decode, the answer carries each entry's child rows too, the rows its value
+// names (PersistedRefChild), followed down, so one answer serves a decode.
+type FetchRows struct {
+	Entries []uint64 `json:"entries"`
+	Decode  bool     `json:"decode,omitempty"`
+}
+
+// FetchedRows answers FetchRows. Bundle carries each entry the Cloud still
+// has a stored value of as a full row, the rows those records reference as
+// held rows, and with Decode their child rows as full rows; its roots are the
+// entries asked. The engine merges it without replying, and the service
+// records no holding of it. Missing are the entries asked that the Cloud has
+// no stored, unexpired value of.
+type FetchedRows struct {
+	Bundle  dagql.ValueBundle `json:"bundle"`
+	Missing []uint64          `json:"missing,omitempty"`
+}
 
 // Lookup asks the service for the Cloud's values of calls the engine's cache
 // missed. The service answers at once with what it will do for each, and

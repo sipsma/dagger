@@ -3,6 +3,7 @@ package dagql
 import (
 	"encoding/json"
 
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -96,6 +97,11 @@ type TransferredValue struct {
 	// held rows to an engine (StoredBundle's HeldBy), with no dependencies
 	// and no outputs, and an engine sends them to the Cloud in an export.
 	Held digest.Digest `json:"held,omitempty"`
+	// Extra are a held row's extra digests, its entry's content digest
+	// above all: a recipient that holds no value of Held learns that Held
+	// and each of them are one class, so its own call over the same content,
+	// under another recipe, joins the row's.
+	Extra []call.ExtraDigest `json:"extra,omitempty"`
 
 	// storedEnvelope is, in a bundle a blob-backed cache built, the record's
 	// envelope as the cache holds it, compressed (storedBody), in place of
@@ -151,19 +157,21 @@ func (v TransferredValue) storedJSON() (storedValueJSON, error) {
 		DependencyIDs:      v.DependencyIDs,
 		ExpiresAtUnix:      v.ExpiresAtUnix,
 		Held:               v.Held,
+		Extra:              v.Extra,
 	}, nil
 }
 
 // storedValueJSON is TransferredValue's encoding, field for field, with its
 // record's envelope as encoded JSON.
 type storedValueJSON struct {
-	Ordinal            TransferOrdinal  `json:"ordinal"`
-	SenderNumber       uint64           `json:"senderNumber"`
-	SenderReplacements uint64           `json:"senderReplacements,omitempty"`
-	Record             storedRecordJSON `json:"record"`
-	DependencyIDs      []uint64         `json:"dependencyIDs,omitempty"`
-	ExpiresAtUnix      int64            `json:"expiresAtUnix,omitempty"`
-	Held               digest.Digest    `json:"held,omitempty"`
+	Ordinal            TransferOrdinal    `json:"ordinal"`
+	SenderNumber       uint64             `json:"senderNumber"`
+	SenderReplacements uint64             `json:"senderReplacements,omitempty"`
+	Record             storedRecordJSON   `json:"record"`
+	DependencyIDs      []uint64           `json:"dependencyIDs,omitempty"`
+	ExpiresAtUnix      int64              `json:"expiresAtUnix,omitempty"`
+	Held               digest.Digest      `json:"held,omitempty"`
+	Extra              []call.ExtraDigest `json:"extra,omitempty"`
 }
 
 // storedRecordJSON is a PersistedRecord with its envelope and call as
@@ -233,7 +241,7 @@ type ImportedValue struct {
 
 // ValueBundleVersion is the version of the bundles this cache builds and
 // merges. A merge refuses a bundle of any other.
-const ValueBundleVersion = 8
+const ValueBundleVersion = 9
 
 // PersistedTransferCodec operates only on encoded copies, without resolving
 // schemas, operations, result references or storage.
