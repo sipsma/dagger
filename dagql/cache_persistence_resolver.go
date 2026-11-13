@@ -99,17 +99,11 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 			if err != nil {
 				return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", resultID, err)
 			}
-			if resolved == res {
-				// Filled, by a fetch or a record landing: the decoded value
-				// names res itself.
-				c.noteLoadedDirect(ctx, res)
-			}
 			return sharedResultLookup{res: resolved, requiredGenAtCheck: resolved.requiredSessionResourcesGen.Load()}, nil
 		}
 		if noValue {
 			return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", resultID, errEntryHasNoValue)
 		}
-		c.noteLoadedDirect(ctx, res)
 		return sharedResultLookup{res: res, requiredGenAtCheck: requiredGenAtCheck}, nil
 	}
 
