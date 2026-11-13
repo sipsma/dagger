@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -229,4 +230,23 @@ func TestExportNamesAnIdentityEntryAsAHeldRow(t *testing.T) {
 	}
 	require.Equal(t, 1, held)
 	require.Equal(t, 1, full)
+}
+
+// Once the Cloud has refused an identity-only row as a stale held row, no
+// value of it left there, an export that reaches it is blocked there: the
+// engine can't send it in full.
+func TestExportBlocksAtARefusedIdentityEntry(t *testing.T) {
+	t.Parallel()
+	bctx, b, _, rEntry, pEntry, _, _, _ := identityTestEngine(t)
+	known := NewKnownRows()
+	known.Stale(ExportedRows{Held: []uint64{uint64(pEntry.id)}}, []uint64{uint64(pEntry.id)})
+	var bundle *ValueBundle
+	err := b.WithExportedValues(bctx, ValueSelection{Roots: []AnyResult{Result[Typed]{shared: rEntry}}, Known: known}, config.RefConfig{}, func(_ context.Context, values *ExportedValues) error {
+		if len(values.Bundle.Values) > 0 {
+			bundle = &values.Bundle
+		}
+		return nil
+	})
+	require.Nil(t, bundle, "R stays here")
+	_ = err
 }
