@@ -250,6 +250,8 @@ func (a *fakeAdapter) ReplyRenewal(reply dagql.RenewalReply) dagql.RenewalReplyD
 	return dagql.RenewalReplyAccepted
 }
 
+func (a *fakeAdapter) SetRowFetcher(dagql.RowFetcher) {}
+
 func (a *fakeAdapter) StartLookups() { a.lookups <- true }
 func (a *fakeAdapter) StopLookups()  { a.lookups <- false }
 
