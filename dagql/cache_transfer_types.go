@@ -24,6 +24,24 @@ type ValueSelection struct {
 	// Known are the rows the recipient has merged: the bundle sends each one
 	// that hasn't changed as a held row.
 	Known *KnownRows
+	// Push captures records for a push to the Cloud (PushRows). Only a
+	// selection of no outputs pushes.
+	Push *PushRows
+}
+
+// PushRows is how a push captures its roots' closures: every row Known
+// doesn't know goes as a held row, with nothing below it, but those Full
+// names, which go in full. The recipient answers the held rows whose recipe
+// it has no value of as stale, and the next capture names them in Full. A
+// row the recipient has teaches it the engine's holding of the row.
+type PushRows struct {
+	// Full are the rows, by the engine's numbers, the recipient said it
+	// lacks.
+	Full map[uint64]bool
+	// List, in a push's first capture, walks below each held row too, so
+	// that the bundle names, as held rows, every row of the closure the
+	// recipient isn't known to have.
+	List bool
 }
 type SelectedValueOutput struct {
 	Result  AnyResult
