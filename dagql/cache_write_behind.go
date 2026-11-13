@@ -316,10 +316,9 @@ func (c *Cache) ownersOfLocked(ids []sharedResultID) map[sharedResultID]struct{}
 // again: those whose being saved may have turned, an entry no longer saved
 // that lost an owner, and, when id isn't saved, its stored owners, whose
 // rows name it and are written again in the same write. It also reports
-// whether id gained a child while a stored owner that this write hasn't
-// written (written reports which it has) still names it. Requires egraphMu
-// for reading.
-func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID, written func(sharedResultID) bool) (turned []sharedResultID, gained bool) {
+// whether id gained a child while it had a stored owner when the write
+// began (owned). Requires egraphMu for reading.
+func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID, owned ownedAtStart) (turned []sharedResultID, gained bool) {
 	res := c.resultsByID[id]
 	if _, edge := c.persistedEdgesByResult[id]; edge && res != nil {
 		b.edges[id] = struct{}{}
@@ -347,6 +346,7 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID, writte
 			delete(wanted, child)
 			continue
 		}
+		owned.note(b, child)
 		before := b.owned(child)
 		owners := b.ownedBy[child]
 		delete(owners, id)
@@ -357,15 +357,9 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID, writte
 			turned = append(turned, child)
 		}
 	}
-	if len(wanted) > 0 {
-		for owner := range b.ownedBy[id] {
-			if !written(owner) {
-				gained = true
-				break
-			}
-		}
-	}
+	gained = len(wanted) > 0 && owned.had(b, id)
 	for child := range wanted {
+		owned.note(b, child)
 		before := b.owned(child)
 		owners := b.ownedBy[child]
 		if owners == nil {
@@ -383,6 +377,27 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID, writte
 		b.children[id] = want
 	}
 	return turned, gained
+}
+
+// ownedAtStart records, for the entries whose stored owners a write changes,
+// whether they had any when the write began.
+type ownedAtStart map[sharedResultID]bool
+
+// note records whether the entry numbered id has a stored owner, the first
+// time the write changes its owners.
+func (o ownedAtStart) note(b *writeBehindState, id sharedResultID) {
+	if _, noted := o[id]; !noted {
+		o[id] = len(b.ownedBy[id]) > 0
+	}
+}
+
+// had reports whether the entry numbered id had a stored owner when the
+// write began.
+func (o ownedAtStart) had(b *writeBehindState, id sharedResultID) bool {
+	if had, noted := o[id]; noted {
+		return had
+	}
+	return len(b.ownedBy[id]) > 0
 }
 
 // classTermsLocked returns the terms whose output is the class rooted at
@@ -529,22 +544,22 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 	//
 	// The rows of marks left for later are older than the rows this write
 	// writes, so the two could name a dependency cycle no cache ever had: an
-	// entry gains a child that reaches, through older rows, the owner whose
-	// older row names the entry. So when an entry that an owner this write
-	// doesn't write names gains a child, the write takes every mark left, as
-	// a write without a budget does. Without that, the store's dependencies
-	// stay acyclic: a cycle would have to enter a written entry through an
-	// older row, and every row it follows from there is the store's already.
+	// entry gains a child that reaches, through older rows, an owner that
+	// names the entry. So when an entry that had a stored owner as the write
+	// began gains a child, the write takes every mark left, as a write
+	// without a budget does. Without that, the store's dependencies stay
+	// acyclic. Every cycle in it holds an older row, since this write's rows
+	// all come from one look at the cache; past an older row comes an entry
+	// that had a stored owner as the write began, so it gained no child and
+	// each row it names was the store's already; and so on, entry by entry,
+	// around the cycle, which would then have been in the store before.
 	changed := map[sharedResultID]struct{}{}
-	written := func(id sharedResultID) bool {
-		_, ok := changed[id]
-		return ok
-	}
+	owned := ownedAtStart{}
 	for len(pending) > 0 {
 		for id := range pending {
 			delete(pending, id)
 			changed[id] = struct{}{}
-			turned, gained := c.countOwnersLocked(b, id, written)
+			turned, gained := c.countOwnersLocked(b, id, owned)
 			for _, more := range turned {
 				pending[more] = struct{}{}
 			}
