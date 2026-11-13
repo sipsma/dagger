@@ -59,8 +59,8 @@ func (c *Cache) Checkpoint(ctx context.Context) error {
 }
 
 // persistOnClose saves the cache as it closes: an engine's whole, a
-// blob-backed cache's by a last write behind. Close runs it once nothing
-// else uses the cache.
+// blob-backed cache's by writes behind until no marks are left. Close runs
+// it once nothing else uses the cache.
 func (c *Cache) persistOnClose(ctx context.Context) error {
 	if !c.blobBacked {
 		return c.persistCurrentState(ctx)
@@ -70,8 +70,12 @@ func (c *Cache) persistOnClose(ctx context.Context) error {
 	}
 	c.checkpointMu.Lock()
 	defer c.checkpointMu.Unlock()
-	_, err := c.writeBehind(ctx)
-	return err
+	for {
+		report, err := c.writeBehind(ctx)
+		if err != nil || !report.More {
+			return err
+		}
+	}
 }
 
 func (c *Cache) persistCurrentState(ctx context.Context) error {
