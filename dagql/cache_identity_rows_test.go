@@ -391,3 +391,47 @@ func TestExportOfAnIdentityEntryBesideItsRecipesValueEnds(t *testing.T) {
 		t.Fatal("the export didn't end")
 	}
 }
+
+// An identity-only entry with a frame owns its frame's references; when its
+// full record lands on it later, it owns each of them still once, not twice.
+func TestFillingAFrameRowOwnsItsReferencesOnce(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, p := heldTestChainedCloud(t)
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
+	require.NoError(t, err)
+	rRecipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, r))
+	framed, err := cloneValueBundle(got.Bundle)
+	require.NoError(t, err)
+	for i := range framed.Values {
+		if framed.Values[i].SenderNumber == r {
+			v := framed.Values[i]
+			framed.Values[i] = TransferredValue{Ordinal: v.Ordinal, SenderNumber: r, Record: PersistedRecord{ResultID: r}, Held: rRecipe, DependencyIDs: v.DependencyIDs, ExpiresAtUnix: v.ExpiresAtUnix}
+		}
+	}
+	framed.Outputs = nil
+	identityTestFrameRow(t, cloud, &framed, r)
+
+	bctx, b, _ := transferTestCache(t)
+	reply, err := b.MergeValues(bctx, cloudCacheID, framed)
+	require.NoError(t, err)
+	require.True(t, reply.Committed)
+	b.egraphMu.RLock()
+	rEntry := b.resultsByID[b.entriesByRecipe[rRecipe]]
+	require.NotNil(t, rEntry)
+	require.True(t, rEntry.identityOnly)
+	require.Len(t, rEntry.deps, 1)
+	var pID sharedResultID
+	for id := range rEntry.deps {
+		pID = id
+	}
+	pEntry := b.resultsByID[pID]
+	before := pEntry.incomingOwnershipCount.Load()
+	b.egraphMu.RUnlock()
+
+	_, err = b.MergeFetchedRows(bctx, got.Bundle)
+	require.NoError(t, err)
+	b.egraphMu.RLock()
+	defer b.egraphMu.RUnlock()
+	require.False(t, rEntry.identityOnly, "R took its record")
+	require.Equal(t, before, pEntry.incomingOwnershipCount.Load(), "P is owned by R once, as before")
+}
