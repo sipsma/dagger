@@ -73,12 +73,15 @@ type writtenClass struct {
 
 // WriteBehindReport is what one write behind wrote: how many entries,
 // classes and terms it wrote or deleted the rows of. Whole is set when it
-// saved the cache whole instead, after a failed write.
+// saved the cache whole instead, after a failed write. Waited is set when it
+// wrote nothing because a replacement was in flight: what changed waits for
+// the next write.
 type WriteBehindReport struct {
 	Entries int  `json:"entries"`
 	Classes int  `json:"classes"`
 	Terms   int  `json:"terms"`
 	Whole   bool `json:"whole,omitempty"`
+	Waited  bool `json:"waited,omitempty"`
 }
 
 // WriteBehind writes to a blob-backed cache's store the rows of whatever
@@ -116,6 +119,9 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 	if err != nil {
 		c.behind.broken = true
 		return WriteBehindReport{}, err
+	}
+	if plan.waited {
+		return WriteBehindReport{Waited: true}, nil
 	}
 	if plan.empty() {
 		return WriteBehindReport{}, nil
@@ -172,6 +178,8 @@ type writeBehindPlan struct {
 	oldTerms     map[eqClassID][]egraphTermID
 	nextResultID sharedResultID
 	nextChanged  bool
+	// waited is set when a replacement in flight made the write wait.
+	waited bool
 }
 
 func (p *writeBehindPlan) empty() bool {
@@ -370,7 +378,7 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 	turnedInvalid, open := c.settleUncleanLocked(b)
 	if open {
 		// The marks wait for the next write.
-		plan.nextChanged = false
+		plan.nextChanged, plan.waited = false, true
 		return plan, nil
 	}
 	marked := append(c.usedMarks.take(), turnedInvalid...)
@@ -599,9 +607,9 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 
 // newWriteBehindStateLocked is the writer's state for a store that holds
 // what a whole save of the cache writes now: the counts of the closure
-// selected, and the classes and outputs that save writes. Requires egraphMu
-// for reading.
-func (c *Cache) newWriteBehindStateLocked(selected, roots map[sharedResultID]struct{}) *writeBehindState {
+// selected, the entries it left out as invalid, and the classes and outputs
+// that save writes. Requires egraphMu for reading.
+func (c *Cache) newWriteBehindStateLocked(selected, roots, invalid map[sharedResultID]struct{}) *writeBehindState {
 	b := &writeBehindState{
 		owners:       map[sharedResultID]int32{},
 		edges:        map[sharedResultID]struct{}{},
@@ -612,20 +620,16 @@ func (c *Cache) newWriteBehindStateLocked(selected, roots map[sharedResultID]str
 		invalid:      map[sharedResultID]struct{}{},
 		nextResultID: c.nextSharedResultID,
 	}
-	var failed []sharedResultID
-	for id, res := range c.resultsByID {
-		switch res.attachmentState() {
-		case resultAttachmentClean:
-		case resultAttachmentOpen:
+	// The closure left out each entry whose attachment was open or failed,
+	// and every entry that owns one: they start out of the saved set, as the
+	// closure had them, whatever closed since. The next write sees each
+	// attachment as it is then, and brings back what one that closed cleanly
+	// left out (settleUncleanLocked).
+	for id := range invalid {
+		b.invalid[id] = struct{}{}
+		if res := c.resultsByID[id]; res != nil && res.attachmentState() != resultAttachmentClean {
 			b.unclean[id] = struct{}{}
-		default:
-			b.unclean[id] = struct{}{}
-			failed = append(failed, id)
 		}
-	}
-	b.invalid = c.ownersOfLocked(failed)
-	if c.changes != nil {
-		c.changes.opened = nil
 	}
 	for id := range roots {
 		b.edges[id] = struct{}{}
@@ -679,6 +683,6 @@ func (c *Cache) resetWriteBehindLocked() {
 	if !c.blobBacked || c.sqlDB == nil {
 		return
 	}
-	selected, roots := c.snapshotPersistedRootClosureLocked()
-	c.behind = c.newWriteBehindStateLocked(selected, roots)
+	selected, roots, invalid := c.persistedRootClosureLocked()
+	c.behind = c.newWriteBehindStateLocked(selected, roots, invalid)
 }
