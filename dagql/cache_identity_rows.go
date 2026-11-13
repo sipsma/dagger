@@ -130,11 +130,13 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	// Choosing the stand-in and owning it are one decision under the lock,
 	// so no collection can take the stand-in between them.
 	standIn := c.localStandInLocked(res, time.Now().Unix())
+	var releases []OnReleaseFunc
 	if standIn != nil {
-		c.ownStandInLocked(ctx, res, standIn, owner)
+		releases = c.ownStandInLocked(ctx, res, standIn, owner)
 	}
 	key, h := res.cloudHoldingLocked()
 	c.egraphMu.Unlock()
+	_ = runOnReleaseFuncs(context.WithoutCancel(ctx), releases)
 	if standIn != nil {
 		c.identityRows.resolvedLocally.Add(1)
 		return standIn, nil
@@ -150,6 +152,7 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	if h == nil {
 		return fail(errors.New("no Cloud entry"))
 	}
+	releases = nil
 	fetchCtx, cancel := context.WithTimeout(ctx, rowFetchTimeout)
 	defer cancel()
 	bundle, missing, err := fetcher.FetchRows(fetchCtx, []uint64{key.Number}, decode, frames)
@@ -167,10 +170,11 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	if !landed {
 		standIn = c.localStandInLocked(res, time.Now().Unix())
 		if standIn != nil {
-			c.ownStandInLocked(ctx, res, standIn, owner)
+			releases = c.ownStandInLocked(ctx, res, standIn, owner)
 		}
 	}
 	c.egraphMu.Unlock()
+	_ = runOnReleaseFuncs(context.WithoutCancel(ctx), releases)
 	switch {
 	case landed:
 	case standIn != nil:
@@ -191,26 +195,53 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 // in for it, so that it keeps the stand-in alive though the stand-in's own
 // session releases it: owner, the entry whose decoded value now names the
 // stand-in as a child, which an export of that live value then finds among
-// its dependencies; or, for a frame walk, res itself. Session requirements
-// then cascade from the new owner. Requires egraphMu for writing.
-func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *sharedResult) {
+// its dependencies; or, for a frame walk, res itself. A decoded owner whose
+// frame doesn't name res stops depending on res, which its live value no
+// longer names either: otherwise an export would carry res held and its
+// stand-in, of the same recipe, in full. Session requirements then cascade
+// from the owner. It returns the release work of anything that collects,
+// for after the lock. Requires egraphMu for writing.
+func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *sharedResult) []OnReleaseFunc {
 	if owner == nil || c.resultsByID[owner.id] != owner {
 		owner = res
 	}
 	if owner.id == standIn.id {
-		return
+		return nil
 	}
-	if _, ok := owner.deps[standIn.id]; ok {
-		return
+	if _, ok := owner.deps[standIn.id]; !ok {
+		if owner.deps == nil {
+			owner.deps = map[sharedResultID]struct{}{}
+		}
+		owner.deps[standIn.id] = struct{}{}
+		c.rememberDependencyEdgeLocked(owner, standIn)
+		c.incrementIncomingOwnershipLocked(ctx, standIn)
+		owner.dependencyOwnershipRevision++
 	}
-	if owner.deps == nil {
-		owner.deps = map[sharedResultID]struct{}{}
+	var releases []OnReleaseFunc
+	if _, ok := owner.deps[res.id]; ok && owner != res && !frameNames(owner.loadResultCall(), res.id) {
+		delete(owner.deps, res.id)
+		c.forgetDependencyEdgeLocked(owner.id, res.id)
+		owner.dependencyOwnershipRevision++
+		queue, err := c.decrementIncomingOwnershipLocked(ctx, res, nil)
+		if err == nil {
+			releases, _ = c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
+		}
 	}
-	owner.deps[standIn.id] = struct{}{}
-	c.rememberDependencyEdgeLocked(owner, standIn)
-	c.incrementIncomingOwnershipLocked(ctx, standIn)
-	owner.dependencyOwnershipRevision++
 	_ = c.cascadeRequiredSessionResourcesLocked([]*sharedResult{owner}, false)
+	return releases
+}
+
+// frameNames reports whether frame references result id anywhere in its
+// call: receiver, module, arguments or implicit inputs.
+func frameNames(frame *ResultCall, id sharedResultID) bool {
+	found := false
+	_ = walkTransferCalls(frame, func(*ResultCall) error { return nil }, func(ref *ResultCallRef) error {
+		if ref.ResultID == uint64(id) {
+			found = true
+		}
+		return nil
+	})
+	return found
 }
 
 // resolveIdentityFrame returns the call frame that stands for an
