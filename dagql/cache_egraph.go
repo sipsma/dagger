@@ -1597,6 +1597,8 @@ func (c *Cache) teachContentDigest(ctx context.Context, shared *sharedResult, co
 		// back no marks.
 		c.stampEntryLocked(shared, StampFrame)
 		c.stampPendingLocked()
+		// The saved row holds the frame.
+		c.markEntryLocked(shared.id, markSave)
 		c.traceResultCallFrameUpdated(ctx, shared, "teach_content_digest", baseFrame, frame)
 		c.flushShareNotificationsLocked(ctx, notify, notifyOwner)
 		c.egraphMu.Unlock()
