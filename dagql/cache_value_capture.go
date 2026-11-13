@@ -3,8 +3,10 @@ package dagql
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -42,6 +44,12 @@ type capturedTransferRow struct {
 	// knows it, so the bundle carries no record for it and nothing below it.
 	held   bool
 	recipe digest.Digest
+	// encoded is the JSON of the record the bundle carries for the row, and
+	// size an upper bound on the row's value's encoding, which a bounded
+	// capture counts (ValueSelection.MaxBytes); the bundle writes encoded
+	// out rather than encoding the record again.
+	encoded json.RawMessage
+	size    int64
 }
 
 // HeldCapturedClosure protects every exact source row and offer while storage
@@ -967,7 +975,29 @@ func (capture *HeldCapturedClosure) settle(selection ValueSelection) ([]LeftOutR
 			mark(child)
 		}
 	}
+	// adds are the rows a root would add to those kept so far, each once.
+	adds := func(id sharedResultID) []sharedResultID {
+		var added []sharedResultID
+		seen := map[sharedResultID]bool{}
+		var walk func(sharedResultID)
+		walk = func(id sharedResultID) {
+			if keep[id] || seen[id] {
+				return
+			}
+			seen[id] = true
+			added = append(added, id)
+			for _, child := range capture.rows[id].children {
+				walk(child)
+			}
+		}
+		walk(id)
+		return added
+	}
+	bounded := selection.MaxBytes > 0 || selection.MaxRecords > 0
+	var records int
+	var size int64
 	var kept []capturedRoot
+	cut := false
 	for i, root := range capture.selected {
 		b := root.err
 		if b == nil {
@@ -976,6 +1006,31 @@ func (capture *HeldCapturedClosure) settle(selection ValueSelection) ([]LeftOutR
 		if b != nil {
 			leftOut = append(leftOut, LeftOutRoot{Index: i, Row: uint64(b.row), Kind: b.kind, Err: b.err, Busy: capture.busyBelow(root)})
 			continue
+		}
+		if bounded {
+			// The roots go in order while what each adds fits: the first
+			// that would pass a bound, and every root after it, wait for a
+			// later export. The first root kept goes whatever it adds.
+			if !cut {
+				added := adds(root.row.id)
+				var more int64
+				for _, id := range added {
+					more += capture.rows[id].encodedSize(selection.WithoutOffers)
+				}
+				more += maxRootJSONBytes
+				over := selection.MaxRecords > 0 && records+len(added) > selection.MaxRecords ||
+					selection.MaxBytes > 0 && size+more > selection.MaxBytes
+				if over && len(kept) > 0 {
+					cut = true
+				} else {
+					records += len(added)
+					size += more
+				}
+			}
+			if cut {
+				leftOut = append(leftOut, LeftOutRoot{Index: i, Row: uint64(root.row.id), Err: ErrOverBound})
+				continue
+			}
 		}
 		mark(root.row.id)
 		kept = append(kept, root)
@@ -1001,6 +1056,52 @@ func (capture *HeldCapturedClosure) settle(selection ValueSelection) ([]LeftOutR
 		capture.roots = append(capture.roots, TransferredRoot{Ordinal: rows[root.row.id].ordinal, ExpiresAtUnix: root.expiry})
 	}
 	return leftOut, capture.settleOutputs(selection, held)
+}
+
+// ErrOverBound leaves a root out of a bounded capture: the values it would
+// add pass the selection's bound (ValueSelection.MaxBytes, MaxRecords), or a
+// root before it passed it. Its export can ask for it again at once.
+var ErrOverBound = errors.New("the export's bound is reached")
+
+// maxRootJSONBytes bounds a root's entry in the bundle's roots, as JSON: an
+// ordinal and an expiry, each at most 20 digits, their names, and a comma.
+const maxRootJSONBytes = 64
+
+// maxValueWrapperJSONBytes bounds what a value's JSON carries beside its
+// record: its field names, its ordinal, sender number, replacement count
+// and expiry at 20 digits each, and a comma. Each dependency adds an
+// ordinal of at most 20 digits and a comma, and a held row its recipe.
+const maxValueWrapperJSONBytes = 160
+
+// encodedSize is an upper bound on the bytes the row's value takes in the
+// bundle's JSON, its record encoded once and kept (encoded): its record as
+// the bundle carries it, without the offers it carries when withoutOffers,
+// or a held row's record, which names only its row.
+func (row *capturedTransferRow) encodedSize(withoutOffers bool) int64 {
+	if row.size > 0 {
+		return row.size
+	}
+	rec := PersistedRecord{ResultID: uint64(row.shared.id)}
+	if !row.held {
+		rec = row.transfer
+		if withoutOffers {
+			rec.Envelope.PendingOffers = nil
+		}
+	}
+	encoded, err := json.Marshal(rec)
+	if err != nil {
+		// The bundle's own encoding fails the same way, later; count the
+		// row as passing any bound.
+		row.size = math.MaxInt64 / 4
+		return row.size
+	}
+	if len(rec.Envelope.PendingOffers) == 0 {
+		// Offers are relocated as the bundle is built, so only a record
+		// without them keeps its encoding.
+		row.encoded = encoded
+	}
+	row.size = int64(len(encoded)) + maxValueWrapperJSONBytes + 21*int64(len(row.deps)) + int64(len(row.recipe))
+	return row.size
 }
 
 // busyBelow are the busy rows a left-out root's closure reaches: the rows
@@ -1316,6 +1417,9 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 		// dependency is a row of the bundle. Its offers are the bundle's,
 		// which name rows by ordinal: they alone are relocated.
 		rec := row.transfer
+		if selection.WithoutOffers {
+			rec.Envelope.PendingOffers = nil
+		}
 		if len(rec.Envelope.PendingOffers) > 0 {
 			offers, err := clonePartOffers(rec.Envelope.PendingOffers)
 			for i := range offers {
@@ -1330,6 +1434,10 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 			rec.Envelope.PendingOffers = offers
 		}
 		value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: rec, ExpiresAtUnix: row.expiry}
+		if len(rec.Envelope.PendingOffers) == 0 {
+			// A bounded capture encoded the record to count it.
+			value.encodedRecord = row.encoded
+		}
 		for _, id := range row.deps {
 			value.DependencyIDs = append(value.DependencyIDs, uint64(capture.rows[sharedResultID(id)].ordinal))
 		}

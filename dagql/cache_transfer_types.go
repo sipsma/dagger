@@ -24,6 +24,19 @@ type ValueSelection struct {
 	// Known are the rows the recipient has merged: the bundle sends each one
 	// that hasn't changed as a held row.
 	Known *KnownRows
+	// MaxBytes and MaxRecords bound the bundle's values, by their encoded
+	// bytes and their count (0: no bound): the capture takes the roots in
+	// order while the values each one adds fit, and leaves out the first
+	// root that would pass a bound and every root after it, with
+	// ErrOverBound. The first root it keeps always goes, whatever it adds.
+	// The bytes are the values' JSON as the bundle encodes it, its roots'
+	// included, counted as an upper bound; a selection's outputs are
+	// outside it.
+	MaxBytes   int64
+	MaxRecords int
+	// WithoutOffers sends the bundle's records without the offers of parts
+	// they carry.
+	WithoutOffers bool
 }
 type SelectedValueOutput struct {
 	Result  AnyResult
@@ -108,6 +121,10 @@ type TransferredValue struct {
 	// encoding writes it out, and cloneValueBundle decodes it.
 	storedCall      []byte
 	storedCallBytes int64
+	// encodedRecord is, in a bundle a bounded capture built, Record's JSON,
+	// which the capture encoded to count its bytes (ValueSelection.MaxBytes):
+	// the value's encoding writes it out rather than encoding it again.
+	encodedRecord json.RawMessage
 }
 
 // MarshalJSON encodes the value as its fields say, with a stored envelope
@@ -115,6 +132,17 @@ type TransferredValue struct {
 // the value with its envelope decoded, field for field.
 func (v TransferredValue) MarshalJSON() ([]byte, error) {
 	type plain TransferredValue
+	if v.encodedRecord != nil {
+		return json.Marshal(encodedValueJSON{
+			Ordinal:            v.Ordinal,
+			SenderNumber:       v.SenderNumber,
+			SenderReplacements: v.SenderReplacements,
+			Record:             v.encodedRecord,
+			DependencyIDs:      v.DependencyIDs,
+			ExpiresAtUnix:      v.ExpiresAtUnix,
+			Held:               v.Held,
+		})
+	}
 	if v.storedEnvelope == nil {
 		return json.Marshal(plain(v))
 	}
@@ -164,6 +192,18 @@ type storedValueJSON struct {
 	DependencyIDs      []uint64         `json:"dependencyIDs,omitempty"`
 	ExpiresAtUnix      int64            `json:"expiresAtUnix,omitempty"`
 	Held               digest.Digest    `json:"held,omitempty"`
+}
+
+// encodedValueJSON is TransferredValue's encoding, field for field, with its
+// record as encoded JSON.
+type encodedValueJSON struct {
+	Ordinal            TransferOrdinal `json:"ordinal"`
+	SenderNumber       uint64          `json:"senderNumber"`
+	SenderReplacements uint64          `json:"senderReplacements,omitempty"`
+	Record             json.RawMessage `json:"record"`
+	DependencyIDs      []uint64        `json:"dependencyIDs,omitempty"`
+	ExpiresAtUnix      int64           `json:"expiresAtUnix,omitempty"`
+	Held               digest.Digest   `json:"held,omitempty"`
 }
 
 // storedRecordJSON is a PersistedRecord with its envelope and call as

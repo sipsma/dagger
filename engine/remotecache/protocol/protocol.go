@@ -251,6 +251,14 @@ type Settled struct{}
 type Export struct {
 	Roots   []uint64       `json:"roots"`
 	Outputs []ExportOutput `json:"outputs,omitempty"`
+	// MaxBytes and MaxRecords bound the reply's bundle: its records' JSON,
+	// and their count (0: no bound). The engine takes the roots in order
+	// while the records each adds fit, and skips the first that would pass
+	// a bound and every root after it, as SkipBound; the first root it
+	// keeps goes whatever it adds. The selected outputs are outside the
+	// bound.
+	MaxBytes   int64 `json:"maxBytes,omitempty"`
+	MaxRecords int   `json:"maxRecords,omitempty"`
 }
 
 // ExportOutput selects one part of an entry for upload.
@@ -273,6 +281,9 @@ const (
 	SkipRefused SkipReason = "refused"
 	// SkipExpired: a merged root had expired when the merge decided.
 	SkipExpired SkipReason = "expired"
+	// SkipBound: the export's bound was reached before the root
+	// (Export.MaxBytes, MaxRecords); ask for it again at once.
+	SkipBound SkipReason = "bound"
 )
 
 // Exported answers Export. Bundle is nil when no root survived. The engine

@@ -1060,6 +1060,9 @@ func cloneValueBundle(in ValueBundle) (ValueBundle, error) {
 		out.Values = make([]TransferredValue, len(in.Values))
 	}
 	for i, value := range in.Values {
+		// The merge relocates the record it decodes: an encoding the
+		// capture kept describes it no longer.
+		value.encodedRecord = nil
 		if value.storedEnvelope != nil {
 			// A stored envelope is decoded as the bundle's encoding would
 			// have carried it.
