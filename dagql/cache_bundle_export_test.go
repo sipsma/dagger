@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -127,6 +128,14 @@ func TestExportBundleCarriesNoneOfTheCloudsOffers(t *testing.T) {
 		return *bundle
 	}
 	without := export()
+	var logs offerLogs
+	withLogs := func() ValueBundle {
+		t.Helper()
+		var bundle *ValueBundle
+		require.NoError(t, c.ExportBundle(logs.into(ctx), srv, []AnyResult{root}, config.RefConfig{}, bundleCatcher{&bundle}))
+		require.NotNil(t, bundle)
+		return *bundle
+	}
 
 	d := digest.FromString("cloud layer")
 	offer := testLiveOffer()
@@ -138,13 +147,25 @@ func TestExportBundleCarriesNoneOfTheCloudsOffers(t *testing.T) {
 	out, err := c.testOfferParts(ctx, dep, []PersistedPartOffer{offer})
 	require.NoError(t, err)
 	require.Equal(t, OfferAccepted, out[0].Outcome)
-	with := export()
+	with := withLogs()
 
 	require.Equal(t, without, with, "the Cloud's offer doesn't change the bundle")
+	dropped := logs.lines(t, "export bundle: left out the Cloud's offers")
+	require.Len(t, dropped, 1, "the export logs the offers it left out")
+	require.Equal(t, int64(1), dropped[0].int(t, "records"))
+	require.Equal(t, []any{fmt.Sprintf("%d:%s", rowNumber(dep), mustPartKey(t, offer.Address))}, dropped[0].fields["offers"], "the log names the row and its part")
 	for _, value := range with.Values {
 		require.Empty(t, value.Record.Envelope.PendingOffers, "row %d", value.SenderNumber)
 	}
 	ctx2, image, _ := transferTestCache(t)
 	_, err = image.MergeValues(ctx2, ImageCacheID, with)
 	require.NoError(t, err, "an engine image's merge takes the bundle")
+}
+
+// mustPartKey is address's part key.
+func mustPartKey(t *testing.T, address PersistedPartAddress) string {
+	t.Helper()
+	key, err := partAddressKey(address)
+	require.NoError(t, err)
+	return key
 }
