@@ -88,17 +88,13 @@ func (c *Cache) markEntryLocked(id sharedResultID, why markReason) {
 // markEntryClassLocked marks the entry numbered id and, when the marks are
 // handed back, every entry of its classes: its value, record, stored parts
 // or expiry changed, or it joined their class. For the save, it marks the
-// entry alone. Requires egraphMu for writing.
-func (c *Cache) markEntryClassLocked(id sharedResultID, why markReason) {
+// entry alone. It marks for both readers. Requires egraphMu for writing.
+func (c *Cache) markEntryClassLocked(id sharedResultID) {
 	if c.changes == nil || id == 0 {
 		return
 	}
-	if why&markSelection != 0 {
-		c.changes.classes = append(c.changes.classes, id)
-	}
-	if why&markSave != 0 {
-		c.changes.saveEntries = append(c.changes.saveEntries, id)
-	}
+	c.changes.classes = append(c.changes.classes, id)
+	c.changes.saveEntries = append(c.changes.saveEntries, id)
 }
 
 // markSavedClassLocked marks, for the save, the class numbered id: its
