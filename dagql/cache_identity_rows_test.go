@@ -258,8 +258,11 @@ func identityTestFrameRow(t *testing.T, cloud *Cache, bundle *ValueBundle, numbe
 	t.Helper()
 	entry := storedBundleTestEntry(cloud, number)
 	cloud.egraphMu.RLock()
-	frame := entry.loadResultCall()
+	held := entry.entryFrameLocked()
 	cloud.egraphMu.RUnlock()
+	// The Cloud may hold the frame in the entry's stored body.
+	frame, err := held.decode()
+	require.NoError(t, err)
 	require.NotNil(t, frame)
 	call, err := normalizeTransferCall(frame)
 	require.NoError(t, err)
