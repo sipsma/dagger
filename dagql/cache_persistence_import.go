@@ -180,6 +180,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				if row.CloudHoldingNumber != 0 {
 					res.noteCloudCopyLocked(uint64(row.CloudHoldingNumber), row.CloudHoldingStored, row.CloudHoldingExpiresAtUnix)
 				}
+				if frame != nil && row.frameErr == nil {
+					// A frame row's frame came with it.
+					res.storeResultCall(frame)
+				}
 				c.putResultLocked(res)
 				continue
 			}

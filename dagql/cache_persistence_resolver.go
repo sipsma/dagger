@@ -95,7 +95,7 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 			// A row a merge carried as identity alone, which a decode now
 			// loads: an entry of its class with a value stands for it, or
 			// the Cloud's record of it, fetched.
-			resolved, err := c.resolveIdentityEntry(ctx, res, true)
+			resolved, err := c.resolveIdentityEntry(ctx, res, true, false)
 			if err != nil {
 				return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", resultID, err)
 			}
