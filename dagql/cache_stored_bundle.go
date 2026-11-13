@@ -212,7 +212,8 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 			return nil, nil
 		}
 		build.roots = append(walked, build.callRoots...)
-		build.dropUnreachable()
+		// Only the build's own state: done with the lock let go.
+		hold.unlocked(build.dropUnreachable)
 		for _, res := range build.roots {
 			hold.step()
 			expiry := build.snaps[res.id].expiresAtUnix
@@ -279,7 +280,8 @@ func (c *Cache) storedBundleRootLocked(build *storedBundleBuild, res *sharedResu
 // added for no longer names, replaced between the read's pieces, or that a
 // walk that failed added. With no write during the build, every row is
 // reached and nothing changes. The calls kept on a dropped row go with it.
-// Requires egraphMu, before the outputs are chosen.
+// It reads only the build's own state, so it needs no lock; it runs before
+// the outputs are chosen.
 func (build *storedBundleBuild) dropUnreachable() {
 	if build.snaps == nil {
 		return

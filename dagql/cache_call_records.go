@@ -121,6 +121,12 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 		if len(res.calls) == 0 {
 			continue
 		}
+		if snap := build.snaps[res.id]; snap != nil {
+			// The calls are read now: the value's expiry is the earliest of
+			// the one read with it and the one that governs these calls, as
+			// a call that lowered it may have been kept since.
+			snap.expiresAtUnix = mergeSharedResultExpiryUnix(snap.expiresAtUnix, res.expiresAtUnix)
+		}
 		for _, group := range c.keptCallTermsLocked(res) {
 			chosen, add := c.placeableCallLocked(group, func(entry *sharedResult) bool {
 				return build.ordinary[entry.id] || build.heldBy.heldLocked(entry, build.now)
@@ -129,14 +135,28 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 				build.unsendableCalls++
 				continue
 			}
+			var added []*sharedResult
+			placed := true
 			for _, input := range add {
 				if err := c.storedBundleVisitLocked(build, input, map[sharedResultID]bool{}); err != nil {
-					if errors.Is(err, errStoredEntryGone) {
-						// The input went between the pieces.
-						continue
+					// An input gone, or left with no value, between the
+					// read's pieces can't be placed, as in a single hold of
+					// that state: the call isn't sent, and what its walk
+					// added no root reaches (dropUnreachable).
+					cur := c.resultsByID[input.id]
+					if build.hold != nil && (errors.Is(err, errStoredEntryGone) || cur == nil || cur.noValueLocked() || cur.persistedEnvelope == nil) {
+						placed = false
+						break
 					}
 					return fmt.Errorf("call %s input: %w", chosen.id.recipe, err)
 				}
+				added = append(added, input)
+			}
+			if !placed {
+				build.unsendableCalls++
+				continue
+			}
+			for _, input := range added {
 				// A merge installs only what its roots need, so an input
 				// entry travels as a root.
 				if !build.rootSeen[input.id] {
