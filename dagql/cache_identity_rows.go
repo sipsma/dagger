@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/wcprof"
+	"github.com/opencontainers/go-digest"
 )
 
 // An engine's identity-only entry (sharedResult.identityOnly) stands for a
@@ -218,7 +219,7 @@ func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *share
 		c.incrementIncomingOwnershipLocked(ctx, standIn)
 		owner.dependencyOwnershipRevision++
 	}
-	if _, ok := owner.deps[res.id]; ok && owner != res {
+	if _, ok := owner.deps[res.id]; ok && owner != res && sameRecipeLocked(standIn, res.identityRecipe) {
 		// The decoded owner gives up res for the stand-in only once its
 		// decoded value is installed (settleStandIns): until then res
 		// stays, for another reference to it in the same decode, or a
@@ -258,6 +259,7 @@ func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 		owner.storeResultCall(frame)
 	}
 	var queue []*sharedResult
+	dropped := false
 	for from, to := range pending {
 		_, hasFrom := owner.deps[from]
 		_, hasTo := owner.deps[to]
@@ -265,6 +267,7 @@ func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 		if !hasFrom || !hasTo || res == nil {
 			continue
 		}
+		dropped = true
 		delete(owner.deps, from)
 		c.forgetDependencyEdgeLocked(owner.id, from)
 		owner.dependencyOwnershipRevision++
@@ -273,9 +276,37 @@ func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 			slog.Warn("settle stand-ins: ownership", "entry", owner.id, "error", err)
 		}
 	}
+	if dropped {
+		// The requirements the dropped entries brought go with them.
+		if err := c.cascadeRequiredSessionResourcesLocked([]*sharedResult{owner}, false); err != nil {
+			slog.Warn("settle stand-ins: requirements", "entry", owner.id, "error", err)
+		}
+	}
 	releases, _ := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
 	c.egraphMu.Unlock()
 	_ = runOnReleaseFuncs(context.WithoutCancel(ctx), releases)
+}
+
+// clearStandIns forgets the stand-ins an earlier decode of res recorded:
+// they belong to the decode whose value is installed, and a new attempt
+// records its own.
+func (c *Cache) clearStandIns(ctx context.Context, res *sharedResult) {
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	res.pendingStandIns = nil
+	c.egraphMu.Unlock()
+}
+
+// sameRecipeLocked reports whether standIn's frame derives recipe, so that
+// naming it in a frame in res's place leaves the frame's recipe as it was.
+// It derives nothing: a frame not derived yet doesn't count. Requires
+// egraphMu.
+func sameRecipeLocked(standIn *sharedResult, recipe digest.Digest) bool {
+	frame := standIn.loadResultCall()
+	if frame == nil {
+		return standIn.identityRecipe == recipe
+	}
+	got, derived, err := frame.derivedRecipeDigest()
+	return derived && err == nil && got == recipe
 }
 
 // resolveIdentityFrame returns the call frame that stands for an
