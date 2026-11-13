@@ -21,3 +21,14 @@ func (m Merge) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type merge Merge
 	return jsonv2.MarshalEncode(enc, merge{Bundle: bundle, Lookup: m.Lookup})
 }
+
+// MarshalJSONTo writes a fetch's answer in place, the same JSON MarshalJSON
+// gives.
+func (f FetchedRows) MarshalJSONTo(enc *jsontext.Encoder) error {
+	bundle, err := dagql.ShareChainLayers(f.Bundle)
+	if err != nil {
+		return err
+	}
+	type fetchedRows FetchedRows
+	return jsonv2.MarshalEncode(enc, fetchedRows{Bundle: bundle, Missing: f.Missing})
+}
