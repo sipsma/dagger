@@ -714,3 +714,82 @@ func TestWriteBehindBudgetTakesALeavingEntrysOwners(t *testing.T) {
 	})
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a dependency leaving before its owner, drained")
 }
+
+// Two writes' rows never name a dependency cycle: a root that depended on
+// its dependency is replaced without it, and the dependency is replaced to
+// depend on the root. The dependency's mark comes first, so a write that
+// took it alone would leave the root's older row naming it beside its own
+// new row naming the root.
+func TestWriteBehindBudgetNeverWritesADependencyCycle(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	cloud.testWriteBehindBudget = 1
+	actx, a, asrv := transferTestCache(t)
+	ra := persistedListTestResult(t, actx, a, asrv, "wb-cycle-a", &transferTestValue{Text: "a"})
+	rb := persistedListTestResult(t, actx, a, asrv, "wb-cycle-b", &transferTestValue{Text: "b"})
+	transferTestDependency(a, actx, ra, rb)
+	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, ra))[0]
+	dep := storedPartTestDeps(cloud, root)[0]
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root with a dependency")
+
+	// Another engine has the same two values the other way round.
+	ectx, e, esrv := transferTestCache(t)
+	ea := persistedListTestResult(t, ectx, e, esrv, "wb-cycle-a", &transferTestValue{Text: "a"})
+	eb := persistedListTestResult(t, ectx, e, esrv, "wb-cycle-b", &transferTestValue{Text: "b"})
+	transferTestDependency(e, ectx, eb, ea)
+	inverted := exportTestBundle(t, ectx, e, eb)
+
+	stored, _, err := cloud.SetStoredPart(ctx, dep, storedPruneTestPart("snapshot", map[string]int64{"wb-cycle-base": 10}), 0)
+	require.NoError(t, err)
+	require.True(t, stored, "the dependency is marked first")
+	cloud.egraphMu.Lock()
+	for _, id := range []uint64{root, dep} {
+		cloud.resultsByID[sharedResultID(id)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	}
+	cloud.egraphMu.Unlock()
+	_, err = cloud.MergeValues(ctx, "cache-a", inverted)
+	require.NoError(t, err)
+	require.Empty(t, storedPartTestDeps(cloud, root), "the root was replaced without its dependency")
+	require.Equal(t, []uint64{root}, storedPartTestDeps(cloud, dep), "the dependency was replaced to depend on the root")
+
+	writeBehindTestDrain(t, ctx, cloud, "an inverted dependency", func(WriteBehindReport) {
+		writeBehindTestRestorable(t, ctx, cloud, path, "draining an inverted dependency")
+	})
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "an inverted dependency, drained")
+}
+
+// Replacements that end cleanly are written within the budget: closing an
+// attachment cleanly changes nothing a write must take beyond its marks.
+func TestWriteBehindBudgetHoldsForReplacements(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	var bundles []ValueBundle
+	var roots []uint64
+	for i := range 3 {
+		bundle, _ := mergeTestSource(t, fmt.Sprintf("wb-replace-%d", i), "value")
+		reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+		require.NoError(t, err)
+		bundles = append(bundles, bundle)
+		roots = append(roots, reply.Imported()[0].ResultID)
+	}
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "three stored roots")
+	cloud.egraphMu.Lock()
+	for _, id := range roots {
+		cloud.resultsByID[sharedResultID(id)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	}
+	cloud.egraphMu.Unlock()
+	for i, bundle := range bundles {
+		reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+		require.NoError(t, err)
+		require.Equal(t, roots[i], reply.Imported()[0].ResultID, "replaced in place")
+	}
+	cloud.testWriteBehindBudget = 1
+	report, err := cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	require.True(t, report.More, "marks are left")
+	require.Equal(t, 1, report.Entries, "one replaced root in the first write")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "three replaced roots")
+}
