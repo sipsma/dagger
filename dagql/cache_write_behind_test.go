@@ -794,3 +794,67 @@ func TestWriteBehindBudgetHoldsForReplacements(t *testing.T) {
 	require.Equal(t, 1, report.Entries, "one replaced root in the first write")
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "three replaced roots")
 }
+
+// A chain of stored entries turned round, A → B → C into B → C → A, never
+// leaves a cycle in the store, whichever order a write takes its marks in:
+// the marks of B and C come first and fill the write's budget, and C gains
+// A while its stored owner B is written in the same write.
+func TestWriteBehindBudgetNeverWritesACycleThroughAWrittenOwner(t *testing.T) {
+	t.Parallel()
+	// The order a write visits its marks in varies, so the chain is turned
+	// round several times.
+	for i := range 10 {
+		path := filepath.Join(t.TempDir(), fmt.Sprintf("cloud-%d.db", i))
+		ctx, cloud := storedPersistenceTestCloud(t, path)
+		actx, a, asrv := transferTestCache(t)
+		values := map[string]AnyResult{}
+		for _, name := range []string{"a", "b", "c"} {
+			values[name] = persistedListTestResult(t, actx, a, asrv, "wb-chain-"+name, &transferTestValue{Text: name})
+		}
+		transferTestDependency(a, actx, values["a"], values["b"])
+		transferTestDependency(a, actx, values["b"], values["c"])
+		root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, values["a"]))[0]
+		b := storedPartTestDeps(cloud, root)[0]
+		c := storedPartTestDeps(cloud, b)[0]
+		writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored chain")
+
+		for _, id := range []uint64{b, c} {
+			stored, _, err := cloud.SetStoredPart(ctx, id, storedPruneTestPart("snapshot", map[string]int64{fmt.Sprintf("wb-chain-%d", id): 10}), 0)
+			require.NoError(t, err)
+			require.True(t, stored, "B and C are marked first")
+		}
+		// Each step replaces an entry nothing else depends on any more, as
+		// another engine's records of it, with the step's dependencies.
+		step := func(name string, deps ...string) {
+			ectx, e, esrv := transferTestCache(t)
+			mine := map[string]AnyResult{}
+			for _, n := range append([]string{name}, deps...) {
+				mine[n] = persistedListTestResult(t, ectx, e, esrv, "wb-chain-"+n, &transferTestValue{Text: n})
+			}
+			for _, d := range deps {
+				transferTestDependency(e, ectx, mine[name], mine[d])
+			}
+			cloud.egraphMu.Lock()
+			for _, id := range []uint64{root, b, c} {
+				cloud.resultsByID[sharedResultID(id)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+			}
+			cloud.egraphMu.Unlock()
+			_, err := cloud.MergeValues(ctx, "cache-a", exportTestBundle(t, ectx, e, mine[name]))
+			require.NoError(t, err)
+		}
+		step("a")
+		step("b")
+		step("c", "a")
+		step("b", "c")
+		require.Empty(t, storedPartTestDeps(cloud, root), "A depends on nothing")
+		require.Equal(t, []uint64{c}, storedPartTestDeps(cloud, b), "B depends on C")
+		require.Equal(t, []uint64{root}, storedPartTestDeps(cloud, c), "C depends on A")
+
+		cloud.testWriteBehindBudget = 2
+		writeBehindTestDrain(t, ctx, cloud, "a chain turned round", func(WriteBehindReport) {
+			writeBehindTestRestorable(t, ctx, cloud, path, "draining a chain turned round")
+		})
+		writeBehindTestMatchesWholeSave(t, ctx, cloud, "a chain turned round, drained")
+		require.NoError(t, cloud.Close(ctx))
+	}
+}
