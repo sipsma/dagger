@@ -335,8 +335,13 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID) []shar
 		}
 	}
 	had := b.children[id]
+	wanted := make(map[sharedResultID]struct{}, len(want))
+	for _, child := range want {
+		wanted[child] = struct{}{}
+	}
 	for _, child := range had {
-		if slices.Contains(want, child) {
+		if _, kept := wanted[child]; kept {
+			delete(wanted, child)
 			continue
 		}
 		before := b.owned(child)
@@ -349,10 +354,7 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID) []shar
 			turned = append(turned, child)
 		}
 	}
-	for _, child := range want {
-		if slices.Contains(had, child) {
-			continue
-		}
+	for child := range wanted {
 		before := b.owned(child)
 		owners := b.ownedBy[child]
 		if owners == nil {
