@@ -520,7 +520,7 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 	// are small, are kept for their own tables below.
 	for i := range snapshot.results {
 		result := &snapshot.results[i]
-		if result.frame == nil && !result.stored.holdsFrame() {
+		if result.frame == nil && !result.stored.holdsFrame() && result.identityRecipe == "" {
 			if result.self == nil || result.self.Type() == nil || result.self.Type().Name() != "Query" {
 				_ = tx.Rollback()
 				return fmt.Errorf("persist result %d: missing result call frame", result.resultID)
