@@ -184,16 +184,21 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 		// Root by root, as StoredSizes prices them: its closure, then the calls
 		// kept on what it added, with their inputs' closures.
 		var walked []*sharedResult
-		for i, res := range rootEntries {
-			build.current = i
+		for _, res := range rootEntries {
+			// Its index among the bundle's roots: a root gone before it is
+			// none of them.
+			build.current = len(walked)
 			start := len(build.order)
-			if err := c.storedBundleVisitLocked(build, res, visiting); err != nil {
-				if errors.Is(err, errStoredEntryGone) {
-					// The root went between the pieces, as one gone before.
-					out.Gone = append(out.Gone, uint64(res.id))
-					continue
-				}
+			gone, noValue, err := c.storedBundleRootLocked(build, res, visiting)
+			switch {
+			case err != nil:
 				return nil, err
+			case gone:
+				out.Gone = append(out.Gone, uint64(res.id))
+				continue
+			case noValue:
+				out.NoValue = append(out.NoValue, uint64(res.id))
+				continue
 			}
 			walked = append(walked, res)
 			for _, entry := range build.order[start:] {
@@ -207,6 +212,7 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 			return nil, nil
 		}
 		build.roots = append(walked, build.callRoots...)
+		build.dropUnreachable()
 		for _, res := range build.roots {
 			hold.step()
 			expiry := build.snaps[res.id].expiresAtUnix
@@ -236,6 +242,87 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 	return out, frames, nil
 }
 
+// storedBundleRootLocked walks a root's closure (storedBundleVisitLocked).
+// The cache may change between the pieces of the read: a root gone, or left
+// with no value, meanwhile is reported so, as one found so before the build;
+// a walk that fails for an entry gone or valueless below it is walked once
+// more from the root, read again, and its error is the build's only if it
+// fails again, as it would in a single hold of that state. What a failed
+// walk added and no root reaches is dropped (dropUnreachable). Requires
+// egraphMu.
+func (c *Cache) storedBundleRootLocked(build *storedBundleBuild, res *sharedResult, visiting map[sharedResultID]bool) (gone, noValue bool, err error) {
+	for attempt := 0; ; attempt++ {
+		clear(visiting)
+		err = c.storedBundleVisitLocked(build, res, visiting)
+		if err == nil {
+			return false, false, nil
+		}
+		cur := c.resultsByID[res.id]
+		switch {
+		case cur == nil:
+			return true, false, nil
+		case cur.noValueLocked():
+			return false, true, nil
+		case attempt > 0 || build.hold == nil:
+			if errors.Is(err, errStoredEntryGone) {
+				return true, false, nil
+			}
+			return false, false, err
+		}
+		res = cur
+	}
+}
+
+// dropUnreachable drops from the build the rows no root reaches, through
+// what each row named when it was added (storedEntrySnap.children), and
+// numbers the rest again in order: a row a walk added that the entry it was
+// added for no longer names, replaced between the read's pieces, or that a
+// walk that failed added. With no write during the build, every row is
+// reached and nothing changes. The calls kept on a dropped row go with it.
+// Requires egraphMu, before the outputs are chosen.
+func (build *storedBundleBuild) dropUnreachable() {
+	if build.snaps == nil {
+		return
+	}
+	reached := make(map[sharedResultID]bool, len(build.order))
+	var reach func(id sharedResultID)
+	reach = func(id sharedResultID) {
+		if reached[id] || build.ordinals[id] == 0 {
+			return
+		}
+		reached[id] = true
+		for _, child := range build.snaps[id].children {
+			reach(child)
+		}
+	}
+	for _, res := range build.roots {
+		reach(res.id)
+	}
+	if len(reached) == len(build.order) {
+		return
+	}
+	kept := build.order[:0]
+	for _, res := range build.order {
+		if !reached[res.id] {
+			delete(build.ordinals, res.id)
+			delete(build.snaps, res.id)
+			delete(build.held, res.id)
+			delete(build.owners, res.id)
+			continue
+		}
+		kept = append(kept, res)
+		build.ordinals[res.id] = TransferOrdinal(len(kept))
+	}
+	build.order = kept
+	calls := build.calls[:0]
+	for _, call := range build.calls {
+		if reached[call.value] {
+			calls = append(calls, call)
+		}
+	}
+	build.calls = calls
+}
+
 // errStoredEntryGone is a root the cache no longer has, found between the
 // pieces of a build's read.
 var errStoredEntryGone = errors.New("stored bundle: entry gone")
@@ -260,10 +347,15 @@ type storedEntrySnap struct {
 	parts []declaredPart
 	call  *ResultCall
 	kept  *storedTransferRecord
-	// own are its own stored parts, by key, and borrowed the parts it
-	// borrows from its class (storedBundleOutputsLocked).
+	// own are its own stored parts, by key, ownKeys their keys, declared the
+	// parts its record declares absent or pending, and borrowed the parts it
+	// borrows from its class (storedBundleOutputsLocked); children are what
+	// the build walked below it (storedClosureChildrenLocked).
 	own      []storedPart
+	ownKeys  map[string]bool
+	declared []declaredPart
 	borrowed []storedBorrowedPart
+	children []sharedResultID
 }
 
 // storedBorrowedPart is a part an entry borrows from an entry of its class
@@ -303,9 +395,17 @@ func (c *Cache) snapStoredEntryLocked(build *storedBundleBuild, res *sharedResul
 		}
 		snap.kept, snap.refs = kept, kept.refs
 	}
+	declared, err := res.declaredPartsLocked()
+	if err != nil {
+		return nil, fmt.Errorf("stored bundle: entry %d: %w", res.id, err)
+	}
+	snap.declared = declared
+	snap.ownKeys = make(map[string]bool, len(res.storedParts))
 	for _, key := range slices.Sorted(maps.Keys(res.storedParts)) {
 		snap.own = append(snap.own, res.storedParts[key])
+		snap.ownKeys[key] = true
 	}
+	snap.children = storedClosureChildrenLocked(res)
 	return snap, nil
 }
 
@@ -330,6 +430,9 @@ func (c *Cache) finishStoredBundle(build *storedBundleBuild, out *StoredBundleRe
 		if err := build.addSnapValue(snap); err != nil {
 			return nil, err
 		}
+	}
+	for _, call := range build.calls {
+		build.bundle.Calls = append(build.bundle.Calls, TransferredCall{Call: call.encoded, Value: build.ordinals[call.value]})
 	}
 	for i, res := range build.roots {
 		build.bundle.Roots = append(build.bundle.Roots, TransferredRoot{Ordinal: build.ordinals[res.id], ExpiresAtUnix: build.rootExpiry[i]})
@@ -399,10 +502,23 @@ type storedBundleBuild struct {
 	// it read of each entry it added (storedEntrySnap), nil when the build
 	// copies each value under the lock as it goes; roots and rootExpiry are
 	// the bundle's roots, and each one's expiry, as read.
-	hold       *readPieces
-	snaps      map[sharedResultID]*storedEntrySnap
+	hold  *readPieces
+	snaps map[sharedResultID]*storedEntrySnap
+	// unnormalized are the records whose normalizing failed with the lock
+	// let go (normalizeUnlocked).
+	unnormalized map[sharedResultID]bool
+	// calls are the kept calls the bundle sends, each with the entry it is
+	// kept on, numbered by ordinal as the bundle is finished.
+	calls      []storedBundleCall
 	roots      []*sharedResult
 	rootExpiry []int64
+}
+
+// storedBundleCall is a kept call a bundle sends, encoded, and the entry it
+// is kept on.
+type storedBundleCall struct {
+	encoded string
+	value   sharedResultID
 }
 
 // relocate rewrites a reference to an entry of the closure to its ordinal.
@@ -450,7 +566,6 @@ func (c *Cache) storedBundleVisitLocked(build *storedBundleBuild, res *sharedRes
 	}
 	visiting[res.id] = true
 	for {
-		yields := build.hold.yields()
 		for _, id := range storedClosureChildrenLocked(res) {
 			child := c.resultsByID[id]
 			if child == nil {
@@ -463,20 +578,82 @@ func (c *Cache) storedBundleVisitLocked(build *storedBundleBuild, res *sharedRes
 				return err
 			}
 		}
-		if build.hold.yields() == yields {
+		if build.hold == nil {
 			break
 		}
-		// A piece let the lock go while its children were walked: read it
-		// again, and walk any child it has gained.
+		// The entry's own reading, after its children, is a step of its
+		// own: a chain deeper than a piece is read on the way back up in
+		// pieces too. It is read again by its number, as a piece may have
+		// let the lock go, and added only if every one of its children is
+		// in the build now, in this piece; a child it gained meanwhile is
+		// walked first.
+		build.hold.step()
 		if res = c.resultsByID[res.id]; res == nil {
 			return errStoredEntryGone
 		}
 		if res.noValueLocked() || res.persistedEnvelope == nil {
 			return fmt.Errorf("stored bundle: entry %d in the closure has no stored record", res.id)
 		}
+		missing := false
+		for _, id := range storedClosureChildrenLocked(res) {
+			if build.ordinals[id] == 0 {
+				missing = true
+				break
+			}
+		}
+		if missing {
+			continue
+		}
+		// A record held whole is normalized with the lock let go, then read
+		// again.
+		if c.normalizeUnlocked(build, res) {
+			continue
+		}
+		break
 	}
 	delete(visiting, res.id)
 	return build.add(c, res)
+}
+
+// normalizeUnlocked normalizes res's record held whole, if its kept transfer
+// record isn't of its envelope and call, with egraphMu let go
+// (readPieces.unlocked): normalizing reads only the envelope and call, which
+// the cache replaces and never changes in place, and decodes and validates
+// every payload, which held the lock for hundreds of milliseconds on a
+// fresh merge's records, until the body worker compresses them. The result
+// is kept if they are still res's when the lock is taken again. It reports
+// whether it let the lock go; the caller reads res again. A compressed
+// record, or a read in a single hold, needs none. Requires egraphMu.
+func (c *Cache) normalizeUnlocked(build *storedBundleBuild, res *sharedResult) bool {
+	if build.hold == nil || build.held[res.id] || res.stored != nil || res.persistedEnvelope == nil || build.unnormalized[res.id] {
+		return false
+	}
+	env, call := res.persistedEnvelope, res.loadResultCall()
+	if kept := res.storedTransfer.Load(); kept != nil && kept.envelope == env && kept.call == call {
+		return false
+	}
+	var normalized *storedTransferRecord
+	var err error
+	build.hold.unlocked(func() {
+		normalized, err = normalizeStoredTransfer(res, env, call)
+		if err == nil && c.testStoredTransferNormalized != nil {
+			c.testStoredTransferNormalized()
+		}
+	})
+	// A record that fails normalizing fails it again under the lock, where
+	// the build reports it (snapStoredEntryLocked), and isn't tried here
+	// again.
+	if err != nil {
+		if build.unnormalized == nil {
+			build.unnormalized = map[sharedResultID]bool{}
+		}
+		build.unnormalized[res.id] = true
+	} else {
+		if cur := c.resultsByID[res.id]; cur != nil && cur.persistedEnvelope == env && cur.loadResultCall() == call {
+			keepStoredTransfer(cur, normalized)
+		}
+	}
+	return true
 }
 
 // add appends res to the build's order and gives it its ordinal, with what
@@ -651,7 +828,11 @@ func (c *Cache) storedTransferRecordLocked(res *sharedResult) (PersistedRecord, 
 // storedTransferLocked is storedTransferRecordLocked's kept record whole,
 // with the references it names. Requires egraphMu.
 func (c *Cache) storedTransferLocked(res *sharedResult) (*storedTransferRecord, error) {
-	normalized, err := normalizeStoredTransfer(res, res.persistedEnvelope, res.loadResultCall())
+	env, call := res.persistedEnvelope, res.loadResultCall()
+	if kept := res.storedTransfer.Load(); kept != nil && kept.envelope == env && kept.call == call {
+		return kept, nil
+	}
+	normalized, err := normalizeStoredTransfer(res, env, call)
 	if err != nil {
 		return nil, err
 	}
@@ -718,8 +899,8 @@ func normalizeStoredTransfer(res *sharedResult, env *PersistedResultEnvelope, ca
 
 // storedBundleOutputsLocked chooses res's outputs, into its snapshot: its
 // own stored parts, read with its children (snapStoredEntryLocked), then the
-// declared pending parts it borrows from its class through the placement
-// rule, each with the closure row each of its services maps to. The offers
+// pending parts its record declared then, and it didn't store then, borrowed
+// from its class through the placement rule, each with the closure row each of its services maps to. The offers
 // are cloned and relocated after the lock (finishStoredBundle). res is read
 // again by its number, as a piece may have let the lock go. Requires
 // egraphMu.
@@ -728,16 +909,15 @@ func (c *Cache) storedBundleOutputsLocked(build *storedBundleBuild, res *sharedR
 	if cur := c.resultsByID[res.id]; cur != nil {
 		res = cur
 	}
-	declared, err := res.declaredPartsLocked()
-	if err != nil {
-		return fmt.Errorf("stored bundle: entry %d: %w", res.id, err)
-	}
-	for _, part := range declared {
+	// The record's declarations and own parts as they were read with it
+	// (snapStoredEntryLocked), so that a part it carries as its own isn't
+	// borrowed too.
+	for _, part := range snap.declared {
 		key := part.key
 		if part.state != "pending" {
 			continue
 		}
-		if _, own := res.storedParts[key]; own {
+		if snap.ownKeys[key] {
 			continue
 		}
 		donor, stored := c.storedPartDonorLocked(res, key, build.now)

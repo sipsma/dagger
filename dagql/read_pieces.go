@@ -17,6 +17,9 @@ type readPieces struct {
 	c     *Cache
 	size  int
 	steps int
+	// gaps counts the times the read let egraphMu go for work that reads
+	// nothing under it (unlocked).
+	gaps int
 	// report, if set, is told the length of each hold, as it ends; locked
 	// is when the current one began.
 	report func(time.Duration)
@@ -59,7 +62,19 @@ func (r *readPieces) yields() int {
 	if r == nil {
 		return 0
 	}
-	return r.steps / r.size
+	return r.steps/r.size + r.gaps
+}
+
+// unlocked lets egraphMu go while f runs, for work that reads nothing the
+// lock guards, such as normalizing a record the cache replaces and never
+// changes in place, and takes it again: the cache may have changed
+// meanwhile, as at a piece's end (yields).
+func (r *readPieces) unlocked(f func()) {
+	r.release()
+	r.gaps++
+	f()
+	r.c.egraphMu.RLock()
+	r.locked = time.Now()
 }
 
 // done ends the read, letting egraphMu go.

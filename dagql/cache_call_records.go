@@ -145,7 +145,7 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 					build.callInputs = append(build.callInputs, uint64(input.id))
 				}
 			}
-			build.bundle.Calls = append(build.bundle.Calls, TransferredCall{Call: chosen.encoded, Value: build.ordinals[res.id]})
+			build.calls = append(build.calls, storedBundleCall{encoded: chosen.encoded, value: res.id})
 		}
 	}
 	return nil
