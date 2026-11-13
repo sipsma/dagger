@@ -427,7 +427,8 @@ func TestMergeValuesReplacesAnExpiredCloudRecord(t *testing.T) {
 
 // mergeTestThroughTheCloud merges an engine's export into a new Cloud cache,
 // and returns the bundle the Cloud sends on: the same records, as the Cloud
-// stores them.
+// stores them, each a root of the bundle, since a bundle carries its roots'
+// records and only identity rows below them. The export's roots come first.
 func mergeTestThroughTheCloud(t *testing.T, exported ValueBundle) (context.Context, *Cache, ValueBundle) {
 	t.Helper()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
@@ -436,6 +437,11 @@ func mergeTestThroughTheCloud(t *testing.T, exported ValueBundle) (context.Conte
 	var roots []uint64
 	for _, root := range stored.Roots {
 		roots = append(roots, root.Number)
+	}
+	for _, value := range stored.Values {
+		if !slices.Contains(roots, value.Number) {
+			roots = append(roots, value.Number)
+		}
 	}
 	sent, err := cloud.StoredBundle(ctx, roots, time.Now().Unix())
 	require.NoError(t, err)
@@ -1255,7 +1261,7 @@ func TestApplyMergedReplyThenAPruneDrop(t *testing.T) {
 	require.NoError(t, err)
 	collected, _, err = cloud.CollectRemoteHoldings(ctx, observed.Candidates)
 	require.NoError(t, err)
-	require.Len(t, collected, 2, "the root's holding and its dependency's")
+	require.Len(t, collected, 1, "the root's holding; its dependency went as a root of its own, which the prune of the root's edge leaves retained")
 
 	change, err = cloud.ApplyMergedReply(ctx, "cache-b", sent, reply)
 	require.NoError(t, err)
@@ -1267,8 +1273,8 @@ func TestApplyMergedReplyThenAPruneDrop(t *testing.T) {
 
 // The Cloud applies the merged reply of the R -> retired P case: R's holding
 // depends on B's retired P, which the Cloud holds nothing of, so the number
-// waits as an unknown dependency; P's record landed on the current P', whose
-// holding nothing owns and the collection pass collects.
+// waits as an unknown dependency; P's record, a root of the bundle, landed on
+// the current P', which it retains.
 func TestApplyMergedReplyKeepsAKeptEntrysOwnDependencies(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
@@ -1290,8 +1296,8 @@ func TestApplyMergedReplyKeepsAKeptEntrysOwnDependencies(t *testing.T) {
 	require.NoError(t, err)
 	collected, _, err := cloud.CollectRemoteHoldings(ctx, change.Candidates)
 	require.NoError(t, err)
-	pNewKey := HolderKey{Cache: "cache-b", Number: uint64(pNew.cacheSharedResult().id)}
-	require.Equal(t, []HolderKey{pNewKey}, collected, "P' is nobody's dependency")
+	require.Empty(t, collected, "P's record, a root of the bundle, landed on P', which it retains")
+	_ = pNew
 	h := mergeTestHolding(t, cloud, HolderKey{Cache: "cache-b", Number: uint64(r.cacheSharedResult().id)})
 	require.Empty(t, h.Deps)
 	require.Equal(t, []uint64{uint64(p.cacheSharedResult().id)}, h.UnknownDeps, "R's own dependency, the retired P")
@@ -2416,10 +2422,16 @@ func TestMergeValuesItemThroughTheCloudIsNotRead(t *testing.T) {
 	require.NoError(t, err)
 	cloud.egraphMu.RLock()
 	cloudItem := cloud.resultsByID[sharedResultID(reply.Imported()[0].ResultID)]
+	// The list goes as a root too, so the engine holds its record to read:
+	// a bundle carries its roots' records and only identity rows below them.
+	roots := []uint64{uint64(cloudItem.id)}
+	for dep := range cloudItem.deps {
+		roots = append(roots, uint64(dep))
+	}
 	cloud.egraphMu.RUnlock()
 
 	cctx, c, csrv := transferTestCache(t)
-	sent, err := cloud.StoredBundle(cloudCtx, []uint64{uint64(cloudItem.id)}, time.Now().Unix())
+	sent, err := cloud.StoredBundle(cloudCtx, roots, time.Now().Unix())
 	require.NoError(t, err)
 	reply, err = c.MergeValues(cctx, cloudCacheID, sent.Bundle)
 	require.NoError(t, err)

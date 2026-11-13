@@ -253,6 +253,6 @@ func TestStoredValueEncodesAsTheWholeValue(t *testing.T) {
 	storedTestCompress(cloud)
 	compressed, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	require.NotNil(t, compressed.Bundle.Values[0].storedEnvelope, "the record goes compressed")
+	require.NotNil(t, storedBundleTestRows(compressed.Bundle)[r].storedEnvelope, "the record goes compressed")
 	require.Equal(t, string(mustTransferJSON(t, whole.Bundle.Values)), string(mustTransferJSON(t, compressed.Bundle.Values)))
 }

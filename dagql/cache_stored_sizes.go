@@ -187,12 +187,12 @@ func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held iden
 	}
 	for i := 0; i < len(walk.order); i++ {
 		entry := walk.order[i]
-		if len(entry.calls) == 0 {
+		if len(entry.calls) == 0 || held.heldLocked(entry) {
 			continue
 		}
 		for _, group := range c.keptCallTermsLocked(entry) {
 			_, add := c.placeableCallLocked(group, func(input *sharedResult) bool {
-				return ordinary[input.id] || mine[input.id] || held.heldLocked(input)
+				return ordinary[input.id] || mine[input.id]
 			})
 			for _, input := range add {
 				walk.visit(input)

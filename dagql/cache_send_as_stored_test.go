@@ -141,7 +141,8 @@ func TestStoredBundleSendsRecordsAsStored(t *testing.T) {
 	require.NotZero(t, rCloud)
 	require.NotZero(t, pCloud)
 
-	got, err := cloud.StoredBundle(cloudCtx, []uint64{rCloud}, time.Now().Unix())
+	// Both go as roots: a bundle carries its roots' records.
+	got, err := cloud.StoredBundle(cloudCtx, []uint64{rCloud, pCloud}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, got.Bundle.Values, 2)
 	for _, value := range got.Bundle.Values {
