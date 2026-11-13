@@ -25,6 +25,7 @@ func WithBlobStore() CacheOption {
 		c.blobBacked = true
 		c.storedLayers = &storedLayers{}
 		c.changes = &changeMarks{}
+		c.usedMarks.on = true
 	}
 }
 

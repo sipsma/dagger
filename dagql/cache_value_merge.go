@@ -2203,7 +2203,7 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, comm
 	res.payloadMu.Unlock()
 	if c.blobBacked {
 		// On the Cloud, an export that stores a value uses it.
-		touchSharedResultLastUsed(res, time.Now().UnixNano())
+		c.touchLastUsed(res, time.Now().UnixNano())
 	}
 	res.transferRevision++
 	if c.resultsByID[res.id] == res {
@@ -2466,6 +2466,7 @@ func (c *Cache) failMergedEntryLocked(ctx context.Context, res *sharedResult, qu
 	c.unindexRecipesLocked(res)
 	if _, retained := c.persistedEdgesByResult[res.id]; retained {
 		delete(c.persistedEdgesByResult, res.id)
+		c.markEntryLocked(res.id, markSave)
 		queue, _ = c.decrementIncomingOwnershipLocked(ctx, res, queue)
 	}
 	return append(queue, res)

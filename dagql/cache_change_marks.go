@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // changeMarks are the holdings and entries a blob-backed cache's writes have
@@ -35,7 +36,17 @@ import (
 // and deduplicated once, when handed back: a write's marks cost an append
 // each. Only a blob-backed cache marks: an engine's own cache has no reader
 // to tell, and its changes is nil. Guarded by egraphMu.
+//
+// Each mark has a reason (markReason): selection's, for the reader a write
+// hands its marks back to, or the save's, for the writer behind
+// (WriteBehind), which takes them across writes. The save's marks name the
+// entries whose saved rows may differ (saveEntries) and the classes whose
+// identity rows may differ (saveClasses); last uses, which change under the
+// read lock, wait apart (usedMarks).
 type changeMarks struct {
+	saveEntries []sharedResultID
+	saveClasses []eqClassID
+
 	// entries are marked as they are, and classes widened to their classes'
 	// entries when handed back.
 	entries  []sharedResultID
@@ -62,19 +73,34 @@ type changeMarks struct {
 	left map[eqClassID]bool
 }
 
+// markReason says whom a mark is for: the reader a write hands its marks
+// back to (markSelection), the writer behind (markSave), or both.
+type markReason uint8
+
+const (
+	markSelection markReason = 1 << iota
+	markSave
+	markBoth = markSelection | markSave
+)
+
 // markEntryLocked marks the entry numbered id: its own facts or holdings
 // changed. Requires egraphMu for writing.
-func (c *Cache) markEntryLocked(id sharedResultID) {
+func (c *Cache) markEntryLocked(id sharedResultID, why markReason) {
 	if c.changes == nil || id == 0 {
 		return
 	}
-	c.changes.entries = append(c.changes.entries, id)
+	if why&markSelection != 0 {
+		c.changes.entries = append(c.changes.entries, id)
+	}
+	if why&markSave != 0 {
+		c.changes.saveEntries = append(c.changes.saveEntries, id)
+	}
 }
 
 // markEntryClassLocked marks the entry numbered id and, when the marks are
 // handed back, every entry of its classes: its value, record, stored parts
-// or expiry changed, or it joined their class. Requires egraphMu for
-// writing.
+// or expiry changed, or it joined their class. For the save, it marks the
+// entry alone. Requires egraphMu for writing.
 func (c *Cache) markEntryClassLocked(id sharedResultID, cause StampCause) {
 	if c.changes == nil || id == 0 {
 		return
@@ -94,6 +120,7 @@ func (c *Cache) markEntryClassLocked(id sharedResultID, cause StampCause) {
 		}
 		c.changes.lending[id] = struct{}{}
 	}
+	c.changes.saveEntries = append(c.changes.saveEntries, id)
 }
 
 // classLendsLocked reports whether an entry of the class rooted at root
@@ -107,6 +134,27 @@ func (c *Cache) classLendsLocked(root eqClassID) bool {
 	return false
 }
 
+// markSavedClassLocked marks, for the save, the class numbered id: its
+// digests, its terms, its members or whether it is a root may have changed.
+// Requires egraphMu for writing.
+func (c *Cache) markSavedClassLocked(id eqClassID) {
+	if c.changes == nil || id == 0 {
+		return
+	}
+	c.changes.saveClasses = append(c.changes.saveClasses, id)
+}
+
+// markSavedTermLocked marks, for the save, the classes of term: its output,
+// whose rows hold the term, and its inputs, whether written or not may turn
+// with it. Requires egraphMu for writing.
+func (c *Cache) markSavedTermLocked(term *egraphTerm) {
+	if c.changes == nil || term == nil {
+		return
+	}
+	c.changes.saveClasses = append(c.changes.saveClasses, term.outputEqID)
+	c.changes.saveClasses = append(c.changes.saveClasses, term.inputEqIDs...)
+}
+
 // markLeavingLocked marks an entry that is leaving its classes, before it
 // leaves them: the entry, and every other entry of its classes, whose part
 // answers it may have served. Requires egraphMu for writing.
@@ -117,6 +165,10 @@ func (c *Cache) markLeavingLocked(id sharedResultID) {
 	c.changes.entries = append(c.changes.entries, id)
 	leaving := c.resultsByID[id]
 	c.stampEntryLocked(leaving, StampLeft)
+	c.changes.saveEntries = append(c.changes.saveEntries, id)
+	for eqID := range c.resultOutputEqClasses[id] {
+		c.changes.saveClasses = append(c.changes.saveClasses, eqID)
+	}
 	// Its class mates' bundles change only if it could lend them a part:
 	// one it stores, or one a mark not yet applied says it stored.
 	_, lends := c.changes.lending[id]
@@ -288,6 +340,7 @@ func (c *Cache) clearChangesLocked() {
 	if c.changes != nil {
 		*c.changes = changeMarks{}
 	}
+	c.usedMarks.take()
 }
 
 // changesPendingLocked reports whether any mark waits to be handed back.
@@ -419,4 +472,31 @@ func (c *Cache) ChangedSince(numbers []uint64, position uint64) []bool {
 		c.egraphMu.RUnlock()
 	}
 	return changed
+}
+
+// usedMarks are entries whose last use changed, for the writer behind. A
+// last use changes under the read lock (touchLastUsed), so they are guarded
+// by their own mutex, not egraphMu. Only a blob-backed cache marks them.
+type usedMarks struct {
+	mu  sync.Mutex
+	on  bool
+	ids []sharedResultID
+}
+
+// mark marks the entry numbered id.
+func (m *usedMarks) mark(id sharedResultID) {
+	m.mu.Lock()
+	if m.on && id != 0 {
+		m.ids = append(m.ids, id)
+	}
+	m.mu.Unlock()
+}
+
+// take returns the marked entries and clears them.
+func (m *usedMarks) take() []sharedResultID {
+	m.mu.Lock()
+	ids := m.ids
+	m.ids = nil
+	m.mu.Unlock()
+	return ids
 }

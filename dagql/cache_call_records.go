@@ -64,21 +64,18 @@ func decodeKeptCall(encoded string, request digest.Digest) (*keptCall, error) {
 // computation, not a completion, so a call already kept can still report a
 // new one. A completion expires after it, so a span whose expiry has passed
 // reports a call that has expired, which no engine may hit: it is read again,
-// or read late, and neither its call nor its expiry is kept. It reports
-// whether it changed a stored entry, which a save writes. Requires egraphMu
-// for writing.
-func (c *Cache) keepCallLocked(entry *sharedResult, desc RemoteHolding, kept *keptCall) bool {
+// or read late, and neither its call nor its expiry is kept. What it changes
+// is marked for the save. Requires egraphMu for writing.
+func (c *Cache) keepCallLocked(entry *sharedResult, desc RemoteHolding, kept *keptCall) {
 	if desc.Request == "" || desc.Request == desc.Recipe {
-		return false
+		return
 	}
 	if desc.ExpiresAtUnix != 0 && desc.ExpiresAtUnix <= time.Now().Unix() {
-		return false
+		return
 	}
-	changed := false
 	if expires := mergeSharedResultExpiryUnix(entry.expiresAtUnix, desc.ExpiresAtUnix); expires != entry.expiresAtUnix {
 		entry.expiresAtUnix = expires
 		c.markEntryClassLocked(entry.id, StampCallExpiry)
-		changed = true
 	}
 	if kept != nil {
 		if _, ok := entry.calls[kept.id.recipe]; !ok {
@@ -93,10 +90,9 @@ func (c *Cache) keepCallLocked(entry *sharedResult, desc RemoteHolding, kept *ke
 			entry.calls[kept.id.recipe] = kept
 			c.stampEntryLocked(entry, cause)
 			c.indexKeptCallLocked(entry, kept)
-			changed = true
+			c.markEntryLocked(entry.id, markSave)
 		}
 	}
-	return changed && !entry.noValueLocked() && entry.persistedEnvelope != nil
 }
 
 // storedBundleCallsLocked adds to the build, for each of its entries from
