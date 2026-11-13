@@ -78,6 +78,8 @@ type writtenClass struct {
 // the next write.
 type WriteBehindReport struct {
 	Entries int  `json:"entries"`
+	// Used is how many entries' last use alone it updated.
+	Used    int  `json:"used,omitempty"`
 	Classes int  `json:"classes"`
 	Terms   int  `json:"terms"`
 	Whole   bool `json:"whole,omitempty"`
