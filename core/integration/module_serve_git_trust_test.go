@@ -93,6 +93,10 @@ func relay(ctx context.Context, address string) (string, error) {
 	if err := dag.ServeModule(ctx, "/modules/helper"); err != nil {
 		return "", err
 	}
+	// A call that returns nothing is part of the work too.
+	if err := dag.QueryBuilder().Select("helper").Select("touch").Execute(ctx); err != nil {
+		return "", err
+	}
 	var out string
 	q := dag.QueryBuilder().Select("helper").Select("nonce").Arg("address", address).Bind(&out)
 	return out, q.Execute(ctx)
@@ -102,8 +106,15 @@ func relay(ctx context.Context, address string) (string, error) {
 const serveGitTrustHelperManifest = `{"name":"helper","engineVersion":"latest","sdk":{"source":"go"},"source":"."}`
 
 // serveGitTrustHelperSource is a helper module whose nonce function serves
-// an address, as the caller's does.
-var serveGitTrustHelperSource = strings.ReplaceAll(serveGitTrustNonceSource, "*Caller", "*Helper") + "\ntype Helper struct{}\n"
+// an address, as the caller's does, and whose touch function returns
+// nothing.
+var serveGitTrustHelperSource = strings.ReplaceAll(serveGitTrustNonceSource, "*Caller", "*Helper") + `
+type Helper struct{}
+
+func (m *Helper) Touch() error {
+	return nil
+}
+`
 
 // serveGitTrustRelayConfig declares client for the caller and for the
 // helper the caller serves from its tree.
@@ -365,6 +376,7 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		require.Regexp(t, `^[0-9]+\s*$`, firstPlain)
 		require.Regexp(t, `^[0-9]+\s*$`, firstServed)
 		secondPlain, secondServed := run(connect(ctx, t), "2")
+		t.Logf("plain: %q then %q; served: %q then %q", firstPlain, secondPlain, firstServed, secondServed)
 		require.Equal(t, firstPlain, secondPlain)
 		require.Equal(t, firstServed, secondServed)
 	})
