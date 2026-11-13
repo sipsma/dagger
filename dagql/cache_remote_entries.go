@@ -1541,14 +1541,16 @@ func (c *Cache) writeRemoteIdentityLocked(ctx context.Context, entry *sharedResu
 	c.addResultOutputEqClassLocked(entry.id, outputEqID)
 	if len(extras) > 0 {
 		outputEqID = c.findEqClassLocked(outputEqID)
-		c.markSavedClassLocked(outputEqID)
 		classExtras := c.eqClassExtraDigests[outputEqID]
 		if classExtras == nil {
 			classExtras = make(map[call.ExtraDigest]struct{})
 			c.eqClassExtraDigests[outputEqID] = classExtras
 		}
 		for _, extra := range extras {
-			classExtras[extra] = struct{}{}
+			if _, known := classExtras[extra]; !known {
+				classExtras[extra] = struct{}{}
+				c.markSavedClassLocked(outputEqID)
+			}
 		}
 	}
 	if term == nil || term.Self == "" {

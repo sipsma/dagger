@@ -1737,7 +1737,6 @@ func (c *Cache) termForResultByDigestLocked(resID sharedResultID, termDigest str
 // result's output eq-classes, which hold the outputs of all its terms.
 func (c *Cache) addResultExtraDigestsLocked(resID sharedResultID, frames ...*ResultCall) {
 	for outputEqID := range c.outputEqClassesForResultLocked(resID) {
-		c.markSavedClassLocked(outputEqID)
 		extras := c.eqClassExtraDigests[outputEqID]
 		if extras == nil {
 			extras = make(map[call.ExtraDigest]struct{})
@@ -1751,7 +1750,10 @@ func (c *Cache) addResultExtraDigestsLocked(resID sharedResultID, frames ...*Res
 				if extra.Digest == "" {
 					continue
 				}
-				extras[extra] = struct{}{}
+				if _, known := extras[extra]; !known {
+					extras[extra] = struct{}{}
+					c.markSavedClassLocked(outputEqID)
+				}
 			}
 		}
 	}
@@ -1882,9 +1884,7 @@ func (c *Cache) mergeOutputsForTermDigestLocked(ctx context.Context, termDigest 
 			if term == nil {
 				continue
 			}
-			c.markSavedTermLocked(term)
 			term.outputEqID = root
-			c.markSavedTermLocked(term)
 		}
 		return root
 	}
@@ -1894,9 +1894,7 @@ func (c *Cache) mergeOutputsForTermDigestLocked(ctx context.Context, termDigest 
 		if term == nil {
 			continue
 		}
-		c.markSavedTermLocked(term)
 		term.outputEqID = root
-		c.markSavedTermLocked(term)
 	}
 	return root
 }

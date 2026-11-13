@@ -397,15 +397,22 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 		c.changes.saveEntries, c.changes.saveClasses, c.changes.saveTerms = nil, nil, nil
 	}
 
-	// The counts: each marked entry, and each entry whose being saved turns,
-	// until none turns.
+	// The counts: each marked entry once, however often it was marked, and
+	// each entry whose being saved turns, again each time it turns, until
+	// none turns.
 	changed := map[sharedResultID]struct{}{}
-	queue := slices.Clone(marked)
-	for len(queue) > 0 {
-		id := queue[len(queue)-1]
-		queue = queue[:len(queue)-1]
-		changed[id] = struct{}{}
-		queue = append(queue, c.countOwnersLocked(b, id)...)
+	pending := map[sharedResultID]struct{}{}
+	for _, id := range marked {
+		pending[id] = struct{}{}
+	}
+	for len(pending) > 0 {
+		for id := range pending {
+			delete(pending, id)
+			changed[id] = struct{}{}
+			for _, turned := range c.countOwnersLocked(b, id) {
+				pending[turned] = struct{}{}
+			}
+		}
 	}
 
 	// The entries: a changed one's rows, and the classes its outputs name
