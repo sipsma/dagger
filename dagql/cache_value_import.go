@@ -141,6 +141,9 @@ func checkValueBundle(bundle ValueBundle, shapeOnly bool, stored map[uint64][]de
 			if err := validateHeldRow(row); err != nil {
 				return nil, fmt.Errorf("row %d: %w", id, err)
 			}
+			if err := validateHeldFrame(row, senders.dependencies(row.DependencyIDs)); err != nil {
+				return nil, fmt.Errorf("row %d: %w", id, err)
+			}
 			rows[id] = row
 			continue
 		}
@@ -357,10 +360,29 @@ func validateHeldRow(row TransferredValue) error {
 			return fmt.Errorf("held extra digest %q (%q) is not a labelled digest", extra.Digest, extra.Label)
 		}
 	}
-	if row.Record.Call != nil || len(row.Record.SnapshotLinks) > 0 || !reflect.ValueOf(row.Record.Envelope).IsZero() {
+	// A frame row carries its call frame, and its dependencies for the
+	// frame's references, but never a value.
+	if len(row.Record.SnapshotLinks) > 0 || !reflect.ValueOf(row.Record.Envelope).IsZero() {
 		return fmt.Errorf("held row carries a record")
 	}
 	return nil
+}
+
+// validateHeldFrame checks a frame row's call: every call reference it
+// makes is one of its direct dependencies, by sender number, as a full
+// record's are (directTransferReferences).
+func validateHeldFrame(row TransferredValue, deps []uint64) error {
+	if row.Record.Call == nil {
+		return nil
+	}
+	direct := make(map[uint64]bool, len(deps))
+	for _, dep := range deps {
+		if dep == 0 || direct[dep] {
+			return fmt.Errorf("zero or duplicate dependency %d", dep)
+		}
+		direct[dep] = true
+	}
+	return visitResultCallReferences(row.Record.Call.clone(), directTransferReferences(direct))
 }
 
 // checkOutputPart checks an output against the part its row's record has at

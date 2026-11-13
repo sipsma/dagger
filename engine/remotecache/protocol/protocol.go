@@ -516,9 +516,14 @@ const (
 // the engine needs them now. Entries are the held rows' sender numbers. With
 // Decode, the answer carries each entry's child rows too, the rows its value
 // names (PersistedRefChild), followed down, so one answer serves a decode.
+// With Frames, it carries each entry's whole call closure, the rows its call
+// references (receiver, module, arguments, implicit inputs), followed down,
+// as frame rows: held rows that carry their call frame and dependencies and
+// no value, so one answer serves a recipe walk or a call run again.
 type FetchRows struct {
 	Entries []uint64 `json:"entries"`
 	Decode  bool     `json:"decode,omitempty"`
+	Frames  bool     `json:"frames,omitempty"`
 }
 
 // FetchedRows answers FetchRows. Bundle carries each entry the Cloud still

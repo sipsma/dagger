@@ -13,13 +13,13 @@ import (
 
 // identityTestFetcher answers fetches with a function, counting them.
 type identityTestFetcher struct {
-	fetch func(numbers []uint64, decode bool) (ValueBundle, []uint64, error)
+	fetch func(numbers []uint64, decode, frames bool) (ValueBundle, []uint64, error)
 	calls int
 }
 
-func (f *identityTestFetcher) FetchRows(_ context.Context, numbers []uint64, decode bool) (ValueBundle, []uint64, error) {
+func (f *identityTestFetcher) FetchRows(_ context.Context, numbers []uint64, decode, frames bool) (ValueBundle, []uint64, error) {
 	f.calls++
-	return f.fetch(numbers, decode)
+	return f.fetch(numbers, decode, frames)
 }
 
 // identityTestEngine merges the Cloud's R, whose receiver is P, into a new
@@ -69,7 +69,7 @@ func TestIdentityEntryIsNeverServed(t *testing.T) {
 func TestIdentityEntryResolvesToALocalValue(t *testing.T) {
 	t.Parallel()
 	bctx, b, bsrv, rEntry, pEntry, _, _, _ := identityTestEngine(t)
-	fetcher := &identityTestFetcher{fetch: func([]uint64, bool) (ValueBundle, []uint64, error) {
+	fetcher := &identityTestFetcher{fetch: func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
 		return ValueBundle{}, nil, errors.New("not expected")
 	}}
 	b.SetRowFetcher(fetcher)
@@ -91,7 +91,7 @@ func TestIdentityEntryResolvesToALocalValue(t *testing.T) {
 func TestIdentityEntryFetchedFromTheCloud(t *testing.T) {
 	t.Parallel()
 	bctx, b, _, rEntry, pEntry, ctx, cloud, p := identityTestEngine(t)
-	fetcher := &identityTestFetcher{fetch: func(numbers []uint64, decode bool) (ValueBundle, []uint64, error) {
+	fetcher := &identityTestFetcher{fetch: func(numbers []uint64, decode, frames bool) (ValueBundle, []uint64, error) {
 		require.Equal(t, []uint64{p}, numbers)
 		got, err := cloud.StoredBundle(ctx, numbers, time.Now().Unix())
 		return got.Bundle, nil, err
@@ -118,12 +118,12 @@ func TestIdentityEntryFetchFailsUnavailable(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name  string
-		fetch func([]uint64, bool) (ValueBundle, []uint64, error)
+		fetch func([]uint64, bool, bool) (ValueBundle, []uint64, error)
 	}{
-		{"error", func([]uint64, bool) (ValueBundle, []uint64, error) {
+		{"error", func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
 			return ValueBundle{}, nil, errors.New("connection lost")
 		}},
-		{"missing", func(numbers []uint64, _ bool) (ValueBundle, []uint64, error) {
+		{"missing", func(numbers []uint64, _, _ bool) (ValueBundle, []uint64, error) {
 			return ValueBundle{}, numbers, nil
 		}},
 	} {
@@ -183,7 +183,7 @@ func TestIdentityEntrySavedAndRestored(t *testing.T) {
 func TestIdentityEntryUnavailableTurnsAHitIntoAMiss(t *testing.T) {
 	t.Parallel()
 	bctx, b, bsrv, rEntry, pEntry, _, _, _ := identityTestEngine(t)
-	b.SetRowFetcher(&identityTestFetcher{fetch: func([]uint64, bool) (ValueBundle, []uint64, error) {
+	b.SetRowFetcher(&identityTestFetcher{fetch: func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
 		return ValueBundle{}, nil, errors.New("connection lost")
 	}})
 	// R's value names P as a row its decode loads.
@@ -282,7 +282,7 @@ func TestFrameRowLandsWithItsFrame(t *testing.T) {
 	identityTestFrameRow(t, cloud, &got.Bundle, p)
 
 	bctx, b, _ := transferTestCache(t)
-	fetcher := &identityTestFetcher{fetch: func([]uint64, bool) (ValueBundle, []uint64, error) {
+	fetcher := &identityTestFetcher{fetch: func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
 		return ValueBundle{}, nil, errors.New("not expected")
 	}}
 	b.SetRowFetcher(fetcher)
