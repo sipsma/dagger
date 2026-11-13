@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -219,7 +220,7 @@ func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *share
 		c.incrementIncomingOwnershipLocked(ctx, standIn)
 		owner.dependencyOwnershipRevision++
 	}
-	if _, ok := owner.deps[res.id]; ok && owner != res && sameRecipeLocked(standIn, res.identityRecipe) {
+	if _, ok := owner.deps[res.id]; ok && owner != res {
 		// The decoded owner gives up res for the stand-in only once its
 		// decoded value is installed (settleStandIns): until then res
 		// stays, for another reference to it in the same decode, or a
@@ -235,24 +236,71 @@ func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *share
 
 // settleStandIns makes an entry whose decoded value is now installed depend
 // on the stand-ins its decode resolved, in place of the identity-only
-// entries they stood for: its live value names the stand-ins, and its frame
-// is rewritten to name them too, which same recipe makes the same frame. An
-// export then finds nothing held of a stand-in's recipe beside it. An
-// identity-only entry nothing else owns is collected.
+// entries they stood for. It decides from the installed value itself, encoded
+// for its references: an identity-only entry the value no longer names, whose
+// stand-in derives the same recipe, gives way to its stand-in in the entry's
+// frame (same recipe, so the same frame) and in its dependencies, and is
+// collected if nothing else owns it. One the value still names stays, as when
+// a fetch filled it between two loads of one decode. An export then finds
+// nothing held of a stand-in's recipe beside it. Recipes are derived and the
+// value encoded outside the graph lock.
 func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
+	c.egraphMu.RLock()
+	pending := maps.Clone(owner.pendingStandIns)
+	type pair struct {
+		from, to *sharedResult
+	}
+	var pairs []pair
+	for from, to := range pending {
+		f, t := c.resultsByID[from], c.resultsByID[to]
+		if f != nil && t != nil {
+			pairs = append(pairs, pair{f, t})
+		}
+	}
+	c.egraphMu.RUnlock()
+	if len(pending) == 0 {
+		return
+	}
+	// The stand-ins whose frames derive the recipe they stand for.
+	same := map[sharedResultID]sharedResultID{}
+	for _, p := range pairs {
+		recipe := p.to.identityRecipe
+		if frame := p.to.loadResultCall(); frame != nil {
+			got, err := frame.deriveRecipeDigest(c)
+			if err != nil {
+				continue
+			}
+			recipe = got
+		}
+		if recipe == p.from.identityRecipe {
+			same[p.from.id] = p.to.id
+		}
+	}
+	// What the installed value names.
+	named := map[uint64]bool{}
+	enc, err := DefaultPersistedSelfCodec.EncodeResult(context.WithoutCancel(ctx), c, Result[Typed]{shared: owner})
+	if err == nil {
+		_, err = VisitEncodedReferences(PersistedRecord{ResultID: uint64(owner.id), Envelope: enc.Envelope}, func(ref *PersistedRef) error {
+			if ref.ResultID != 0 {
+				named[ref.ResultID] = true
+			}
+			return nil
+		})
+	}
 	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
-	pending := owner.pendingStandIns
 	owner.pendingStandIns = nil
-	if len(pending) == 0 || c.resultsByID[owner.id] != owner {
+	if err != nil || len(same) == 0 || c.resultsByID[owner.id] != owner {
 		c.egraphMu.Unlock()
 		return
 	}
 	if frame := owner.loadResultCall(); frame != nil {
 		frame = frame.clone()
 		_ = walkTransferCalls(frame, func(*ResultCall) error { return nil }, func(ref *ResultCallRef) error {
-			if to, ok := pending[sharedResultID(ref.ResultID)]; ok {
-				ref.ResultID = uint64(to)
-				ref.shared = c.resultsByID[to]
+			if to, ok := same[sharedResultID(ref.ResultID)]; ok {
+				if t := c.resultsByID[to]; t != nil {
+					ref.ResultID = uint64(to)
+					ref.shared = t
+				}
 			}
 			return nil
 		})
@@ -260,11 +308,11 @@ func (c *Cache) settleStandIns(ctx context.Context, owner *sharedResult) {
 	}
 	var queue []*sharedResult
 	dropped := false
-	for from, to := range pending {
+	for from, to := range same {
 		_, hasFrom := owner.deps[from]
 		_, hasTo := owner.deps[to]
 		res := c.resultsByID[from]
-		if !hasFrom || !hasTo || res == nil {
+		if !hasFrom || !hasTo || res == nil || named[uint64(from)] {
 			continue
 		}
 		dropped = true
@@ -296,18 +344,6 @@ func (c *Cache) clearStandIns(ctx context.Context, res *sharedResult) {
 	c.egraphMu.Unlock()
 }
 
-// sameRecipeLocked reports whether standIn's frame derives recipe, so that
-// naming it in a frame in res's place leaves the frame's recipe as it was.
-// It derives nothing: a frame not derived yet doesn't count. Requires
-// egraphMu.
-func sameRecipeLocked(standIn *sharedResult, recipe digest.Digest) bool {
-	frame := standIn.loadResultCall()
-	if frame == nil {
-		return standIn.identityRecipe == recipe
-	}
-	got, derived, err := frame.derivedRecipeDigest()
-	return derived && err == nil && got == recipe
-}
 
 // resolveIdentityFrame returns the call frame that stands for an
 // identity-only entry's in a frame walk (a recipe-ID rebuild, a call run
