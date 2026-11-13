@@ -437,7 +437,7 @@ func mergeTestThroughTheCloud(t *testing.T, exported ValueBundle) (context.Conte
 	for _, root := range stored.Roots {
 		roots = append(roots, root.Number)
 	}
-	sent, err := cloud.StoredBundle(ctx, roots, time.Now().Unix(), nil)
+	sent, err := cloud.StoredBundle(ctx, roots, time.Now().Unix())
 	require.NoError(t, err)
 	return ctx, cloud, sent.Bundle
 }
@@ -2419,7 +2419,7 @@ func TestMergeValuesItemThroughTheCloudIsNotRead(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 
 	cctx, c, csrv := transferTestCache(t)
-	sent, err := cloud.StoredBundle(cloudCtx, []uint64{uint64(cloudItem.id)}, time.Now().Unix(), nil)
+	sent, err := cloud.StoredBundle(cloudCtx, []uint64{uint64(cloudItem.id)}, time.Now().Unix())
 	require.NoError(t, err)
 	reply, err = c.MergeValues(cctx, cloudCacheID, sent.Bundle)
 	require.NoError(t, err)

@@ -15,7 +15,7 @@ import (
 func TestMergePreparationRelocatesAsValidateThenVisit(t *testing.T) {
 	t.Parallel()
 	cctx, cloud, batch := storedBenchCloud(t)
-	got, err := cloud.StoredBundle(cctx, batch, time.Now().Unix(), nil)
+	got, err := cloud.StoredBundle(cctx, batch, time.Now().Unix())
 	require.NoError(t, err)
 	// Each part is owned by its row's dependencies, as an engine that
 	// captured it from its row's inputs offers it.
@@ -87,7 +87,7 @@ func TestMergePreparationRelocatesAsValidateThenVisit(t *testing.T) {
 func TestMergeValuesRefusesUndeclaredPayloadReference(t *testing.T) {
 	t.Parallel()
 	cctx, cloud, batch := storedBenchCloud(t)
-	got, err := cloud.StoredBundle(cctx, batch[:1], time.Now().Unix(), nil)
+	got, err := cloud.StoredBundle(cctx, batch[:1], time.Now().Unix())
 	require.NoError(t, err)
 	// The bundle as its encoding carries it.
 	bundle, err := cloneValueBundle(got.Bundle)

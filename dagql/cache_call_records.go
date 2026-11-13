@@ -102,11 +102,10 @@ func (c *Cache) keepCallLocked(entry *sharedResult, desc RemoteHolding, kept *ke
 // start, those a root's closure added and the inputs added for their calls,
 // one of the calls kept on it for each term they derive on the Cloud: one
 // the recipient can place. The recipient can place an input of a call when
-// it holds the input's entry, or the bundle carries it in the closure of a
-// root so far: the entry's record names the input's recipe, and the
-// recipient derives its equivalence to its own inputs as it does for any
-// record. So the first choice is a call whose every input the recipient
-// holds or those closures carry; the next is a call whose inputs the Cloud
+// the bundle carries the input's entry as an identity row, or in the closure
+// of a root so far: the row names the input's recipe, and the recipient
+// derives its equivalence to its own inputs as it does for any record. So
+// the first choice is a call whose every input the bundle carries; the next is a call whose inputs the Cloud
 // stores, whose entries the bundle then carries too, with the root whose
 // entry's call needs them. An input another call added doesn't place a
 // call, nor does a later root's closure: the calls chosen are those
@@ -121,7 +120,7 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 		}
 		for _, group := range c.keptCallTermsLocked(res) {
 			chosen, add := c.placeableCallLocked(group, func(entry *sharedResult) bool {
-				return build.ordinary[entry.id] || build.heldBy.heldLocked(entry, build.now)
+				return build.ordinary[entry.id] || build.identity.heldLocked(entry)
 			})
 			if chosen == nil {
 				build.unsendableCalls++
