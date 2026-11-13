@@ -599,6 +599,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			installedRevision := res.payloadRevision
 			res.payloadMu.Unlock()
 			c.updateDecodedPayloadBytes(ctx, res, decoded.Unwrap(), installedRevision)
+			c.settleStandIns(ctx, res)
 			if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
 				return err
 			}
@@ -1167,6 +1168,7 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			installedRevision := res.payloadRevision
 			res.payloadMu.Unlock()
 			c.updateDecodedPayloadBytes(ctx, res, decoded.Unwrap(), installedRevision)
+			c.settleStandIns(ctx, res)
 
 			resolver = decodeResolver
 		}

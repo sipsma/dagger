@@ -3097,6 +3097,11 @@ type sharedResult struct {
 	// on, so the call it was a hit for runs and keeps its own value.
 	// Guarded by egraphMu.
 	rowUnavailable bool
+	// pendingStandIns maps each identity-only entry a decode of this entry
+	// resolved to a stand-in, by number, to the stand-in's: once the decoded
+	// value is installed, the entry depends on the stand-in in its place
+	// (settleStandIns). Guarded by egraphMu.
+	pendingStandIns map[sharedResultID]sharedResultID
 	// Origin is immutable; slots and graph revisions are guarded by egraphMu.
 	imported bool
 	// persistDeclined records that the call that computed the entry's value
