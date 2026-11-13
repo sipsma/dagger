@@ -223,29 +223,76 @@ func TestMergeHeldRowLandsOnTheEnginesEntry(t *testing.T) {
 	require.Equal(t, pb, heldTestMerged(t, again, heldTestRow(t, full.Bundle, p).Ordinal).Number)
 }
 
-// An engine that doesn't hold a held row's value refuses the whole merge:
-// it commits nothing and names every stale held row.
-func TestMergeHeldRowStaleWhenTheEngineLacksIt(t *testing.T) {
+// An engine that doesn't hold a held row's value lands the row with its
+// identity alone: an entry with the Cloud entry's recipe, its extra digests
+// and the Cloud's holding, and no value. The root derives its identity from
+// that recipe, depends on the entry, and is the only row the reply lists, so
+// the engine marks known to the Cloud only what holds a value.
+func TestMergeHeldRowTheEngineLacksLandsWithItsIdentity(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, p := heldTestChainedCloud(t)
+	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{p}, got.Held)
+	content := digest.FromString("p's content")
+	for i := range got.Bundle.Values {
+		if got.Bundle.Values[i].SenderNumber == p {
+			got.Bundle.Values[i].Extra = []call.ExtraDigest{{Digest: content, Label: call.ExtraDigestLabelContent}}
+		}
+	}
+
+	bctx, b, _ := transferTestCache(t)
+	entries := heldTestEntries(b)
+	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Committed)
+	require.Empty(t, reply.Stale)
+	require.Equal(t, entries+2, heldTestEntries(b), "R and an entry for P")
+	rOrdinal := heldTestRow(t, got.Bundle, r).Ordinal
+	require.Len(t, reply.Values, 1, "the reply lists only what holds a value")
+	rMerged := heldTestMerged(t, reply, rOrdinal)
+	require.Len(t, rMerged.Deps, 1, "R depends on the entry for P")
+
+	pRecipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p))
+	rRecipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, r))
+	b.egraphMu.RLock()
+	defer b.egraphMu.RUnlock()
+	pEntry := b.resultsByID[sharedResultID(rMerged.Deps[0])]
+	require.NotNil(t, pEntry)
+	require.True(t, pEntry.identityOnly)
+	require.True(t, pEntry.noValueLocked(), "lookups pass it by")
+	require.Equal(t, pRecipe, pEntry.identityRecipe)
+	require.Equal(t, pEntry.id, b.entriesByRecipe[pRecipe])
+	key, h := pEntry.cloudHoldingLocked()
+	require.NotNil(t, h)
+	require.Equal(t, p, key.Number, "it names the Cloud's entry")
+	require.Equal(t, sharedResultID(rMerged.Number), b.entriesByRecipe[rRecipe], "R's identity derives from P's recipe")
+	require.Equal(t, b.eqClassRootLocked(b.egraphDigestToClass[pRecipe.String()]), b.eqClassRootLocked(b.egraphDigestToClass[content.String()]), "P's recipe and content are one class")
+	require.Nil(t, b.servableCandidateLocked(pEntry.id, time.Now().Unix(), nil))
+}
+
+// A Cloud merge still refuses a held row it doesn't hold: the Cloud is the
+// store other engines are served from, so nothing could fetch the row later.
+func TestCloudStillRefusesAHeldRowItLacks(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
 	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
 	require.NoError(t, err)
-
-	bctx, b, _ := transferTestCache(t)
-	entries := heldTestEntries(b)
-	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	octx, other := storedPartTestCache(t, WithBlobStore())
+	entries := heldTestEntries(other)
+	reply, err := other.MergeValues(octx, "cache-b", got.Bundle)
 	require.NoError(t, err, "a stale merge is answered, not failed")
 	require.False(t, reply.Committed)
 	require.Equal(t, []TransferOrdinal{heldTestRow(t, got.Bundle, p).Ordinal}, reply.Stale)
-	require.Empty(t, reply.Values)
-	require.Empty(t, reply.Roots)
-	require.Equal(t, entries, heldTestEntries(b), "nothing committed")
+	require.Equal(t, entries, heldTestEntries(other), "nothing committed")
 }
 
-// A held row whose engine entry has expired, while the row hasn't, is stale:
-// a merge of the record would replace that value, and a held row has none.
-func TestMergeHeldRowStaleWhenTheEnginesValueExpired(t *testing.T) {
+// A held row whose engine entry has expired, while the row hasn't, lands
+// with its identity alone on a new entry: the expired value isn't served,
+// and a held row carries no record to replace it with.
+func TestMergeHeldRowOverAnExpiredValueLandsWithItsIdentity(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	bctx, b, pb := heldTestEngineWithP(t, ctx, cloud, p)
@@ -257,12 +304,15 @@ func TestMergeHeldRowStaleWhenTheEnginesValueExpired(t *testing.T) {
 	b.egraphMu.RUnlock()
 	mergeTestExpire(b, entry)
 
-	entries := heldTestEntries(b)
 	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
 	require.NoError(t, err)
-	require.False(t, reply.Committed)
-	require.Equal(t, []TransferOrdinal{heldTestRow(t, got.Bundle, p).Ordinal}, reply.Stale)
-	require.Equal(t, entries, heldTestEntries(b), "nothing committed")
+	require.True(t, reply.Committed)
+	rMerged := heldTestMerged(t, reply, heldTestRow(t, got.Bundle, r).Ordinal)
+	require.Len(t, rMerged.Deps, 1)
+	require.NotEqual(t, pb, rMerged.Deps[0], "not the expired value")
+	b.egraphMu.RLock()
+	defer b.egraphMu.RUnlock()
+	require.True(t, b.resultsByID[sharedResultID(rMerged.Deps[0])].identityOnly)
 }
 
 // A held row can name a value the engine computed in a session, which only
