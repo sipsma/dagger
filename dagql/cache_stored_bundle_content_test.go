@@ -106,7 +106,7 @@ func storedContentTestSend(t *testing.T, after bool, contents ...digest.Digest) 
 	}
 	require.Contains(t, cloud.EquivalentEntries(content.String()), cloudNumber, "the Cloud's class has R's content digest")
 
-	got, err := cloud.StoredBundle(ctx, []uint64{cloudNumber}, time.Now().Unix(), nil)
+	got, err := cloud.StoredBundle(ctx, []uint64{cloudNumber}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, got.Bundle.Values, 1)
 
@@ -525,7 +525,7 @@ func TestCallRecordHitsOverAReceiverWhoseContentTheCloudLearnedLater(t *testing.
 	require.Contains(t, cloud.EquivalentEntries(content.String()), test.receiverNumber, "the Cloud's class has the receiver's content")
 	storedContentTestWait(t, cloud, test.receiverNumber, content)
 
-	built, err := cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Calls, 1)
 	require.True(t, test.freshReceiverHits(t, built.Bundle), "b's call on its own receiver of the same content hits")
@@ -557,13 +557,13 @@ func TestTaughtContentStatsCountWhatTheRewritesDid(t *testing.T) {
 	storedContentTestTeach(t, ctx, cloud, r2Number, first)
 	<-blocked
 	storedContentTestTeach(t, ctx, cloud, r2Number, second)
-	_, err := cloud.StoredBundle(ctx, []uint64{number}, time.Now().Unix(), nil)
+	_, err := cloud.StoredBundle(ctx, []uint64{number}, time.Now().Unix())
 	require.NoError(t, err)
 	release()
 	// The worker's second batch has rewritten the frame and recorded it.
 	require.Eventually(t, func() bool { return batches.Load() >= 2 }, 5*time.Second, 5*time.Millisecond)
 	storedContentTestWait(t, cloud, number, second)
-	_, err = cloud.StoredBundle(ctx, []uint64{number}, time.Now().Unix(), nil)
+	_, err = cloud.StoredBundle(ctx, []uint64{number}, time.Now().Unix())
 	require.NoError(t, err)
 
 	got := cloud.TaughtContentStats()

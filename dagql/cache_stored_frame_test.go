@@ -194,20 +194,18 @@ func TestCloudAnswersTheSameWithFramesCompressed(t *testing.T) {
 	held.egraphMu.RUnlock()
 	require.Greater(t, len(roots), 1)
 	now := time.Now().Unix()
-	for _, c := range []*Cache{whole, held} {
-		heldTestHold(t, ctx, c, "cache-b", 7, p, 0)
-	}
-	for name, by := range map[string]*HeldBy{"no recipient": nil, "a recipient that holds the receiver": {Cache: "cache-b"}} {
+	{
+		name := "identity rows"
 		for _, rs := range [][]uint64{{r}, roots} {
-			want, err := whole.StoredBundle(ctx, rs, now, by)
+			want, err := whole.StoredBundle(ctx, rs, now)
 			require.NoError(t, err, name)
-			got, err := held.StoredBundle(ctx, rs, now, by)
+			got, err := held.StoredBundle(ctx, rs, now)
 			require.NoError(t, err, name)
 			require.Equal(t, want.Held, got.Held, name)
 			require.Equal(t, string(mustTransferJSON(t, want.Bundle)), string(mustTransferJSON(t, got.Bundle)), "%s: the bundle encodes the same", name)
-			wantSizes, err := whole.StoredSizes(ctx, rs, now, by)
+			wantSizes, err := whole.StoredSizes(ctx, rs, now)
 			require.NoError(t, err, name)
-			gotSizes, err := held.StoredSizes(ctx, rs, now, by)
+			gotSizes, err := held.StoredSizes(ctx, rs, now)
 			require.NoError(t, err, name)
 			require.Equal(t, wantSizes, gotSizes, "%s: the sizes are the same", name)
 		}
@@ -216,9 +214,9 @@ func TestCloudAnswersTheSameWithFramesCompressed(t *testing.T) {
 
 	// The bundle merges into an engine as the bundle with decoded frames
 	// does: it carries a decoded copy of each frame in process, too.
-	got, err := held.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := held.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	want, err := whole.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	want, err := whole.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	for _, bundle := range []ValueBundle{want.Bundle, got.Bundle} {
 		bctx, b, _ := transferTestCache(t)
@@ -340,7 +338,7 @@ func TestCloudSavesAndRestoresCompressedFrames(t *testing.T) {
 
 	ctx := cacheTestContext(t.Context())
 	r := storedFrameTestNumber(t, held, "frame-chained")
-	want, err := whole.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	want, err := whole.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.NoError(t, whole.Close(ctx))
 	require.NoError(t, held.Close(ctx))
@@ -349,7 +347,7 @@ func TestCloudSavesAndRestoresCompressedFrames(t *testing.T) {
 	defer func() { require.NoError(t, restored.Close(ctx)) }()
 	require.Equal(t, CachePersistenceResetNone, restored.PersistenceResetReason())
 	requireFramesHeldCompressed(t, restored)
-	got, err := restored.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := restored.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, string(mustTransferJSON(t, want.Bundle)), string(mustTransferJSON(t, got.Bundle)), "the restored Cloud sends the records it sent before")
 }
@@ -367,15 +365,15 @@ func TestTeachContentDigestToACompressedFrame(t *testing.T) {
 		require.NoError(t, c.TeachContentDigest(ctx, Result[Typed]{shared: storedBundleTestEntry(c, r)}, testDigest("taught-content")))
 	}
 	requireFramesHeldCompressed(t, held)
-	want, err := whole.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	want, err := whole.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	got, err := held.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := held.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Contains(t, string(mustTransferJSON(t, want.Bundle)), testDigest("taught-content").String())
 	require.Equal(t, string(mustTransferJSON(t, want.Bundle)), string(mustTransferJSON(t, got.Bundle)))
-	wantSizes, err := whole.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	wantSizes, err := whole.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	gotSizes, err := held.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	gotSizes, err := held.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, wantSizes, gotSizes)
 }
@@ -391,7 +389,7 @@ func TestEngineNeverReadsARecipeFromAStoredBody(t *testing.T) {
 	var fromBody atomic.Int32
 	hook := func() { fromBody.Add(1) }
 
-	alone, err := cloud.StoredBundle(ctx, []uint64{p}, time.Now().Unix(), nil)
+	alone, err := cloud.StoredBundle(ctx, []uint64{p}, time.Now().Unix())
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "engine.db")
 	bctx := cacheTestContext(t.Context())
@@ -403,7 +401,7 @@ func TestEngineNeverReadsARecipeFromAStoredBody(t *testing.T) {
 	require.True(t, reply.Committed)
 	pb := reply.Imported()[0].ResultID
 	heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, []uint64{p}, got.Held)
 	reply, err = b.MergeValues(bctx, cloudCacheID, got.Bundle)

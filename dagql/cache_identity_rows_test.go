@@ -28,7 +28,7 @@ func identityTestEngine(t *testing.T) (context.Context, *Cache, *Server, *shared
 	t.Helper()
 	ctx, cloud, r, p := heldTestChainedCloud(t)
 	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	bctx, b, bsrv := transferTestCache(t)
 	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
@@ -92,7 +92,7 @@ func TestIdentityEntryFetchedFromTheCloud(t *testing.T) {
 	bctx, b, _, rEntry, pEntry, ctx, cloud, p := identityTestEngine(t)
 	fetcher := &identityTestFetcher{fetch: func(numbers []uint64, decode bool) (ValueBundle, []uint64, error) {
 		require.Equal(t, []uint64{p}, numbers)
-		got, err := cloud.StoredBundle(ctx, numbers, time.Now().Unix(), nil)
+		got, err := cloud.StoredBundle(ctx, numbers, time.Now().Unix())
 		return got.Bundle, nil, err
 	}}
 	b.SetRowFetcher(fetcher)
@@ -147,7 +147,7 @@ func TestIdentityEntrySavedAndRestored(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := heldTestChainedCloud(t)
 	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "b.db")
 	bctx, b, _ := persistedListTestCache(t, path)
@@ -169,7 +169,7 @@ func TestIdentityEntrySavedAndRestored(t *testing.T) {
 	require.Contains(t, rEntry.deps, pEntry.id)
 	require.True(t, pEntry.identityOnly)
 	require.Equal(t, pRecipe, pEntry.identityRecipe)
-	require.Nil(t, b.servableCandidateLocked(pEntry.id, time.Now().Unix(), nil))
+	require.Nil(t, b.servableCandidateLocked(pEntry.id, time.Now().Unix()))
 	key, h := pEntry.cloudHoldingLocked()
 	require.NotNil(t, h)
 	require.Equal(t, p, key.Number)

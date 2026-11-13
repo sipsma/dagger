@@ -107,58 +107,6 @@ func TestCacheHoldersIndexExact(t *testing.T) {
 	requireCacheHoldersExact(t, cloud)
 }
 
-// heldByHoldingsLocked is HeldBy's predicate on holdings as it was before
-// the index: every holding of the entry walked.
-func heldByHoldingsLocked(h *HeldBy, res *sharedResult, nowUnix int64) bool {
-	for _, ref := range res.holderRefsLocked() {
-		if key, held := ref.key, ref.h; key.Cache == h.Cache && (held.expiresAtUnix == 0 || held.expiresAtUnix > nowUnix) {
-			return true
-		}
-	}
-	return false
-}
-
-// HeldBy's predicate on holdings, read from the index, answers as the walk
-// over every holding did: a holding of the cache, judged by its own expiry,
-// among several of that cache and others' on one entry.
-func TestHeldByHoldsLikeTheWalk(t *testing.T) {
-	t.Parallel()
-	cloud := newCloudCache(t)
-	a := newCloudApplier(t, cloud)
-	engineA, engineB := CacheID("cache-a"), CacheID("cache-b")
-	at := func(expires int64) RemoteHolding {
-		h := holdingOf("root")
-		h.ExpiresAtUnix = expires
-		return h
-	}
-	a.call(callRow{key: HolderKey{engineA, 1}, session: "a", holding: at(100)})
-	a.call(callRow{key: HolderKey{engineA, 2}, session: "a", holding: at(300)})
-	a.call(callRow{key: HolderKey{engineB, 1}, session: "b", holding: at(0)})
-	require.Empty(t, a.collect())
-	info, ok := cloud.RemoteEntryInfo(HolderKey{engineA, 1})
-	require.True(t, ok)
-
-	cloud.egraphMu.RLock()
-	defer cloud.egraphMu.RUnlock()
-	res := cloud.resultsByID[sharedResultID(info.Number)]
-	require.Len(t, res.cacheHolderRefsLocked(engineA), 2, "two holdings of one cache on the entry")
-	for _, tc := range []struct {
-		cache CacheID
-		now   int64
-		held  bool
-	}{
-		{engineA, 50, true},   // both unexpired
-		{engineA, 200, true},  // one expired, one not
-		{engineA, 300, false}, // both expired
-		{engineB, 1 << 40, true},
-		{"cache-none", 0, false},
-	} {
-		h := &HeldBy{Cache: tc.cache}
-		require.Equal(t, tc.held, h.holdsLocked(res, tc.now), "%s at %d", tc.cache, tc.now)
-		require.Equal(t, heldByHoldingsLocked(h, res, tc.now), h.holdsLocked(res, tc.now), "%s at %d, as the walk", tc.cache, tc.now)
-	}
-}
-
 // CacheHoldings returns what EntryInfo lists of one cache's holdings, and
 // EntryClassEntries the entries EquivalentEntries finds for the entry's class
 // digests: the narrow reads answer as the wide ones.

@@ -263,7 +263,7 @@ func BenchmarkStoredBundle(b *testing.B) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	_, err := cloud.StoredBundle(ctx, batch, time.Now().Unix(), nil)
+	_, err := cloud.StoredBundle(ctx, batch, time.Now().Unix())
 	require.NoError(b, err)
 	runtime.GC()
 	runtime.ReadMemStats(&after)
@@ -274,7 +274,7 @@ func BenchmarkStoredBundle(b *testing.B) {
 	for range b.N {
 		storedBenchSettle(b)
 		var err error
-		got, err = cloud.StoredBundle(ctx, batch, time.Now().Unix(), nil)
+		got, err = cloud.StoredBundle(ctx, batch, time.Now().Unix())
 		require.NoError(b, err)
 	}
 	b.StopTimer()
@@ -426,7 +426,7 @@ func BenchmarkStoredBundlePartCopies(b *testing.B) {
 // largest part of a build and keeps it from fitting.
 func BenchmarkStoredBundleValidation(b *testing.B) {
 	ctx, cloud, batch := storedBenchCloud(b)
-	got, err := cloud.StoredBundle(ctx, batch, time.Now().Unix(), nil)
+	got, err := cloud.StoredBundle(ctx, batch, time.Now().Unix())
 	require.NoError(b, err)
 	bundle := got.Bundle
 	var validating, full, encoding time.Duration

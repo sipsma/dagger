@@ -55,17 +55,17 @@ func TestStoredSizesMeasureWhatTheBundleCarries(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 
-	built, err := cloud.StoredBundle(ctx, []uint64{p, r}, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(ctx, []uint64{p, r}, time.Now().Unix())
 	require.NoError(t, err)
-	got, err := cloud.StoredSizes(ctx, []uint64{p, r}, time.Now().Unix(), nil)
+	got, err := cloud.StoredSizes(ctx, []uint64{p, r}, time.Now().Unix())
 	require.NoError(t, err)
 	storedSizesTestClose(t, storedSizesTestMeasure(t, built.Bundle), got)
 	require.Equal(t, 1, got[0].Records)
 	require.Equal(t, 1, got[1].Records)
 
-	built, err = cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	built, err = cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	got, err = cloud.StoredSizes(ctx, []uint64{r, 12345, r}, time.Now().Unix(), nil)
+	got, err = cloud.StoredSizes(ctx, []uint64{r, 12345, r}, time.Now().Unix())
 	require.NoError(t, err)
 	want := storedSizesTestMeasure(t, built.Bundle)
 	storedSizesTestClose(t, append(want, StoredSize{}, StoredSize{}), got)
@@ -77,49 +77,17 @@ func TestStoredSizesMeasureWhatTheBundleCarries(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 	require.NotNil(t, size, "the record's size is kept with it")
 }
-
-// With a recipient that holds P, R's closure is R and P's held row, as the
-// bundle StoredBundle builds with the same HeldBy.
-func TestStoredSizesPriceHeldEntriesAsHeldRows(t *testing.T) {
-	t.Parallel()
-	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
-	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	held := &HeldBy{Cache: "cache-b"}
-
-	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), held)
-	require.NoError(t, err)
-	require.Equal(t, []uint64{p}, built.Held)
-	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), held)
-	require.NoError(t, err)
-	storedSizesTestClose(t, storedSizesTestMeasure(t, built.Bundle), got)
-
-	full, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
-	require.NoError(t, err)
-	require.Equal(t, full[0].Records, got[0].Records)
-	require.Less(t, got[0].Bytes, full[0].Bytes, "a held row costs less than P's record")
-}
-
-// A root whose kept call needs an input the bundle adds is priced with that
-// input, as StoredBundle carries it; a recipient that holds the input is sent
-// no copy of it, and the root isn't priced with it.
+// A root whose kept call needs an input is priced with the input's identity
+// row, as StoredBundle carries it: the input travels as an identity row, not
+// as a root of its own.
 func TestStoredSizesPriceCallInputs(t *testing.T) {
 	t.Parallel()
 	test := newReceiverCallTest(t)
-	for name, held := range map[string]*HeldBy{
-		"added": nil,
-		"held":  {Cache: "cache-b"},
-	} {
-		if held != nil {
-			heldTestHold(t, test.ctx, test.cloud, "cache-b", 7, test.receiverNumber, 0)
-		}
-		built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix(), held)
+	{
+		built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix())
 		require.NoError(t, err)
-		if held == nil {
-			require.Equal(t, []uint64{test.receiverNumber}, built.CallInputs, name)
-			require.Equal(t, []int{0, 0}, built.RootOwners, "the input travels with the root whose call needs it")
-		} else {
-			require.Empty(t, built.CallInputs, name)
-		}
+		require.Empty(t, built.CallInputs)
+		require.Contains(t, built.Held, test.receiverNumber)
 		var want StoredSize
 		for _, value := range built.Bundle.Values {
 			data, err := json.Marshal(value)
@@ -127,7 +95,7 @@ func TestStoredSizesPriceCallInputs(t *testing.T) {
 			want.Records++
 			want.Bytes += int64(len(data))
 		}
-		got, err := test.cloud.StoredSizes(test.ctx, []uint64{test.number}, time.Now().Unix(), held)
+		got, err := test.cloud.StoredSizes(test.ctx, []uint64{test.number}, time.Now().Unix())
 		require.NoError(t, err)
 		storedSizesTestClose(t, []StoredSize{want}, got)
 	}
@@ -199,7 +167,7 @@ func TestStoredSizesChooseCallsInTheBundlesOrder(t *testing.T) {
 			require.Less(t, test.number, numbers["c"], "inner's calls come first in R's bundle")
 			require.Len(t, storedBundleTestEntry(cloud, test.number).calls, 2)
 
-			built, err := cloud.StoredBundle(test.ctx, []uint64{numbers["r"]}, time.Now().Unix(), nil)
+			built, err := cloud.StoredBundle(test.ctx, []uint64{numbers["r"]}, time.Now().Unix())
 			require.NoError(t, err)
 			require.Len(t, built.Bundle.Calls, 2, "one call on inner, one on C")
 			require.NotEmpty(t, built.CallInputs)
@@ -210,7 +178,7 @@ func TestStoredSizesChooseCallsInTheBundlesOrder(t *testing.T) {
 				want.Records++
 				want.Bytes += int64(len(data))
 			}
-			got, err := cloud.StoredSizes(test.ctx, []uint64{numbers["r"]}, time.Now().Unix(), nil)
+			got, err := cloud.StoredSizes(test.ctx, []uint64{numbers["r"]}, time.Now().Unix())
 			require.NoError(t, err)
 			storedSizesTestClose(t, []StoredSize{want}, got)
 		})
@@ -277,7 +245,7 @@ func TestStoredSizesNeverPriceLessThanTheBundle(t *testing.T) {
 	merge(b, "cache-b", receivers["b"])
 	call(b, receiverTestCall("b"), returns(inner))
 	keep(b, "cache-b", receiverTestCall("b"), inner)
-	alone, err := cloud.StoredBundle(a.ctx, []uint64{test.number}, time.Now().Unix(), nil)
+	alone, err := cloud.StoredBundle(a.ctx, []uint64{test.number}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, alone.CallInputs, 1)
 	x, y := "a", "b"
@@ -320,7 +288,7 @@ func TestStoredSizesNeverPriceLessThanTheBundle(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 	require.Len(t, storedBundleTestEntry(cloud, qNumber).calls, 2)
 
-	built, err := cloud.StoredBundle(a.ctx, []uint64{test.number, qNumber}, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(a.ctx, []uint64{test.number, qNumber}, time.Now().Unix())
 	require.NoError(t, err)
 	var want StoredSize
 	for _, value := range built.Bundle.Values {
@@ -332,7 +300,7 @@ func TestStoredSizesNeverPriceLessThanTheBundle(t *testing.T) {
 	require.Greater(t, want.Bytes, int64(64<<10), "the bundle carries Z")
 	require.Len(t, built.CallInputs, 2, "X for P's call, Z for Q's")
 	require.Equal(t, []int{0, 1, 0, 1}, built.RootOwners, "X travels with P, Z with Q")
-	got, err := cloud.StoredSizes(a.ctx, []uint64{test.number, qNumber}, time.Now().Unix(), nil)
+	got, err := cloud.StoredSizes(a.ctx, []uint64{test.number, qNumber}, time.Now().Unix())
 	require.NoError(t, err)
 	var priced StoredSize
 	for _, size := range got {
@@ -352,7 +320,7 @@ func TestStoredBundleCarriesALaterRootWithTheCallThatNeedsIt(t *testing.T) {
 	t.Parallel()
 	test := newReceiverCallTest(t)
 	roots := []uint64{test.number, test.receiverNumber}
-	built, err := test.cloud.StoredBundle(test.ctx, roots, time.Now().Unix(), nil)
+	built, err := test.cloud.StoredBundle(test.ctx, roots, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Calls, 1)
 	require.Empty(t, built.CallInputs, "A is a root it was asked for")
@@ -364,7 +332,7 @@ func TestStoredBundleCarriesALaterRootWithTheCallThatNeedsIt(t *testing.T) {
 		want[0].Records++
 		want[0].Bytes += int64(len(data))
 	}
-	got, err := test.cloud.StoredSizes(test.ctx, roots, time.Now().Unix(), nil)
+	got, err := test.cloud.StoredSizes(test.ctx, roots, time.Now().Unix())
 	require.NoError(t, err)
 	storedSizesTestClose(t, want, got)
 }
@@ -374,7 +342,7 @@ func TestStoredBundleCarriesALaterRootWithTheCallThatNeedsIt(t *testing.T) {
 func TestStoredSizesMeasureAgainAfterAPartAddsADependency(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, _ := storedBundleTestCloudIn(t, "root", true)
-	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 
 	source, _ := mergeTestSource(t, "sizes-owner", "owner")
@@ -387,9 +355,9 @@ func TestStoredSizesMeasureAgainAfterAPartAddsADependency(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, stored)
 
-	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	storedSizesTestClose(t, storedSizesTestMeasure(t, built.Bundle), got)
 	require.Equal(t, 3, got[0].Records, "R, P and the part's owner")
@@ -440,14 +408,14 @@ func TestStoredSizesMeasureOutsideTheLock(t *testing.T) {
 		}
 	}
 	before := cloud.StoredSizeEncodes()
-	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, 2, got[0].Records)
 	require.Equal(t, 2, free, "R and P are measured with the lock free")
 	require.Zero(t, held)
 	require.Equal(t, before+2, cloud.StoredSizeEncodes())
 
-	again, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	again, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, got, again)
 	require.Equal(t, 2, free, "measured sizes are kept")
@@ -461,23 +429,23 @@ func TestMeasuredStoredSizesNeverMeasure(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloudIn(t, "root", true)
 	before := cloud.StoredSizeEncodes()
-	got, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, []StoredSize{{Unmeasured: true}}, got)
 	require.Equal(t, before, cloud.StoredSizeEncodes(), "nothing encoded")
 	require.Nil(t, storedBundleTestEntry(cloud, r).storedTransfer.Load(), "nothing normalized")
 
-	alone, err := cloud.StoredSizes(ctx, []uint64{p}, time.Now().Unix(), nil)
+	alone, err := cloud.StoredSizes(ctx, []uint64{p}, time.Now().Unix())
 	require.NoError(t, err)
 	encodes := cloud.StoredSizeEncodes()
-	got, err = cloud.MeasuredStoredSizes(ctx, []uint64{r, p}, time.Now().Unix(), nil)
+	got, err = cloud.MeasuredStoredSizes(ctx, []uint64{r, p}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, []StoredSize{{Unmeasured: true}, alone[0]}, got, "P is measured beyond the measured roots before it")
 	require.Equal(t, encodes, cloud.StoredSizeEncodes())
 
-	measured, err := cloud.StoredSizes(ctx, []uint64{p, r}, time.Now().Unix(), nil)
+	measured, err := cloud.StoredSizes(ctx, []uint64{p, r}, time.Now().Unix())
 	require.NoError(t, err)
-	got, err = cloud.MeasuredStoredSizes(ctx, []uint64{p, r}, time.Now().Unix(), nil)
+	got, err = cloud.MeasuredStoredSizes(ctx, []uint64{p, r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, measured, got, "once measured, the sizes are StoredSizes'")
 }
@@ -499,7 +467,7 @@ func TestStoredSizesKeepNothingOfADroppedValue(t *testing.T) {
 		_, err := cloud.dropValueLocked(ctx, entry)
 		require.NoError(t, err)
 	}
-	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.True(t, dropped)
 	require.Nil(t, entry.storedTransfer.Load(), "the dropped value's record isn't kept")
@@ -540,17 +508,17 @@ func TestStoredSizesSurviveABuildNormalizingAtOnce(t *testing.T) {
 	}
 	built := make(chan error, 1)
 	go func() {
-		_, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+		_, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 		built <- err
 	}()
 	<-normalized
-	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	close(release)
 	require.NoError(t, <-built)
 
 	encodes := cloud.StoredSizeEncodes()
-	got, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.False(t, got[0].Unmeasured, "the build kept the measured record")
 	require.Equal(t, 2, got[0].Records)
@@ -566,7 +534,7 @@ func TestStoredSizesKeepNoMeasureOfAnOlderState(t *testing.T) {
 	reply, err := cloud.MergeValues(ctx, "cache-b", source)
 	require.NoError(t, err)
 	q := reply.Imported()[0].ResultID
-	_, err = cloud.StoredSizes(ctx, []uint64{q}, time.Now().Unix(), nil)
+	_, err = cloud.StoredSizes(ctx, []uint64{q}, time.Now().Unix())
 	require.NoError(t, err)
 
 	// The newer measure calls the hook too, so it is guarded before it nests.
@@ -581,15 +549,15 @@ func TestStoredSizesKeepNoMeasureOfAnOlderState(t *testing.T) {
 		stored, _, err := cloud.SetStoredPart(ctx, r, part, 0)
 		require.NoError(t, err)
 		require.True(t, stored)
-		_, err = cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+		_, err = cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 		require.NoError(t, err)
 	}
-	_, err = cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	_, err = cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.True(t, changed)
 
 	encodes := cloud.StoredSizeEncodes()
-	got, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.False(t, got[0].Unmeasured, "the size measured for the new dependencies stays")
 	require.Equal(t, 3, got[0].Records, "R, P and the part's owner")
@@ -614,9 +582,9 @@ func TestStoredSizesPriceOutputsAsTheWireCarriesThem(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
-	sizes, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	sizes, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Outputs, 2)
 	shared, err := ShareChainLayers(built.Bundle)
@@ -631,72 +599,6 @@ func TestStoredSizesPriceOutputsAsTheWireCarriesThem(t *testing.T) {
 	require.GreaterOrEqual(t, priced, carried, "never less than the wire carries")
 	require.LessOrEqual(t, priced, carried+2*storedOutputReferenceSlack, "more only by renewal keys and the digits of references")
 }
-
-// A root's lower half is what a merge over the message limit sends ahead of
-// it, as the service's split of a refused merge does: the entries that carry
-// the first half of the records below the root, those of them that no other
-// of them depends on; never the root, and never an entry the recipient holds.
-// It also says how many records, but held rows, the root's closure carries.
-func TestStoredLowerHalfIsTheFirstHalfBelowTheRoot(t *testing.T) {
-	t.Parallel()
-	actx, a, asrv := transferTestCache(t)
-	root := persistedListTestResult(t, actx, a, asrv, "half-root", &transferTestValue{Text: "root"})
-	var chain []AnyResult
-	for i := range 8 {
-		dep := persistedListTestResult(t, actx, a, asrv, fmt.Sprint("half-dep-", i), &transferTestValue{Text: fmt.Sprint("dep ", i)})
-		if i > 0 {
-			transferTestDependency(a, actx, dep, chain[i-1])
-		}
-		chain = append(chain, dep)
-	}
-	transferTestDependency(a, actx, root, chain[7])
-	bundle := exportTestBundle(t, actx, a, root)
-	ctx, cloud := storedPartTestCache(t, WithBlobStore())
-	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
-	require.NoError(t, err)
-	number := map[sharedResultID]uint64{}
-	for _, value := range reply.Values {
-		for _, sent := range bundle.Values {
-			if sent.Ordinal == value.Ordinal {
-				number[sharedResultID(sent.SenderNumber)] = value.Number
-			}
-		}
-	}
-	cloudOf := func(res AnyResult) uint64 { return number[res.cacheSharedResult().id] }
-
-	lower, carried, err := cloud.StoredLowerHalf(ctx, cloudOf(root), time.Now().Unix(), nil)
-	require.NoError(t, err)
-	require.Equal(t, []uint64{cloudOf(chain[3])}, lower, "the top of the chain's lower four")
-	require.Equal(t, 9, carried)
-
-	// The recipient holds the chain's lowest two: what's below the root is
-	// the six above them, and their lower half the next three.
-	held := &HeldBy{Cache: "cache-b"}
-	for i, res := range chain[:2] {
-		heldTestHold(t, ctx, cloud, "cache-b", uint64(100+i), cloudOf(res), 0)
-	}
-	lower, carried, err = cloud.StoredLowerHalf(ctx, cloudOf(root), time.Now().Unix(), held)
-	require.NoError(t, err)
-	require.Equal(t, []uint64{cloudOf(chain[4])}, lower)
-	require.Equal(t, 7, carried, "the root and the six above the held rows")
-}
-
-// A root's lower half counts the records a bundle of the root carries, its
-// kept calls' inputs included, as the split of a merge refused as over the
-// message limit counts them from the bundle: a merge split before it was
-// built and refused after is then judged against the same count. Here inner
-// has a call kept on the receiver A, which its bundle carries.
-func TestStoredLowerHalfCountsWhatABundleOfTheRootCarries(t *testing.T) {
-	t.Parallel()
-	test := newReceiverCallTest(t)
-	built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix(), nil)
-	require.NoError(t, err)
-	require.Len(t, built.Bundle.Calls, 1, "the bundle carries inner's call, and A for it")
-	_, carried, err := test.cloud.StoredLowerHalf(test.ctx, test.number, time.Now().Unix(), nil)
-	require.NoError(t, err)
-	require.Equal(t, len(built.Bundle.Values), carried)
-}
-
 // A blob that two parts hold in different packs has two download addresses,
 // each its pack's (or its own), and the message carries each part's that
 // isn't the bundle's own as an address of its chain (ShareChainLayers): the
@@ -714,9 +616,9 @@ func TestStoredSizesAllowForEachAddressOfABlobInDifferentPacks(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
-	sizes, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	sizes, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Outputs, 2)
 	unsigned, err := ShareChainLayers(built.Bundle)
@@ -791,12 +693,12 @@ func TestStoredSizesOfACompressedRecordFollowItsCall(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
 	storedTestCompress(cloud)
-	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	_, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.NoError(t, cloud.TeachContentDigest(ctx, Result[Typed]{shared: storedBundleTestEntry(cloud, r)}, testDigest("compressed-size-content")))
-	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
-	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	storedSizesTestClose(t, storedSizesTestMeasure(t, built.Bundle), got)
 }
