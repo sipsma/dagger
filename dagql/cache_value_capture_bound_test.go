@@ -76,9 +76,9 @@ func TestBoundedExportNeverPassesItsBytes(t *testing.T) {
 	t.Parallel()
 	ctx, c, srv := transferTestCache(t)
 	roots := boundTestRoots(t, ctx, c, srv, 5)
-	_, whole, _ := boundedCapture(t, ctx, c, ValueSelection{Roots: roots})
+	_, whole, _ := boundedCapture(t, ctx, c, ValueSelection{Roots: roots, WithoutOffers: true})
 	for bound := whole / 5; bound <= 4*whole; bound += whole / 20 {
-		bundle, size, left := boundedCapture(t, ctx, c, ValueSelection{Roots: roots, MaxBytes: bound})
+		bundle, size, left := boundedCapture(t, ctx, c, ValueSelection{Roots: roots, MaxBytes: bound, WithoutOffers: true})
 		kept := len(bundle.Roots)
 		require.Positive(t, kept)
 		if kept > 1 {
@@ -90,7 +90,7 @@ func TestBoundedExportNeverPassesItsBytes(t *testing.T) {
 			require.ErrorIs(t, root.Err, ErrOverBound)
 		}
 	}
-	bundle, _, left := boundedCapture(t, ctx, c, ValueSelection{Roots: roots, MaxBytes: 4 * whole})
+	bundle, _, left := boundedCapture(t, ctx, c, ValueSelection{Roots: roots, MaxBytes: 4 * whole, WithoutOffers: true})
 	require.Len(t, bundle.Roots, 5, "a bound over the whole bundle cuts nothing")
 	require.Empty(t, left)
 }
@@ -101,7 +101,7 @@ func TestBoundedExportSendsItsFirstRootOverTheBound(t *testing.T) {
 	t.Parallel()
 	ctx, c, srv := transferTestCache(t)
 	roots := boundTestRoots(t, ctx, c, srv, 3)
-	bundle, _, left := boundedCapture(t, ctx, c, ValueSelection{Roots: roots, MaxRecords: 1, MaxBytes: 1})
+	bundle, _, left := boundedCapture(t, ctx, c, ValueSelection{Roots: roots, MaxRecords: 1, MaxBytes: 1, WithoutOffers: true})
 	require.Len(t, bundle.Roots, 1)
 	require.Len(t, bundle.Values, 4)
 	require.Len(t, left, 2)
@@ -150,4 +150,18 @@ func TestBoundedExportEncodesTheSameJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, string(afresh), string(encoded))
 	require.Equal(t, string(afresh), string(encoded))
+}
+
+// A bound of bytes counts records without their offers, which the bundle
+// relocates after counting: a selection bounded by bytes that keeps them
+// is refused.
+func TestBoundedExportOfBytesLeavesOutOffers(t *testing.T) {
+	t.Parallel()
+	ctx, c, srv := transferTestCache(t)
+	roots := boundTestRoots(t, ctx, c, srv, 2)
+	err := c.WithExportedValues(ctx, ValueSelection{Roots: roots, MaxBytes: 1 << 20}, config.RefConfig{}, func(context.Context, *ExportedValues) error {
+		t.Fatal("a bounded capture that keeps offers delivered")
+		return nil
+	})
+	require.ErrorContains(t, err, "must leave out its records' offers")
 }

@@ -1326,6 +1326,12 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 	if consume == nil {
 		return fmt.Errorf("nil transfer consumer")
 	}
+	if selection.MaxBytes > 0 && !selection.WithoutOffers {
+		// Offers are relocated after the capture counts a record, and
+		// their references can grow: a bound of bytes counts records
+		// without them.
+		return fmt.Errorf("a selection bounded by bytes must leave out its records' offers")
+	}
 	var phases ExportPhases
 	// A held row whose recipe a row the bundle carries in full shares is
 	// carried in full too, in a capture once more: a merge refuses a held
