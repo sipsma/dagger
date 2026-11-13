@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -41,22 +42,33 @@ func mergeTestState(t *testing.T, c *Cache) []string {
 		require.NoError(t, err)
 		call, err := json.Marshal(res.loadResultCall())
 		require.NoError(t, err)
-		out = append(out, fmt.Sprintf("%d deps=%v call=%s envelope=%s", id, deps, call, envelope))
+		var stored string
+		if res.stored != nil {
+			stored = fmt.Sprintf(" stored=%x/%x", res.stored.envelope, res.stored.frame)
+		}
+		out = append(out, fmt.Sprintf("%d deps=%v call=%s envelope=%s%s", id, deps, call, envelope, stored))
 	}
 	slices.Sort(out)
 	return out
 }
 
-// mergeTestStream merges the bundles in turn into a new cache, set up by
-// setup, and returns its state.
+// mergeTestStream merges the bundles in turn into a new engine cache, set up
+// by setup, and returns its state.
 func mergeTestStream(t *testing.T, setup func(*Cache), bundles ...ValueBundle) []string {
 	t.Helper()
 	ctx, c, _ := transferTestCache(t)
+	return mergeTestStreamInto(t, ctx, c, cloudCacheID, setup, bundles...)
+}
+
+// mergeTestStreamInto merges the bundles in turn, from the cache from, into
+// c, set up by setup, and returns its state.
+func mergeTestStreamInto(t *testing.T, ctx context.Context, c *Cache, from CacheID, setup func(*Cache), bundles ...ValueBundle) []string {
+	t.Helper()
 	if setup != nil {
 		setup(c)
 	}
 	for _, bundle := range bundles {
-		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+		reply, err := c.MergeValues(ctx, from, bundle)
 		require.NoError(t, err)
 		require.True(t, reply.Committed)
 	}
@@ -114,4 +126,85 @@ func TestMergeValuesRelocatesAgainWhenANumberChanged(t *testing.T) {
 	}, child, root)
 	require.Equal(t, want, got)
 	require.Len(t, under, 1, "the record whose numbers no longer hold is relocated under the lock")
+}
+
+// A record whose object payload names its child is relocated before the lock
+// too, and lands as relocating under the lock would land it: the payload's
+// own reference is renumbered, not only its call's.
+func TestMergeValuesRelocatesAnObjectPayloadBeforeTheLock(t *testing.T) {
+	t.Parallel()
+	ctx, a, srv := transferTestCache(t)
+	c := persistedListTestResult(t, ctx, a, srv, "object-child", &transferTestValue{Text: "child"})
+	r := persistedListTestResult(t, ctx, a, srv, "object-root", &transferTestValue{Text: "root", Child: rowNumber(c)})
+	transferTestDependency(a, ctx, r, c)
+	child, root := exportTestBundle(t, ctx, a, c), exportTestBundle(t, ctx, a, r)
+	require.Len(t, root.Values, 2)
+
+	want := mergeTestStream(t, func(c *Cache) { c.testNoPrerelocation = true }, child, root)
+	var under []uint64
+	got := mergeTestStream(t, func(c *Cache) {
+		c.testRelocatedUnderLock = func(ordinal uint64) { under = append(under, ordinal) }
+	}, child, root)
+	require.Equal(t, want, got)
+	require.Empty(t, under, "the object's record is relocated before the lock")
+}
+
+// When the cache changes between the merge's decision before the lock and
+// its commit, so that a record lands on another entry than the early
+// decision gave it, the commit relocates it under the lock and the cache
+// ends as if nothing had been relocated early. Here the early decision
+// creates the child, so the root keeps its numbers; before the commit the
+// cache takes the child from another merge, so the root lands on that entry.
+func TestMergeValuesRelocatesAgainWhenTheCacheChanged(t *testing.T) {
+	t.Parallel()
+	child, root := mergeTestMovingStream(t)
+	setup := func(noEarly bool, under *[]uint64) func(*Cache) {
+		return func(c *Cache) {
+			c.testNoPrerelocation = noEarly
+			ctx := cacheTestContext(t.Context())
+			once := false
+			c.testBeforeTransferCommit = func() {
+				if once {
+					return
+				}
+				once = true
+				_, err := c.MergeValues(ctx, cloudCacheID, child)
+				require.NoError(t, err)
+			}
+			c.testRelocatedUnderLock = func(ordinal uint64) { *under = append(*under, ordinal) }
+		}
+	}
+	var wantUnder, under []uint64
+	want := mergeTestStream(t, setup(true, &wantUnder), root)
+	got := mergeTestStream(t, setup(false, &under), root)
+	require.Equal(t, want, got)
+	require.Len(t, wantUnder, 1, "the root moves onto the child the cache took")
+	require.Len(t, under, 1, "the root, not relocated early, is relocated under the lock")
+}
+
+// On the Cloud's blob-backed cache, a merge also relocates before the lock
+// and leaves the same entries and records as relocating under it. The body
+// worker, which compresses records in its own time, is held off, so both
+// caches are read as merge left them.
+func TestMergeValuesRelocationBeforeTheLockOnABlobBackedCache(t *testing.T) {
+	t.Parallel()
+	child, root := mergeTestMovingStream(t)
+	noBodies := func(c *Cache) {
+		w := c.storedBodies
+		c.storedBodies = nil
+		t.Cleanup(func() { c.storedBodies = w })
+	}
+	ctx, want := storedPartTestCache(t, WithBlobStore())
+	wantState := mergeTestStreamInto(t, ctx, want, "cache-a", func(c *Cache) {
+		noBodies(c)
+		c.testNoPrerelocation = true
+	}, child, root)
+	var under []uint64
+	ctx, got := storedPartTestCache(t, WithBlobStore())
+	gotState := mergeTestStreamInto(t, ctx, got, "cache-a", func(c *Cache) {
+		noBodies(c)
+		c.testRelocatedUnderLock = func(ordinal uint64) { under = append(under, ordinal) }
+	}, child, root)
+	require.Equal(t, wantState, gotState)
+	require.Empty(t, under, "no record is relocated under the lock")
 }
