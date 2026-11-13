@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
+	"github.com/opencontainers/go-digest"
 )
 
 type cachePersistInputProvenanceKind string
@@ -29,6 +30,9 @@ func (prov cachePersistInputProvenance) validate() error {
 }
 
 type persistResultSnapshot struct {
+	// identityRecipe is set for an identity-only entry, which saves its
+	// recipe and no value or frame.
+	identityRecipe        digest.Digest
 	imported              bool
 	persistDeclined       bool
 	boundSession          SessionResourceHandle
