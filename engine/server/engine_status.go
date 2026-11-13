@@ -23,9 +23,10 @@ const endedClientRetention = 2 * time.Minute
 // remoteCacheSettleBound is how long, after its last session ends, the
 // engine waits for the remote cache service to settle before it gives up
 // its remote-cache work: it cancels its exports in progress and refuses new
-// ones until a session starts again. It matches the drain's export window;
-// it is a sensible value, not a measured one.
-const remoteCacheSettleBound = 20 * time.Second
+// ones until a session starts again. A trial of 40 s, against the 20 s of
+// the line, measures what a stopping engine's last export needs: not for
+// the line.
+const remoteCacheSettleBound = 40 * time.Second
 
 // Remote cache states the status reports (EngineStatus.RemoteCache).
 const (
