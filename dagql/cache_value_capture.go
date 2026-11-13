@@ -255,7 +255,7 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 		}
 		// A row the recipient said it lacks goes in full, though the engine
 		// thought it known: the recipient's word is the newer.
-		knownRow := !carried[res.id] && !(push != nil && push.Full[uint64(res.id)]) && known.knowsLocked(res)
+		knownRow := !carried[res.id] && (push == nil || !push.Full[uint64(res.id)]) && known.knowsLocked(res)
 		pushed := !knownRow && push != nil && !carried[res.id] && !push.Full[uint64(res.id)]
 		if knownRow || pushed {
 			c.incrementIncomingOwnershipLocked(ctx, res)
