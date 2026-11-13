@@ -94,7 +94,24 @@ func (a *RemoteCacheAdapter) CacheIdentity() (string, uint64) {
 // while its chains stay open, or with no bundle when no root survived. The
 // export sends the rows known knows as held rows, and names the rows its
 // bundle carried.
-func (a *RemoteCacheAdapter) Export(ctx context.Context, req protocol.Export, known *dagql.KnownRows, consume func(context.Context, remotecache.Export) error) (rerr error) {
+func (a *RemoteCacheAdapter) Export(ctx context.Context, req protocol.Export, known *dagql.KnownRows, consume func(context.Context, remotecache.Export) error) error {
+	return a.export(ctx, req, known, nil, consume)
+}
+
+// Push captures roots for a push to the Cloud, as rows says
+// (dagql.PushRows): an export of records only, which the engine asks for
+// itself. It skips roots and calls consume as Export does.
+func (a *RemoteCacheAdapter) Push(ctx context.Context, roots []uint64, known *dagql.KnownRows, rows *dagql.PushRows, consume func(context.Context, remotecache.Export) error) error {
+	return a.export(ctx, protocol.Export{Roots: roots}, known, rows, consume)
+}
+
+// Pushes is the queue of results waiting for a push: the bridge's.
+func (a *RemoteCacheAdapter) Pushes() remotecache.PushQueue {
+	return a.bridge
+}
+
+// export is Export, and, with push, Push.
+func (a *RemoteCacheAdapter) export(ctx context.Context, req protocol.Export, known *dagql.KnownRows, push *dagql.PushRows, consume func(context.Context, remotecache.Export) error) (rerr error) {
 	if a.stopped.Load() || !a.exports.tryBegin() {
 		return ErrRemoteCacheAdapterClosed
 	}
@@ -156,7 +173,7 @@ func (a *RemoteCacheAdapter) Export(ctx context.Context, req protocol.Export, kn
 		logExport(req, skipped, nil, time.Since(start), local, busyReport{})
 		return consume(ctx, remotecache.Export{Skipped: skipped})
 	}
-	selection := dagql.ValueSelection{Outputs: outputs, LeaveOutOutputsOutsideClosure: true, Known: known}
+	selection := dagql.ValueSelection{Outputs: outputs, LeaveOutOutputsOutsideClosure: true, Known: known, Push: push}
 	for _, root := range roots {
 		selection.Roots = append(selection.Roots, root.result)
 	}

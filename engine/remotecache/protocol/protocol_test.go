@@ -88,6 +88,10 @@ func TestMessagesRoundTrip(t *testing.T) {
 			{Digest: digest.FromString("whole"), Parts: 0, Error: "unsupported value bundle version 9"},
 			{Digest: digest.FromString("again"), Complete: true, Already: true},
 		}}, func() any { return &Restored{} }},
+		{TypePush, Push{Bundle: bundle}, func() any { return &Push{} }},
+		{TypePushed, Pushed{Stale: []uint64{12}}, func() any { return &Pushed{} }},
+		{TypeCheckRows, CheckRows{Rows: bundle.Values}, func() any { return &CheckRows{} }},
+		{TypeCheckedRows, CheckedRows{Lacks: []uint64{12}}, func() any { return &CheckedRows{} }},
 		{TypeError, Error{Message: StaleSettle}, func() any { return &Error{} }},
 		{TypeWelcome, Welcome{}, func() any { return &Welcome{} }},
 		{TypeExport, Export{Roots: []uint64{12, 13}, Outputs: []ExportOutput{{Number: 12, Address: testAddress()}}}, func() any { return &Export{} }},
@@ -253,12 +257,14 @@ func TestReplyType(t *testing.T) {
 		TypeSettle:  TypeSettled,
 		TypeClaims:  TypeClaimed,
 		TypeRestore: TypeRestored,
+		TypePush:      TypePushed,
+		TypeCheckRows: TypeCheckedRows,
 	} {
 		got, ok := ReplyType(request)
 		require.True(t, ok, request)
 		require.Equal(t, reply, got)
 	}
-	for _, notRequest := range []Type{TypeWelcome, TypeExported, TypeUploaded, TypeMerged, TypeOffered, TypeRenewed, TypeLookedUp, TypeOpened, TypeSettled, TypeClaimed, TypeRestored, TypeError} {
+	for _, notRequest := range []Type{TypeWelcome, TypeExported, TypeUploaded, TypeMerged, TypeOffered, TypeRenewed, TypeLookedUp, TypeOpened, TypeSettled, TypeClaimed, TypeRestored, TypePushed, TypeCheckedRows, TypeError} {
 		_, ok := ReplyType(notRequest)
 		require.False(t, ok, notRequest)
 	}
