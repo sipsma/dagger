@@ -396,7 +396,7 @@ func TestExportOfAnIdentityEntryBesideItsRecipesValueEnds(t *testing.T) {
 // full record lands on it later, it owns each of them still once, not twice.
 func TestFillingAFrameRowOwnsItsReferencesOnce(t *testing.T) {
 	t.Parallel()
-	ctx, cloud, r, p := heldTestChainedCloud(t)
+	ctx, cloud, r, _ := heldTestChainedCloud(t)
 	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	rRecipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, r))
