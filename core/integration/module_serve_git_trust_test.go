@@ -74,6 +74,59 @@ func (m *Caller) NonceDir(ctx context.Context, address string) *dagger.Directory
 }
 `
 
+// serveGitTrustRelaySource adds to the caller functions that serve the
+// helper module from the caller's tree and return what its nonce function
+// returns, a string with no dependency on how it was computed.
+const serveGitTrustRelaySource = `package main
+
+import "context"
+
+func (m *Caller) Relay(ctx context.Context, address string) (string, error) {
+	return relay(ctx, address)
+}
+
+func (m *Caller) RelayAgain(ctx context.Context, address string) (string, error) {
+	return relay(ctx, address)
+}
+
+func relay(ctx context.Context, address string) (string, error) {
+	if err := dag.ServeModule(ctx, "/modules/helper"); err != nil {
+		return "", err
+	}
+	var out string
+	q := dag.QueryBuilder().Select("helper").Select("nonce").Arg("address", address).Bind(&out)
+	return out, q.Execute(ctx)
+}
+`
+
+const serveGitTrustHelperManifest = `{"name":"helper","engineVersion":"latest","sdk":{"source":"go"},"source":"."}`
+
+// serveGitTrustHelperSource is a helper module whose nonce function serves
+// an address, as the caller's does.
+var serveGitTrustHelperSource = strings.ReplaceAll(serveGitTrustNonceSource, "*Caller", "*Helper") + "\ntype Helper struct{}\n"
+
+// serveGitTrustRelayConfig declares client for the caller and for the
+// helper the caller serves from its tree.
+func serveGitTrustRelayConfig(client string) string {
+	return fmt.Sprintf(`[modules.caller]
+source = "modules/caller"
+
+[modules.go]
+source = "go"
+
+[sdks.go]
+module = "go"
+
+[sdks.go.scopes."modules/caller"]
+is-module = true
+clients = [%q, "./modules/helper"]
+
+[sdks.go.scopes."modules/helper"]
+is-module = true
+clients = [%q]
+`, client, client)
+}
+
 // serveGitTrustRepo serves content as a repository anyone may read, and
 // returns its URL by IP so nested sessions reach it as the engine does.
 func serveGitTrustRepo(ctx context.Context, t *testctx.T, c *dagger.Client, content *core.Directory, token *core.Secret) string {
@@ -248,14 +301,16 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		// The declared client needs no credentials: serving it lends none.
 		publicURL := serveGitTrustRepo(ctx, t, c, serveGitTrustRepoContent(c), nil)
 		public := publicURL + "/hello"
-		run := func(c *dagger.Client) (string, string) {
-			ctr := sessionCaller(c, public, false)
+		// Each run's CLI executes anew, so an equal output is the
+		// function's result served from cache.
+		run := func(c *dagger.Client, n string) (string, string) {
+			ctr := sessionCaller(c, public, false).WithEnvVariable("SERVE_MODULE_RUN", n)
 			return stdout(ctr.With(daggerCallAt("caller", "plain"))), stdout(ctr.With(daggerCallAt("caller", "nonce", "--address="+public)))
 		}
-		firstPlain, firstServed := run(connect(ctx, t))
+		firstPlain, firstServed := run(connect(ctx, t), "1")
 		require.Regexp(t, `^[0-9]+\s*$`, firstPlain)
 		require.Regexp(t, `^[0-9]+\s*$`, firstServed)
-		secondPlain, secondServed := run(connect(ctx, t))
+		secondPlain, secondServed := run(connect(ctx, t), "2")
 		require.Equal(t, firstPlain, secondPlain)
 		require.Equal(t, firstServed, secondServed)
 	})
@@ -277,9 +332,34 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		// The second session holds the same token once serving the client
 		// has lent it; a session is served what requires a credential only
 		// after it holds it.
-		ctr := sessionCaller(connect(ctx, t), hello, true).With(daggerCallAt("caller", "attempt", "--address="+hello))
+		ctr := sessionCaller(connect(ctx, t), hello, true).WithEnvVariable("SERVE_MODULE_RUN", "2").With(daggerCallAt("caller", "attempt", "--address="+hello))
 		require.Equal(t, "served", stdout(ctr))
 		require.Equal(t, first, stdout(ctr.With(daggerCallAt("caller", "nonce", "--address="+hello))))
+	})
+
+	t.Run("a result relayed from a module that used credentials misses in a session without them", func(ctx context.Context, t *testctx.T) {
+		// The caller returns a string the helper computed with the
+		// credentials lent to it, so nothing in the caller's result depends
+		// on them.
+		relayCaller := func(c *dagger.Client, withCredentials bool) *core.Container {
+			return sessionCaller(c, hello, withCredentials).
+				WithNewFile("dagger.toml", serveGitTrustRelayConfig(hello)).
+				WithNewFile("modules/caller/relay.go", serveGitTrustRelaySource).
+				WithNewFile("modules/helper/dagger.json", serveGitTrustHelperManifest).
+				WithNewFile("modules/helper/main.go", serveGitTrustHelperSource)
+		}
+		relay := func(fn string) core.WithContainerFunc {
+			return daggerCallAt("caller", fn, "--address="+hello)
+		}
+		ctr := relayCaller(connect(ctx, t), true).With(relay("relay"))
+		first := stdout(ctr)
+		require.Regexp(t, `^[0-9]+\s*$`, first)
+		// The helper's result comes from cache in this call's work.
+		require.Equal(t, first, stdout(ctr.With(relay("relay-again"))))
+
+		ctr = relayCaller(connect(ctx, t), false)
+		require.Contains(t, stdout(ctr.With(relay("relay"))), "git authentication failed")
+		require.Contains(t, stdout(ctr.With(relay("relay-again"))), "git authentication failed")
 	})
 
 	t.Run("a plain program keeps its own credentials", func(ctx context.Context, t *testctx.T) {
