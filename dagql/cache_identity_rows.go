@@ -117,18 +117,27 @@ func (c *Cache) localStandInLocked(res *sharedResult, nowUnix int64) *sharedResu
 // the Cloud's record of it, fetched, has landed on it. decode asks the fetch
 // for its value children too, and frames for its whole call closure as frame
 // rows. Its error wraps errRowUnavailable.
-func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, decode, frames bool) (*sharedResult, error) {
-	c.egraphMu.RLock()
+//
+// owner, when set, is the entry whose decode loads res as a child: it owns
+// the stand-in directly, as its live value now names it. Otherwise res owns
+// it.
+func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, decode, frames bool, owner *sharedResult) (*sharedResult, error) {
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 	if !res.identityOnly {
-		c.egraphMu.RUnlock()
+		c.egraphMu.Unlock()
 		return res, nil
 	}
+	// Choosing the stand-in and owning it are one decision under the lock,
+	// so no collection can take the stand-in between them.
 	standIn := c.localStandInLocked(res, time.Now().Unix())
+	if standIn != nil {
+		c.ownStandInLocked(ctx, res, standIn, owner)
+	}
 	key, h := res.cloudHoldingLocked()
-	c.egraphMu.RUnlock()
+	c.egraphMu.Unlock()
 	if standIn != nil {
 		c.identityRows.resolvedLocally.Add(1)
-		return c.ownStandIn(ctx, res, standIn), nil
+		return standIn, nil
 	}
 	fail := func(err error) (*sharedResult, error) {
 		c.identityRows.fetchFailed.Add(1)
@@ -153,16 +162,19 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	if _, err := c.mergeFetchedRowsInto(ctx, bundle, map[uint64]sharedResultID{key.Number: res.id}); err != nil {
 		return fail(err)
 	}
-	c.egraphMu.RLock()
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 	landed := !res.identityOnly
 	if !landed {
 		standIn = c.localStandInLocked(res, time.Now().Unix())
+		if standIn != nil {
+			c.ownStandInLocked(ctx, res, standIn, owner)
+		}
 	}
-	c.egraphMu.RUnlock()
+	c.egraphMu.Unlock()
 	switch {
 	case landed:
 	case standIn != nil:
-		res = c.ownStandIn(ctx, res, standIn)
+		res = standIn
 	default:
 		return fail(fmt.Errorf("the fetched record of Cloud entry %d didn't land", key.Number))
 	}
@@ -175,27 +187,30 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	return res, nil
 }
 
-// ownStandIn makes the identity-only entry res own the entry that stands in
-// for it, so that what owns res (the record whose value or frame needed it)
-// keeps the stand-in alive as long as it keeps res, though the stand-in's
-// own session releases it. It returns the stand-in.
-func (c *Cache) ownStandIn(ctx context.Context, res, standIn *sharedResult) *sharedResult {
-	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
-	defer c.egraphMu.Unlock()
-	if c.resultsByID[res.id] != res || c.resultsByID[standIn.id] != standIn {
-		return standIn
+// ownStandInLocked makes the entry that needed res own the entry that stands
+// in for it, so that it keeps the stand-in alive though the stand-in's own
+// session releases it: owner, the entry whose decoded value now names the
+// stand-in as a child, which an export of that live value then finds among
+// its dependencies; or, for a frame walk, res itself. Session requirements
+// then cascade from the new owner. Requires egraphMu for writing.
+func (c *Cache) ownStandInLocked(ctx context.Context, res, standIn, owner *sharedResult) {
+	if owner == nil || c.resultsByID[owner.id] != owner {
+		owner = res
 	}
-	if _, ok := res.deps[standIn.id]; ok {
-		return standIn
+	if owner.id == standIn.id {
+		return
 	}
-	if res.deps == nil {
-		res.deps = map[sharedResultID]struct{}{}
+	if _, ok := owner.deps[standIn.id]; ok {
+		return
 	}
-	res.deps[standIn.id] = struct{}{}
-	c.rememberDependencyEdgeLocked(res, standIn)
+	if owner.deps == nil {
+		owner.deps = map[sharedResultID]struct{}{}
+	}
+	owner.deps[standIn.id] = struct{}{}
+	c.rememberDependencyEdgeLocked(owner, standIn)
 	c.incrementIncomingOwnershipLocked(ctx, standIn)
-	res.dependencyOwnershipRevision++
-	return standIn
+	owner.dependencyOwnershipRevision++
+	_ = c.cascadeRequiredSessionResourcesLocked([]*sharedResult{owner}, false)
 }
 
 // resolveIdentityFrame returns the call frame that stands for an
@@ -210,7 +225,7 @@ func (c *Cache) resolveIdentityFrame(ctx context.Context, id sharedResultID) (*R
 		return nil, nil
 	}
 	c.identityRows.recipeWalks.Add(1)
-	resolved, err := c.resolveIdentityEntry(ctx, res, false, true)
+	resolved, err := c.resolveIdentityEntry(ctx, res, false, true, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -256,10 +271,18 @@ func (c *Cache) mergeFetchedRowsInto(ctx context.Context, bundle ValueBundle, ta
 
 // cascadeRequiredSessionResourcesLocked recomputes the session requirements
 // of each start entry and, where they change, of every entry above it, as an
-// explicit dependency added to a published entry does. Requires egraphMu for
-// writing.
-func (c *Cache) cascadeRequiredSessionResourcesLocked(start []*sharedResult) error {
+// explicit dependency added to a published entry does. With recomputed, the
+// start entries' own sets are already current, so the cascade starts at
+// their parents whatever the start entries' recomputation finds. Requires
+// egraphMu for writing.
+func (c *Cache) cascadeRequiredSessionResourcesLocked(start []*sharedResult, recomputed bool) error {
 	queue := slices.Clone(start)
+	forced := map[*sharedResult]bool{}
+	if recomputed {
+		for _, res := range start {
+			forced[res] = true
+		}
+	}
 	var errs error
 	for len(queue) > 0 {
 		res := queue[0]
@@ -269,7 +292,7 @@ func (c *Cache) cascadeRequiredSessionResourcesLocked(start []*sharedResult) err
 			errs = errors.Join(errs, err)
 			continue
 		}
-		if !changed || res.depParents == nil {
+		if !changed && !forced[res] || res.depParents == nil {
 			continue
 		}
 		for ancestorID := range res.depParents.Items() {
@@ -279,4 +302,16 @@ func (c *Cache) cascadeRequiredSessionResourcesLocked(start []*sharedResult) err
 		}
 	}
 	return errs
+}
+
+// decodeOwner returns the entry whose persisted value the decode on ctx is
+// decoding, if any: the owner of the child rows it loads.
+func decodeOwner(ctx context.Context, c *Cache) *sharedResult {
+	roles, _ := ctx.Value(copiedDecodeRolesKey{}).(*copiedDecodeRoles)
+	if roles == nil || roles.ResultID == 0 {
+		return nil
+	}
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	return c.resultsByID[sharedResultID(roles.ResultID)]
 }
