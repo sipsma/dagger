@@ -96,6 +96,10 @@ func (s *session) serve() (bool, error) {
 		s.cancel(err)
 		return false, err
 	}
+	// Rows a merge carried as identity alone are fetched over this
+	// connection while it lasts.
+	s.adapter.SetRowFetcher(s)
+	defer s.adapter.SetRowFetcher(nil)
 	s.go_(s.ping)
 	s.go_(s.renewals)
 	s.go_(s.lookups)

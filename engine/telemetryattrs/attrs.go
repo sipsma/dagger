@@ -1164,6 +1164,9 @@ type EngineStopEvent struct {
 	// restored part could count them as late (EngineRestorePart.Late): a
 	// run with any undercounts its late lookups.
 	UncountedMisses uint64 `json:"uncountedMisses,omitempty"`
+	// IdentityRows counts what became of the rows Cloud merges carried as
+	// identity alone that something on the engine needed.
+	IdentityRows IdentityRowCounts `json:"identityRows"`
 }
 
 // EngineRestore is what an engine did with one set file: the check's name,
@@ -1202,4 +1205,18 @@ type EngineRestorePart struct {
 	LeastLate  int64 `json:"leastLate,omitempty"`
 	LockWait   int64 `json:"lockWait,omitempty"`
 	CommitHold int64 `json:"commitHold,omitempty"`
+}
+
+// IdentityRowCounts is dagql.IdentityRowCounts on the engine.stop row:
+// resolved to a local entry of the class, fetched (with the full rows the
+// fetches brought) or not, frame walks that reached one, hits turned into
+// misses, and parts left unavailable, by an unavailable row.
+type IdentityRowCounts struct {
+	ResolvedLocally  int64 `json:"resolvedLocally"`
+	Fetched          int64 `json:"fetched"`
+	FetchFailed      int64 `json:"fetchFailed"`
+	FetchedRows      int64 `json:"fetchedRows"`
+	RecipeWalks      int64 `json:"recipeWalks"`
+	HitsMissed       int64 `json:"hitsMissed"`
+	PartsUnavailable int64 `json:"partsUnavailable"`
 }

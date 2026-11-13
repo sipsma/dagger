@@ -193,6 +193,15 @@ func (a *RemoteCacheAdapter) ReplyRenewal(reply dagql.RenewalReply) dagql.Renewa
 	return a.bridge.ReplyRenewal(reply)
 }
 
+// SetRowFetcher sets where the cache fetches the records of rows a merge
+// carried as identity alone: the connection that serves the adapter.
+func (a *RemoteCacheAdapter) SetRowFetcher(f dagql.RowFetcher) {
+	if f != nil && a.stopped.Load() {
+		return
+	}
+	a.cache.SetRowFetcher(f)
+}
+
 func (a *RemoteCacheAdapter) StartLookups() {
 	if a.stopped.Load() {
 		return
