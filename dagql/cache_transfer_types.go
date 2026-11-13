@@ -31,16 +31,18 @@ type ValueSelection struct {
 
 // PushRows is how a push captures its roots' closures: every row Known
 // doesn't know goes as a held row, with nothing below it, but those Full
-// names, which go in full. The recipient answers the held rows whose recipe
-// it has no value of as stale, and the next capture names them in Full. A
-// row the recipient has teaches it the engine's holding of the row.
+// names, which go in full. A push asks the recipient first which rows it
+// lacks (Cache.LackedRows), from a capture that lists every such row (List),
+// and captures again with those in Full. A held row the recipient has
+// teaches it the engine's holding of the row.
 type PushRows struct {
 	// Full are the rows, by the engine's numbers, the recipient said it
 	// lacks.
 	Full map[uint64]bool
-	// List, in a push's first capture, walks below each held row too, so
-	// that the bundle names, as held rows, every row of the closure the
-	// recipient isn't known to have.
+	// List walks below each held row too, so that the bundle names, as held
+	// rows, every row of the closure the recipient isn't known to have.
+	// Only those the roots depend on are reachable from them, so such a
+	// bundle is a list of rows to ask about, never merged.
 	List bool
 }
 type SelectedValueOutput struct {
