@@ -62,15 +62,22 @@ func TestStoredBundleLetsTheLockGoBetweenPieces(t *testing.T) {
 // cache never changes in place.
 func TestStoredBundleNormalizesWithTheLockLetGo(t *testing.T) {
 	t.Parallel()
-	ctx, cloud, batch := storedBenchCloud(t)
+	// The body worker is stopped before the merge, so every record stays
+	// whole and nothing else takes the lock.
+	ctx, cloud, batch, _ := storedBenchCloudBundle(t, storedTestHoldWhole)
 	var locked, unlocked atomic.Int64
+	// Under the build's own hold the lock can never be taken; another
+	// holder, such as the body worker installing a batch, lets it go soon.
 	cloud.testStoredTransferNormalized = func() {
-		if cloud.egraphMu.TryLock() {
-			cloud.egraphMu.Unlock()
-			unlocked.Add(1)
-		} else {
-			locked.Add(1)
+		for range 500 {
+			if cloud.egraphMu.TryLock() {
+				cloud.egraphMu.Unlock()
+				unlocked.Add(1)
+				return
+			}
+			time.Sleep(time.Millisecond)
 		}
+		locked.Add(1)
 	}
 	_, err := cloud.StoredBundle(ctx, batch, time.Now().Unix(), nil)
 	require.NoError(t, err)
@@ -124,7 +131,7 @@ func TestStoredBundleInPiecesIsTheSingleHoldsBundle(t *testing.T) {
 // race detector sees no part read after the lock that a writer changes.
 func TestStoredBundleStaysWholeUnderWritesBetweenPieces(t *testing.T) {
 	t.Parallel()
-	ctx, cloud, batch, source := storedBenchCloudBundle(t)
+	ctx, cloud, batch, source := storedBenchCloudBundle(t, nil)
 	cloud.readPieceSize = 8
 	done := make(chan struct{})
 	var writers sync.WaitGroup
@@ -273,6 +280,27 @@ func TestStoredBundleEntryReplacedBetweenPieces(t *testing.T) {
 			}
 		})
 		msg := fmt.Sprintf("replaced at letting go %d", n)
+		require.NoError(t, err, msg)
+		require.NotEmpty(t, built.Bundle.Values, msg)
+	}
+}
+
+// A call's input pruned between the pieces of a build's read, while an
+// engine still holds its entry, leaves the call unsent, as a single hold of
+// that state would, and the rest of the bundle whole: at whatever point the
+// prune lands, the build succeeds.
+func TestStoredBundleCallInputPrunedBetweenPieces(t *testing.T) {
+	t.Parallel()
+	for n := 1; n <= 30; n++ {
+		test := newReceiverCallTest(t)
+		heldTestHold(t, test.ctx, test.cloud, "cache-e", 9, test.receiverNumber, 0)
+		built, err := storedBundleWriteAt(t, test.ctx, test.cloud, []uint64{test.number}, n, func(res func(uint64) *sharedResult) {
+			if entry := res(test.receiverNumber); entry != nil {
+				_, err := test.cloud.dropValueLocked(test.ctx, entry)
+				require.NoError(t, err)
+			}
+		})
+		msg := fmt.Sprintf("pruned at letting go %d", n)
 		require.NoError(t, err, msg)
 		require.NotEmpty(t, built.Bundle.Values, msg)
 	}

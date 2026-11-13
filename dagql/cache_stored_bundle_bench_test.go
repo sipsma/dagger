@@ -157,13 +157,13 @@ func storedBenchPart(seed uint64) PersistedPartOffer {
 // merged, as the service receives it.
 func storedBenchCloud(b testing.TB) (context.Context, *Cache, []uint64) {
 	b.Helper()
-	ctx, cloud, batch, _ := storedBenchCloudBundle(b)
+	ctx, cloud, batch, _ := storedBenchCloudBundle(b, nil)
 	return ctx, cloud, batch
 }
 
 // storedBenchCloudBundle is storedBenchCloud, with the bundle the Cloud
-// merged.
-func storedBenchCloudBundle(b testing.TB) (context.Context, *Cache, []uint64, ValueBundle) {
+// merged; prepare, if set, runs on the Cloud before it merges.
+func storedBenchCloudBundle(b testing.TB, prepare func(*Cache)) (context.Context, *Cache, []uint64, ValueBundle) {
 	b.Helper()
 	actx := cacheTestContext(context.Background())
 	a, err := NewCache(actx, filepath.Join(b.TempDir(), "a.db"), nil, nil)
@@ -212,6 +212,9 @@ func storedBenchCloudBundle(b testing.TB) (context.Context, *Cache, []uint64, Va
 	cloud, err := NewCache(ctx, "", nil, nil, WithBlobStore())
 	require.NoError(b, err)
 	b.Cleanup(func() { require.NoError(b, cloud.CloseDiscardingPersistence()) })
+	if prepare != nil {
+		prepare(cloud)
+	}
 	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
 	require.NoError(b, err)
 	require.True(b, reply.Committed)
