@@ -236,6 +236,18 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 			capture.unheld[res.id] = children
 			return blocked(res.id, blockedRow{row: res.id, kind: BusyAttaching, err: fmt.Errorf("%w: result %d attachment", ErrPersistStateNotReady, res.id)})
 		}
+		if res.identityOnly {
+			// A row a Cloud merge carried as identity alone is the Cloud's
+			// own entry, of which the engine has no record to send: the
+			// export names it as a held row, by its recipe.
+			c.incrementIncomingOwnershipLocked(ctx, res)
+			row := &capturedTransferRow{shared: res, held: true, imported: true, recipe: res.identityRecipe, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
+			capture.rows[res.id] = row
+			seen[res.id] = 2
+			row.ordinal = TransferOrdinal(len(capture.order) + 1)
+			capture.order = append(capture.order, row)
+			return nil
+		}
 		frame := res.loadResultCall()
 		if frame == nil || frame.Type == nil || frame.Type.NamedType == "Query" {
 			return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: row %d has no transferable frame", res.id)})
@@ -1109,6 +1121,11 @@ func (capture *HeldCapturedClosure) deriveHeldRecipes() ([]sharedResultID, error
 	held := map[digest.Digest][]sharedResultID{}
 	for _, row := range capture.order {
 		if !row.held {
+			continue
+		}
+		if row.frame == nil && row.recipe != "" {
+			// An identity-only row's recipe is the one it was given.
+			held[row.recipe] = append(held[row.recipe], row.shared.id)
 			continue
 		}
 		recipe, err := row.frame.deriveRecipeDigest(capture.cache)
