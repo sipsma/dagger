@@ -2532,6 +2532,11 @@ func (c *Cache) runlockGraphAs(step Step) {
 }
 
 type Cache struct {
+	// rowFetcher fetches the Cloud's records of identity-only entries
+	// (cache_identity_rows.go), and identityRows counts what became of
+	// those entries when something needed them.
+	rowFetcher   atomic.Pointer[RowFetcher]
+	identityRows identityRowCounters
 	testTransferCopied       func(uint64)
 	testTransferPlanPrepared func(int) error
 	testBeforeTransferCommit func()

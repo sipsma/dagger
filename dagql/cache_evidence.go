@@ -91,6 +91,10 @@ type CacheDecision struct {
 	// choice. Meaningful only for misses (Outcome executed).
 	MissProducerReleased bool
 	MissRequirementsGrew bool
+	// MissRowUnavailable records a serve-time miss whose hit's value needed
+	// a row a merge carried as identity alone, which could be neither found
+	// on the engine nor fetched. Meaningful only for misses.
+	MissRowUnavailable bool
 
 	// MissExpiredRemote records that a candidate expiry eliminated (see
 	// MissSawExpired) was a value a Cloud merge installed, and

@@ -1330,6 +1330,16 @@ func (c *Cache) lookupCacheForRequest(
 	}
 
 	loadedHit, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
+	if errors.Is(err, errRowUnavailable) {
+		// A row the hit's value needs, which a merge carried as identity
+		// alone, could be neither found here nor fetched: the hit becomes
+		// a miss and the call runs, as on an engine that never had it.
+		c.identityRows.hitsMissed.Add(1)
+		if ev := req.CacheEvidence; ev != nil {
+			ev.MissRowUnavailable = true
+		}
+		return nil, false, nil
+	}
 	if err != nil {
 		if errors.Is(err, errAttachRefusedByProducerRelease) {
 			// The hit's attachment failed only because the producing

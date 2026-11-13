@@ -380,6 +380,11 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 						callCtx, endCall := profDemandStep(ctx, "call")
 						callErr = c.runCallForPart(callCtx, res, key)
 						endCall(callErr)
+						if errors.Is(callErr, errRowUnavailable) {
+							// The residual path: the call needed a row the
+							// engine never had, and its fetch failed.
+							c.identityRows.partsUnavailable.Add(1)
+						}
 						if callErr == nil {
 							continue
 						}
