@@ -2351,12 +2351,10 @@ func (s *moduleSchema) serveModule(ctx context.Context, self *core.Query, args s
 			// session lent, which the key of the function call this serves
 			// doesn't name: its result requires them.
 			fnCall, err := self.Server.EnclosingFunctionCall(ctx)
-			if err == nil {
-				err = fnCall.BorrowSessionResourcesOf(src)
-			}
 			if err != nil && !errors.Is(err, core.ErrNoCurrentFunctionCall) {
 				return void, fmt.Errorf("serve module %q from module %q: %w", args.Address, caller.Self().Name(), err)
 			}
+			fnCall.BorrowSessionResourcesOf(src)
 		}
 	} else if caller, err := self.Server.ModuleParent(ctx); err == nil {
 		// A module's code may run in a process the engine does not treat as the

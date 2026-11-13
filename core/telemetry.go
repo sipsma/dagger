@@ -67,7 +67,7 @@ func noteModuleCallResult(ctx context.Context, res dagql.AnyResult) error {
 	case err != nil:
 		return fmt.Errorf("note module call result: %w", err)
 	}
-	if !fnCall.tracksBorrowing() {
+	if !fnCall.TracksBorrowing() {
 		return nil
 	}
 	// A result the cache doesn't hold carries no requirements to note.

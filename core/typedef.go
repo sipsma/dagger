@@ -2726,20 +2726,22 @@ func (fnCall *FunctionCall) trackBorrowing() {
 	fnCall.borrowed = &functionCallBorrowed{}
 }
 
-func (fnCall *FunctionCall) tracksBorrowing() bool {
+// TracksBorrowing reports whether the call records what its work borrows
+// (see trackBorrowing).
+func (fnCall *FunctionCall) TracksBorrowing() bool {
 	return fnCall != nil && fnCall.borrowed != nil
 }
 
 // BorrowSessionResourcesOf records that the call's work fetched res with
-// resources the session lent it. The call's result then requires the
-// session resources res requires (dagql.RequireSessionResourcesOf). A call
-// that doesn't track borrowing can't be lent anything, so it is an error.
-func (fnCall *FunctionCall) BorrowSessionResourcesOf(res dagql.AnyResult) error {
-	if !fnCall.tracksBorrowing() {
-		return errors.New("the function call doesn't record what its work borrows")
+// resources the session lent it, if the call tracks borrowing. The call's
+// result then requires the session resources res requires
+// (dagql.RequireSessionResourcesOf). A call that doesn't track it, such as
+// an entrypoint member's, isn't a module function's cached result.
+func (fnCall *FunctionCall) BorrowSessionResourcesOf(res dagql.AnyResult) {
+	if !fnCall.TracksBorrowing() {
+		return
 	}
 	fnCall.borrowed.add(res)
-	return nil
 }
 
 // NoteWorkResult records a module function's result that the call's work
@@ -2748,7 +2750,7 @@ func (fnCall *FunctionCall) BorrowSessionResourcesOf(res dagql.AnyResult) error 
 // what the work derives from it, a string for one, carries no dependency on
 // it.
 func (fnCall *FunctionCall) NoteWorkResult(res dagql.AnyResult) {
-	if !fnCall.tracksBorrowing() {
+	if !fnCall.TracksBorrowing() {
 		return
 	}
 	fnCall.borrowed.add(res)
