@@ -516,7 +516,6 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 		"held", held,
 		"roots", len(req.Bundle.Roots),
 		"committed", reply.Committed,
-		"stale", len(reply.Stale),
 		"commitHold", reply.CommitHold,
 		"duration", time.Since(start),
 		"error", err,
@@ -525,9 +524,6 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 		"merge", id,
 		"lookup", req.Lookup,
 		"priority_wait", priorityWait)
-	if err == nil && len(reply.Stale) > 0 {
-		return protocol.Merged{Generation: reply.Generation, EngineTime: reply.EngineTimeUnixNano, Values: []protocol.MergedValue{}, Retained: []protocol.RetainedRoot{}, Stale: reply.Stale}, nil
-	}
 	if !reply.Committed {
 		return protocol.Merged{}, err
 	}

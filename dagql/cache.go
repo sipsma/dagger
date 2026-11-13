@@ -3074,6 +3074,18 @@ type cacheUsageMayChange interface {
 // sharedResult holds cache-entry state and shared payload published to per-call Result values.
 type sharedResult struct {
 	inlineBorrow *PartHost
+	// identityOnly marks an engine's entry that an identity row of a Cloud
+	// merge created (a held row of a recipe the engine held no value of): it
+	// has the Cloud entry's identity, its recipe (identityRecipe), the
+	// digests of its class and the Cloud's holding, and no value, record or
+	// frame, until the Cloud's record of it lands on it. Lookups pass it by
+	// (noValueLocked). Guarded by egraphMu.
+	identityOnly bool
+	// identityRecipe is the recipe digest of the Cloud entry an identity row
+	// named, which a frame that references the entry derives its own digests
+	// from (recipeDigestForCachedResult). Set when the entry is made, and
+	// never changed.
+	identityRecipe digest.Digest
 	// Origin is immutable; slots and graph revisions are guarded by egraphMu.
 	imported bool
 	// persistDeclined records that the call that computed the entry's value
