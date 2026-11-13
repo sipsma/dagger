@@ -6776,6 +6776,11 @@ func (c *Cache) getOrInitCallInner(
 	if err != nil {
 		return nil, fmt.Errorf("derive request digest: %w", err)
 	}
+	// The call names the cached call it was made under, and is the caller of
+	// the cached calls its resolver makes. A call that isn't cached installs
+	// nothing, so the calls under it name the cached call above it.
+	caller := CallerRecipe(ctx)
+	ctx = ContextWithCallerRecipe(ctx, callDigest)
 	requestSelf, requestInputRefs, err := req.selfDigestAndInputRefs(c)
 	if err != nil {
 		return nil, fmt.Errorf("derive request term digests: %w", err)
@@ -6789,6 +6794,7 @@ func (c *Cache) getOrInitCallInner(
 		requestInputs = append(requestInputs, dig)
 	}
 	if ev != nil {
+		ev.Caller = caller
 		ev.SelfDigest = requestSelf
 		ev.StructuralInputs = requestInputs
 		// Best-effort optional fact: pairing derivation shares the self-digest
@@ -6824,7 +6830,7 @@ func (c *Cache) getOrInitCallInner(
 		c.captureSessionResultInstallSpan(ctx, sessionID, hitRes)
 		return hitRes, nil
 	}
-	if lookup := c.noteRemoteMiss(req, callDigest, requestSelf, requestInputs); ev != nil {
+	if lookup := c.noteRemoteMiss(req, callDigest, caller, requestSelf, requestInputs); ev != nil {
 		ev.MissRemoteLookup = lookup
 	}
 
