@@ -668,3 +668,49 @@ func TestWriteBehindBudgetNeverNamesATakenClassNumber(t *testing.T) {
 	})
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a taken class number, drained")
 }
+
+// An entry that leaves the store while the stored row of an entry that owned
+// it still names it takes that owner's rows with it in the same write, so
+// a store written one mark at a time never names an entry it doesn't hold:
+// here the dependency's mark comes first, and the root that depended on it
+// leaves after it.
+func TestWriteBehindBudgetTakesALeavingEntrysOwners(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	cloud.testWriteBehindBudget = 1
+	actx, a, asrv := transferTestCache(t)
+	r := persistedListTestResult(t, actx, a, asrv, "wb-owner-root", &transferTestValue{Text: "root"})
+	p := persistedListTestResult(t, actx, a, asrv, "wb-owner-dep", &transferTestValue{Text: "dep"})
+	transferTestDependency(a, actx, r, p)
+	reply, err := cloud.MergeValues(ctx, "cache-x", exportTestBundle(t, actx, a, r))
+	require.NoError(t, err)
+	root := reply.Imported()[0].ResultID
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root with a dependency")
+	cloud.egraphMu.RLock()
+	var dep uint64
+	for id := range cloud.resultsByID[sharedResultID(root)].deps {
+		dep = uint64(id)
+	}
+	cloud.egraphMu.RUnlock()
+	require.NotZero(t, dep)
+
+	// The dependency is marked first, then both leave.
+	stored, _, err := cloud.SetStoredPart(ctx, dep, storedPruneTestPart("snapshot", map[string]int64{"wb-owner-base": 10}), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	_, removed, _, err := cloud.removePrunedEdge(ctx, sharedResultID(root))
+	require.NoError(t, err)
+	require.True(t, removed)
+	_, _, err = cloud.CollectRemoteHoldings(ctx, cloud.ReleaseRemoteCache(ctx, "cache-x").Candidates)
+	require.NoError(t, err)
+	cloud.egraphMu.RLock()
+	require.Nil(t, cloud.resultsByID[sharedResultID(dep)], "the dependency is collected")
+	cloud.egraphMu.RUnlock()
+
+	writeBehindTestDrain(t, ctx, cloud, "a dependency leaving before its owner", func(WriteBehindReport) {
+		writeBehindTestRestorable(t, ctx, cloud, path, "draining a dependency leaving before its owner")
+	})
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a dependency leaving before its owner, drained")
+}
