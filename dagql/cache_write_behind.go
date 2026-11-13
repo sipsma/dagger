@@ -775,6 +775,11 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 				return fmt.Errorf("write behind: insert result_call (%d,%s): %w", row.ResultID, row.RequestDigest, err)
 			}
 		}
+		for _, row := range rows.taught {
+			if err := q.InsertMirrorResultTaught(ctx, row); err != nil {
+				return fmt.Errorf("write behind: insert result_taught (%d,%d): %w", row.ResultID, row.Position, err)
+			}
+		}
 		for _, row := range rows.result.resultSnapshotLinks {
 			if err := q.InsertMirrorResultSnapshotLink(ctx, row); err != nil {
 				return fmt.Errorf("write behind: insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
