@@ -64,7 +64,7 @@ func (s *currentTypeDefsTestServer) CurrentFunctionCall(context.Context) (*core.
 	return nil, nil
 }
 
-func (s *currentTypeDefsTestServer) ModuleParentFunctionCall(context.Context) (*core.FunctionCall, error) {
+func (s *currentTypeDefsTestServer) EnclosingFunctionCall(context.Context) (*core.FunctionCall, error) {
 	return nil, nil
 }
 

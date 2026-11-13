@@ -869,6 +869,20 @@ func (fn *ModuleFunction) DynamicInputsForCall(
 	return req.SetImplicitInput(ctx, declaredGitClientsInput, dagql.NewString(gitClientsDigest))
 }
 
+// declaresGitClients reports whether call, a module function's, is keyed on
+// git clients its module declares (see DynamicInputsForCall).
+func declaresGitClients(call *dagql.ResultCall) bool {
+	if call == nil {
+		return false
+	}
+	for _, input := range call.ImplicitInputs {
+		if input != nil && input.Name == declaredGitClientsInput {
+			return true
+		}
+	}
+	return false
+}
+
 // declaredGitClientsDigest digests the git clients that the config governing
 // the function's module declares, which its code may serve with the session's
 // git credentials. It is empty when there are none.
@@ -1108,6 +1122,9 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 		fnCall.ParentName = fn.objDef.OriginalName
 	}
 	fnCall.cacheTTLSeconds = fn.explicitCacheTTLSeconds()
+	if declaresGitClients(curCall) {
+		fnCall.trackBorrowing()
+	}
 	// Carry the receiver object (with its dagql ID) engine-side so the module can
 	// reach it via Query.currentNode. It rides the fnCall by reference into the
 	// nested client session (ServeHTTPToNestedClient) for both in-process and
@@ -1140,7 +1157,7 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 
 	// Delegate the actual function execution to the runtime
 	err = runtime.Call(ctx, &execMD, fnCall, fn.mod)
-	// What the function's work used of the session's lent resources, which
+	// What the function's work borrowed of the session's resources, which
 	// its key doesn't name, its result requires.
 	if borrowErr := dagql.RequireSessionResourcesOf(ctx, fnCall.borrowedResults()...); borrowErr != nil {
 		return nil, borrowErr
