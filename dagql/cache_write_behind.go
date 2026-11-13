@@ -375,6 +375,8 @@ func moveCounts(counts map[eqClassID]int32, old, new []eqClassID, touched map[eq
 // those name. Requires egraphMu for reading; only the save changes its marks
 // under it. A failed write leaves the state broken, and the next saves
 // whole.
+//
+//nolint:gocyclo // one step per kind of row, in the order each depends on the last; splitting hides the order of the steps
 func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 	b := c.behind
 	plan := &writeBehindPlan{
@@ -537,6 +539,8 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 
 // applyWriteBehindPlan writes the plan in one transaction: every delete
 // first, then every insert.
+//
+//nolint:gocyclo // one statement per table, deletes then inserts; splitting hides the order of the tables
 func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan) (rerr error) {
 	tx, err := c.sqlDB.BeginTx(ctx, nil)
 	if err != nil {
