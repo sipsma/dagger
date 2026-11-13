@@ -499,8 +499,12 @@ func TestDecodedParentExportsItsStandIn(t *testing.T) {
 	actx, a, asrv := transferTestCache(t)
 	p := persistedListTestResult(t, actx, a, asrv, "bundle-dep", &transferTestValue{Text: "dep"})
 	pNumber := uint64(p.cacheSharedResult().id)
-	r := persistedListTestResult(t, actx, a, asrv, "child-parent", &transferTestValue{Text: "parent", Child: pNumber})
-	require.NoError(t, a.AddExplicitDependency(actx, r, p, "test"))
+	// R's receiver is P too, as a lazy container's saved parent is.
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "child-parent", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: pNumber}}
+	r, err := a.GetOrInitCall(actx, "test-session", asrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "parent", Child: pNumber}, frame)
+	})
+	require.NoError(t, err)
 	bundle := exportTestBundle(t, actx, a, r)
 	pRecipe, err := p.cacheSharedResult().loadResultCall().deriveRecipeDigest(a)
 	require.NoError(t, err)
@@ -524,8 +528,12 @@ func TestDecodedParentExportsItsStandIn(t *testing.T) {
 	rNumber := reply.Imported()[0].ResultID
 	own := heldTestSessionValue(t, bctx, b, bsrv)
 	transferDecodeHooks.Store(rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
+		// The child twice, as a list naming one row at two positions does.
 		child, err := dec.ResultRef(ctx, value.Child)
 		if err != nil {
+			return err
+		}
+		if _, err := dec.ResultRef(ctx, value.Child); err != nil {
 			return err
 		}
 		value.Child = uint64(child.cacheSharedResult().id)
