@@ -42,6 +42,13 @@ type capturedTransferRow struct {
 	// knows it, so the bundle carries no record for it and nothing below it.
 	held   bool
 	recipe digest.Digest
+	// pushed marks a held row of a push the recipient isn't known to have
+	// (ValueSelection.Push): the recipient knows it once it merges the push.
+	pushed bool
+	// listed are the rows below a pushed held row that a push's first
+	// capture lists (PushRows.List): kept with the row, though it doesn't
+	// depend on them, so one that is blocked doesn't block it.
+	listed []sharedResultID
 }
 
 // HeldCapturedClosure protects every exact source row and offer while storage
@@ -157,9 +164,9 @@ func (capture *HeldCapturedClosure) block(id sharedResultID, kind BusyKind, err 
 //nolint:gocyclo // one classification per held result kind; splitting hides the order of the checks
 func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelection, carried map[sharedResultID]bool) (*HeldCapturedClosure, error) {
 	capture := &HeldCapturedClosure{cache: c, rows: map[sharedResultID]*capturedTransferRow{}, owners: map[offerOwnerID]*offerOwner{}, blocked: map[sharedResultID]blockedRow{}, unheld: map[sharedResultID][]sharedResultID{}}
-	known := selection.Known
+	known, push := selection.Known, selection.Push
 	if len(selection.Outputs) > 0 {
-		known = nil
+		known, push = nil, nil
 	}
 	// A root whose own evaluation is in flight can't be captured now,
 	// whatever its closure holds, unless it goes as a held row: its record's
@@ -246,13 +253,38 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 		if res.boundSession != "" {
 			return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: row %d is bound to its session", res.id)})
 		}
-		if !carried[res.id] && known.knowsLocked(res) {
+		knownRow := !carried[res.id] && known.knowsLocked(res)
+		pushed := !knownRow && push != nil && !carried[res.id] && !push.Full[uint64(res.id)]
+		if knownRow || pushed {
 			c.incrementIncomingOwnershipLocked(ctx, res)
-			row := &capturedTransferRow{shared: res, held: true, imported: res.imported, frame: frame, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
+			row := &capturedTransferRow{shared: res, held: true, pushed: pushed, imported: res.imported, frame: frame, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
 			capture.rows[res.id] = row
 			seen[res.id] = 2
 			row.ordinal = TransferOrdinal(len(capture.order) + 1)
 			capture.order = append(capture.order, row)
+			if pushed && push.List {
+				// A push's first capture names every row below that the
+				// recipient isn't known to have, so that its answer names
+				// every one it lacks. Each goes as a held row, and a
+				// blocked one is left out: the row doesn't depend on it.
+				list := func(id sharedResultID, child *sharedResult) {
+					if child != nil {
+						id = child.id
+					}
+					if walk(id, child) == nil {
+						row.listed = append(row.listed, id)
+					}
+				}
+				for child := range c.resultOwnershipChildrenLocked(res) {
+					if child.owner == nil {
+						list(child.resultID, child.result)
+						continue
+					}
+					for dep := range offerOwnershipChildrenLocked(child.owner) {
+						list(0, dep)
+					}
+				}
+			}
 			return nil
 		}
 		seen[res.id] = 1
@@ -954,6 +986,9 @@ func (capture *HeldCapturedClosure) settle(selection ValueSelection) ([]LeftOutR
 		for _, child := range capture.rows[id].children {
 			mark(child)
 		}
+		for _, child := range capture.rows[id].listed {
+			mark(child)
+		}
 	}
 	var kept []capturedRoot
 	for i, root := range capture.selected {
@@ -1489,14 +1524,18 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 		return err
 	}
 	sources := make([]ImportedValue, len(capture.order))
-	rows := ExportedRows{Full: make(map[uint64]RowRevision, len(capture.order))}
+	rows := ExportedRows{Full: make(map[uint64]RowRevision, len(capture.order)), Pushed: map[uint64]RowRevision{}}
 	for i, row := range capture.order {
 		sources[i] = ImportedValue{Ordinal: row.ordinal, ResultID: uint64(row.shared.id)}
-		if row.held {
+		rev := RowRevision{Replacements: row.replacements, Transfer: row.transferRev, Dependencies: row.dependencyRev}
+		switch {
+		case row.pushed:
+			rows.Pushed[uint64(row.shared.id)] = rev
+		case row.held:
 			rows.Held = append(rows.Held, uint64(row.shared.id))
-			continue
+		default:
+			rows.Full[uint64(row.shared.id)] = rev
 		}
-		rows.Full[uint64(row.shared.id)] = RowRevision{Replacements: row.replacements, Transfer: row.transferRev, Dependencies: row.dependencyRev}
 	}
 	profExportedParts(ctx, bundle, sources)
 	return consume(ctx, &ExportedValues{Bundle: bundle, Chains: chains, ChainTime: chainTime, Phases: phases, Sources: sources, LeftOut: leftOut, Rows: rows})
