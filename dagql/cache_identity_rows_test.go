@@ -250,3 +250,85 @@ func TestExportBlocksAtARefusedIdentityEntry(t *testing.T) {
 	require.Nil(t, bundle, "R stays here")
 	_ = err
 }
+
+// identityTestFrameRow makes the bundle's held row for the Cloud entry
+// number a frame row: it carries the Cloud entry's call frame, with its
+// references by sender number, and their rows as dependencies.
+func identityTestFrameRow(t *testing.T, cloud *Cache, bundle *ValueBundle, number uint64) {
+	t.Helper()
+	entry := storedBundleTestEntry(cloud, number)
+	cloud.egraphMu.RLock()
+	frame := entry.loadResultCall()
+	cloud.egraphMu.RUnlock()
+	require.NotNil(t, frame)
+	call, err := normalizeTransferCall(frame)
+	require.NoError(t, err)
+	for i := range bundle.Values {
+		if bundle.Values[i].SenderNumber == number {
+			require.NotEmpty(t, bundle.Values[i].Held)
+			bundle.Values[i].Record.Call = call
+		}
+	}
+}
+
+// A frame row, a held row that carries its call frame, lands on an engine
+// that holds no value of it as an identity-only entry that has the frame: a
+// recipe walk reads it with no fetch, and lookups still never serve it.
+func TestFrameRowLandsWithItsFrame(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, p := heldTestChainedCloud(t)
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
+	require.NoError(t, err)
+	identityTestFrameRow(t, cloud, &got.Bundle, p)
+
+	bctx, b, _ := transferTestCache(t)
+	fetcher := &identityTestFetcher{fetch: func([]uint64, bool) (ValueBundle, []uint64, error) {
+		return ValueBundle{}, nil, errors.New("not expected")
+	}}
+	b.SetRowFetcher(fetcher)
+	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Committed)
+	require.Len(t, reply.Values, 1, "the frame row holds no value")
+	rMerged := heldTestMerged(t, reply, heldTestRow(t, got.Bundle, r).Ordinal)
+	b.egraphMu.RLock()
+	rEntry := b.resultsByID[sharedResultID(rMerged.Number)]
+	pEntry := b.resultsByID[sharedResultID(rMerged.Deps[0])]
+	require.True(t, pEntry.identityOnly)
+	require.NotNil(t, pEntry.loadResultCall(), "it has the frame")
+	require.True(t, pEntry.noValueLocked())
+	b.egraphMu.RUnlock()
+
+	_, err = Result[Typed]{shared: rEntry}.RecipeID(bctx)
+	require.NoError(t, err)
+	require.Zero(t, fetcher.calls, "the frame was there")
+	require.Zero(t, b.IdentityRowCounts().RecipeWalks)
+}
+
+// A frame row that names an identity-only entry the engine already has,
+// with no frame, gives it the frame.
+func TestFrameRowGivesAnIdentityEntryItsFrame(t *testing.T) {
+	t.Parallel()
+	bctx, b, _, rEntry, pEntry, ctx, cloud, p := identityTestEngine(t)
+	b.egraphMu.RLock()
+	require.Nil(t, pEntry.loadResultCall())
+	b.egraphMu.RUnlock()
+	got, err := cloud.StoredBundle(ctx, []uint64{p}, time.Now().Unix())
+	require.NoError(t, err)
+	// P's own row as a frame row, not in full.
+	for i := range got.Bundle.Values {
+		if got.Bundle.Values[i].SenderNumber == p {
+			got.Bundle.Values[i] = TransferredValue{Ordinal: got.Bundle.Values[i].Ordinal, SenderNumber: p, Record: PersistedRecord{ResultID: p}, Held: storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p)), ExpiresAtUnix: got.Bundle.Values[i].ExpiresAtUnix}
+		}
+	}
+	got.Bundle.Outputs = nil
+	identityTestFrameRow(t, cloud, &got.Bundle, p)
+	_, err = b.MergeFetchedRows(bctx, got.Bundle)
+	require.NoError(t, err)
+	b.egraphMu.RLock()
+	require.True(t, pEntry.identityOnly)
+	require.NotNil(t, pEntry.loadResultCall(), "the entry took the frame")
+	b.egraphMu.RUnlock()
+	_, err = Result[Typed]{shared: rEntry}.RecipeID(bctx)
+	require.NoError(t, err)
+}
