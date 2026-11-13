@@ -993,11 +993,11 @@ func (capture *HeldCapturedClosure) settle(selection ValueSelection) ([]LeftOutR
 		walk(id)
 		return added
 	}
-	bounded := selection.MaxBytes > 0 || selection.MaxRecords > 0
-	var records int
-	var size int64
+	var bound *replyBound
+	if selection.MaxBytes > 0 || selection.MaxRecords > 0 {
+		bound = &replyBound{capture: capture, selection: selection}
+	}
 	var kept []capturedRoot
-	cut := false
 	for i, root := range capture.selected {
 		b := root.err
 		if b == nil {
@@ -1007,30 +1007,9 @@ func (capture *HeldCapturedClosure) settle(selection ValueSelection) ([]LeftOutR
 			leftOut = append(leftOut, LeftOutRoot{Index: i, Row: uint64(b.row), Kind: b.kind, Err: b.err, Busy: capture.busyBelow(root)})
 			continue
 		}
-		if bounded {
-			// The roots go in order while what each adds fits: the first
-			// that would pass a bound, and every root after it, wait for a
-			// later export. The first root kept goes whatever it adds.
-			if !cut {
-				added := adds(root.row.id)
-				var more int64
-				for _, id := range added {
-					more += capture.rows[id].encodedSize(selection.WithoutOffers)
-				}
-				more += maxRootJSONBytes
-				over := selection.MaxRecords > 0 && records+len(added) > selection.MaxRecords ||
-					selection.MaxBytes > 0 && size+more > selection.MaxBytes
-				if over && len(kept) > 0 {
-					cut = true
-				} else {
-					records += len(added)
-					size += more
-				}
-			}
-			if cut {
-				leftOut = append(leftOut, LeftOutRoot{Index: i, Row: uint64(root.row.id), Err: ErrOverBound})
-				continue
-			}
+		if bound != nil && (bound.cut || !bound.fits(adds(root.row.id), len(kept) == 0)) {
+			leftOut = append(leftOut, LeftOutRoot{Index: i, Row: uint64(root.row.id), Err: ErrOverBound})
+			continue
 		}
 		mark(root.row.id)
 		kept = append(kept, root)
@@ -1056,6 +1035,37 @@ func (capture *HeldCapturedClosure) settle(selection ValueSelection) ([]LeftOutR
 		capture.roots = append(capture.roots, TransferredRoot{Ordinal: rows[root.row.id].ordinal, ExpiresAtUnix: root.expiry})
 	}
 	return leftOut, capture.settleOutputs(selection, held)
+}
+
+// replyBound counts what a bounded capture's kept roots add to its reply
+// (settle).
+type replyBound struct {
+	capture   *HeldCapturedClosure
+	selection ValueSelection
+	records   int
+	size      int64
+	// cut is set at the first root that would pass a bound.
+	cut bool
+}
+
+// fits reports whether a root adding these rows goes, and counts them if it
+// does. The roots go in order while what each adds fits: the first that
+// would pass a bound, and every root after it, wait for a later export.
+// The first root kept goes whatever it adds.
+func (b *replyBound) fits(added []sharedResultID, first bool) bool {
+	more := int64(maxRootJSONBytes)
+	for _, id := range added {
+		more += b.capture.rows[id].encodedSize(b.selection.WithoutOffers)
+	}
+	over := b.selection.MaxRecords > 0 && b.records+len(added) > b.selection.MaxRecords ||
+		b.selection.MaxBytes > 0 && b.size+more > b.selection.MaxBytes
+	if over && !first {
+		b.cut = true
+		return false
+	}
+	b.records += len(added)
+	b.size += more
+	return true
 }
 
 // ErrOverBound leaves a root out of a bounded capture: the values it would
