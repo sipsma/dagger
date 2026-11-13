@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"iter"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -2539,6 +2540,10 @@ type FunctionCall struct {
 
 	returnState *functionCallReturnState
 
+	// borrowed holds what the call's work borrowed the session's resources
+	// through (BorrowSessionResourcesOf), engine-side only like parentTyped.
+	borrowed *functionCallBorrowed
+
 	// parentTyped is the receiver object the function was called on, carrying its
 	// dagql ID. It is engine-side only (not persisted, not sent to the module),
 	// and backs Query.currentNode so a module can reference the object that
@@ -2703,7 +2708,36 @@ type functionCallReturn struct {
 
 func newFunctionCall(fnCall FunctionCall) *FunctionCall {
 	fnCall.returnState = &functionCallReturnState{}
+	fnCall.borrowed = &functionCallBorrowed{}
 	return &fnCall
+}
+
+type functionCallBorrowed struct {
+	mu      sync.Mutex
+	results []dagql.AnyResult
+}
+
+// BorrowSessionResourcesOf records that the call's work used res, which may
+// hold resources the session lent it, such as its git credentials, that the
+// call's key doesn't name. The call's result then requires the session
+// resources res requires (dagql.RequireSessionResourcesOf).
+func (fnCall *FunctionCall) BorrowSessionResourcesOf(res dagql.AnyResult) error {
+	if fnCall == nil || fnCall.borrowed == nil {
+		return errors.New("the function call can't record what its work borrows")
+	}
+	fnCall.borrowed.mu.Lock()
+	defer fnCall.borrowed.mu.Unlock()
+	fnCall.borrowed.results = append(fnCall.borrowed.results, res)
+	return nil
+}
+
+func (fnCall *FunctionCall) borrowedResults() []dagql.AnyResult {
+	if fnCall == nil || fnCall.borrowed == nil {
+		return nil
+	}
+	fnCall.borrowed.mu.Lock()
+	defer fnCall.borrowed.mu.Unlock()
+	return slices.Clone(fnCall.borrowed.results)
 }
 
 var _ dagql.PersistedObject = (*FunctionCall)(nil)
