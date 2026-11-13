@@ -1043,6 +1043,8 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 		res.persistDecodeErr = nil
 		res.persistDecodeRetry = false
 		res.persistDecodeMu.Unlock()
+		// The stand-ins this attempt's decode resolves are its own.
+		c.clearStandIns(ctx, res)
 		if c.testPersistDecodeLeadPublished != nil {
 			c.testPersistDecodeLeadPublished(uint64(res.id))
 		}
