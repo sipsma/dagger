@@ -95,6 +95,7 @@ func (s *session) serve() (bool, error) {
 	s.go_(s.ping)
 	s.go_(s.renewals)
 	s.go_(s.lookups)
+	s.go_(s.pushes)
 	s.go_(s.settles)
 	<-s.ctx.Done()
 	return true, context.Cause(s.ctx)
@@ -260,9 +261,10 @@ func (s *session) unclaimed(reported []protocol.SessionClaim) []protocol.Session
 	return claims
 }
 
-// settle asks the service to settle state's period, and records its Settled.
-// It returns once the service answers, or the period ends, or the engine
-// gives up on it.
+// settle asks the service to settle state's period, once every result
+// queued for a push has been pushed, and records its Settled. It returns
+// once the service answers, or the period ends, or the engine gives up on
+// it.
 func (s *session) settle(state SettleState) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
@@ -280,6 +282,13 @@ func (s *session) settle(state SettleState) {
 			}
 		}
 	}()
+	// The service settles with the records of the sessions' results: every
+	// result queued is pushed first.
+	waitStart := time.Now()
+	if !s.waitPushes(ctx) {
+		return
+	}
+	logPushWait(s.cfg.Logger, state.Period, time.Since(waitStart).Truncate(time.Millisecond))
 	reply, err := s.request(ctx, protocol.TypeSettle, protocol.Settle{Period: state.Period, Sessions: state.Sessions})
 	switch {
 	case err == nil && reply.Type == protocol.TypeSettled:
