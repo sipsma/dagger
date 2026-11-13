@@ -2577,3 +2577,48 @@ func TestMergeValuesWarmsItsTargetsInFewHolds(t *testing.T) {
 	require.Positive(t, holds, "the warming captured its targets")
 	require.LessOrEqual(t, holds, 2, "one hold to take the targets and one to let them go")
 }
+
+// A prepared merge warms its targets as it is prepared, outside whatever
+// lock its caller holds around the commit, so the commit captures only what
+// changed since: here nothing did, and the commit's warming takes no hold.
+// A target whose capture no longer describes its value is captured again.
+func TestPreparedValueMergeWarmsItsTargets(t *testing.T) {
+	t.Parallel()
+	const targets = 5
+	ctx, c, srv := transferTestCache(t)
+	bctx, b, bsrv := transferTestCache(t)
+	var roots []AnyResult
+	for i := range targets {
+		field := fmt.Sprintf("root-%d", i)
+		roots = append(roots, persistedListTestResult(t, ctx, c, srv, field, &transferTestValue{Text: "sent"}))
+		persistedListTestResult(t, bctx, b, bsrv, field, &transferTestValue{Text: "local"})
+	}
+	bundle := exportTestBundle(t, ctx, c, roots...)
+	var warming bool
+	var holds int
+	b.testWarmStarted = func() { warming = true }
+	b.testBeforeTransferCommit = func() { warming = false }
+	b.testCaptureWriteLock = func() {
+		if warming {
+			holds++
+		}
+	}
+	p, err := b.PrepareValueMerge(bctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	reply, err := b.CommitValueMerge(bctx, p)
+	require.NoError(t, err)
+	require.Equal(t, targets, reply.Rows.Kept)
+	require.Zero(t, holds, "the prepare warmed every target")
+
+	// A capture that no longer describes its target is taken again.
+	again, err := b.PrepareValueMerge(bctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	b.egraphMu.RLock()
+	target := b.currentEntryForRecipeLocked(again.prep.plans[again.prep.order[0]].recipe)
+	b.egraphMu.RUnlock()
+	target.completeParts.Store(nil)
+	holds = 0
+	_, err = b.CommitValueMerge(bctx, again)
+	require.NoError(t, err)
+	require.Equal(t, 2, holds, "the commit takes the changed target again")
+}
