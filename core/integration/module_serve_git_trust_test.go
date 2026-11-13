@@ -164,7 +164,7 @@ source = "./entrypoint"
 // process serves an address and prints a new nonce, or the error serving
 // gave it.
 var serveGitTrustEntrypoint = fmt.Sprintf(`type Entrypoint implements ModuleEntrypoint {
-  pub types: [TypeDef!]! {
+  pub types(workspace: Workspace!): [TypeDef!]! {
     [
       typeDef
         .withObject("Epcaller")
@@ -173,7 +173,14 @@ var serveGitTrustEntrypoint = fmt.Sprintf(`type Entrypoint implements ModuleEntr
     ]
   }
 
-  pub call(receiverType: String!, receiverValue: JSON, fnName: String!, fnArgs: JSON!, callDigest: String): JSON! {
+  pub call(
+    workspace: Workspace!,
+    receiverType: String!,
+    receiverValue: JSON,
+    fnName: String!,
+    fnArgs: JSON!,
+    callDigest: String,
+  ): JSON! {
     if (fnName == "") {
       ("{}" :: JSON!)
     } else {
