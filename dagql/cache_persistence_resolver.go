@@ -86,9 +86,20 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 			requiredGenAtCheck = res.requiredSessionResourcesGen.Load()
 			noValue = res.noValueLocked()
 		}
+		identity := res != nil && res.identityOnly
 		c.egraphMu.RUnlock()
 		if res == nil {
 			return sharedResultLookup{}, fmt.Errorf("resolve result %d: missing shared result", resultID)
+		}
+		if identity {
+			// A row a merge carried as identity alone, which a decode now
+			// loads: an entry of its class with a value stands for it, or
+			// the Cloud's record of it, fetched.
+			resolved, err := c.resolveIdentityEntry(ctx, res, true)
+			if err != nil {
+				return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", resultID, err)
+			}
+			return sharedResultLookup{res: resolved, requiredGenAtCheck: resolved.requiredSessionResourcesGen.Load()}, nil
 		}
 		if noValue {
 			return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", resultID, errEntryHasNoValue)

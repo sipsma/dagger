@@ -175,6 +175,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 	defer p.op.finish(false)
 	from, input, prep := p.from, p.input, p.prep
 	p.input, p.prep = ValueBundle{}, nil
+	fetched := prep.fetched
 	if len(prep.stale) > 0 {
 		return c.staleMergeReply(prep.stale), nil
 	}
@@ -219,6 +220,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 			if prep, err = c.prepareValueMerge(ctx, from, input, false); err != nil {
 				return MergeReply{}, err
 			}
+			prep.fetched = fetched
 			if len(prep.stale) > 0 {
 				return c.staleMergeReply(prep.stale), nil
 			}
@@ -372,6 +374,10 @@ func (r MergeReply) Imported() []ImportedValue {
 // in a private cache under provisional numbers. A record that becomes a new
 // entry keeps its provisional number, firstID + ordinal - 1.
 type valueMergePrep struct {
+	// fetched marks the answer to a fetch of rows an engine's identity-only
+	// entries named (MergeFetchedRows): its roots land on those entries,
+	// which their dependents own, so the merge retains none of them.
+	fetched bool
 	// payloadPreparing is the cache's testRecordPayloadPreparing.
 	payloadPreparing func(uint64) error
 	// prerelocated are the records relocated before the commit took
@@ -1930,9 +1936,10 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 	// Identity, and the sender's holding.
 	c.applyMergedIdentitiesLocked(ctx, commit, &change)
 
-	// Retention: an engine's retention edge, or the Cloud's stored root.
+	// Retention: an engine's retention edge, or the Cloud's stored root. A
+	// fetch's roots are owned by the entries that named them.
 	for i, root := range commit.prep.bundle.Roots {
-		if commit.roots[i].Expired {
+		if commit.roots[i].Expired || commit.prep.fetched {
 			continue
 		}
 		row := commit.byOrdinal[uint64(root.Ordinal)]
