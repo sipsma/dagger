@@ -322,12 +322,14 @@ func TestCheckpointBoundsTheWriteAheadLog(t *testing.T) {
 	require.Equal(t, saved, storedPersistenceTestState(cloud))
 }
 
-// A blob-backed cache's store is the Cloud's pool, which an operating-system
-// crash or a power loss must leave whole: every connection to it, those to a
-// store a wipe opened again too, is synchronous=NORMAL. An engine's keep OFF.
-func TestCloudStoreSyncsAtCheckpoints(t *testing.T) {
+// A blob-backed cache's store is the Cloud's pool, written behind, which an
+// operating-system crash or a power loss must leave whole and no older than
+// its last write: every connection to it, those to a store a wipe opened
+// again too, is synchronous=FULL, with its log's size limited. An engine's
+// keep OFF.
+func TestCloudStoreSyncsEachCommit(t *testing.T) {
 	t.Parallel()
-	const off, normal = 0, 1
+	const off, full = 0, 2
 	// synchronous reads the setting on three connections at once, so three
 	// different ones.
 	synchronous := func(c *Cache) []int {
@@ -349,13 +351,16 @@ func TestCloudStoreSyncsAtCheckpoints(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "cloud.db")
 	ctx, cloud := storedPersistenceTestCloud(t, path)
-	require.Equal(t, []int{normal, normal, normal}, synchronous(cloud))
+	require.Equal(t, []int{full, full, full}, synchronous(cloud))
+	var limit int
+	require.NoError(t, cloud.sqlDB.QueryRowContext(t.Context(), "PRAGMA journal_size_limit").Scan(&limit))
+	require.Equal(t, blobStoreJournalSizeLimit, limit)
 	require.NoError(t, cloud.Close(ctx))
 
 	setCacheTestMeta(t, ctx, path, persistdb.MetaKeySchemaVersion, "0")
 	ctx, cloud = storedPersistenceTestCloud(t, path)
 	require.Equal(t, CachePersistenceResetSchemaMismatch, cloud.PersistenceResetReason(), "the store was wiped and opened again")
-	require.Equal(t, []int{normal, normal, normal}, synchronous(cloud))
+	require.Equal(t, []int{full, full, full}, synchronous(cloud))
 	require.NoError(t, cloud.Close(ctx))
 
 	ectx := cacheTestContext(t.Context())
