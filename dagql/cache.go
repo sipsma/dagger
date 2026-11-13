@@ -2481,6 +2481,8 @@ type Cache struct {
 	testTransferPlanPrepared func(int) error
 	testBeforeTransferCommit func()
 	testAfterTransferCommit  func()
+	testPartRouted           func(uint64)
+	testOwnerWalked          func(uint64)
 	// testPartInstalled runs as a part install's last act, after it has
 	// released every lock.
 	testPartInstalled func()
