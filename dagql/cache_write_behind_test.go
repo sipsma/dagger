@@ -66,6 +66,7 @@ func writeBehindTestTables(t *testing.T, ctx context.Context, c *Cache) map[stri
 // and reads them again.
 func writeBehindTestMatchesWholeSave(t *testing.T, ctx context.Context, c *Cache, step string) {
 	t.Helper()
+	writeBehindTestSettle(t, c, step)
 	writeBehindTestDrain(t, ctx, c, step, nil)
 	behind := writeBehindTestTables(t, ctx, c)
 	require.NoError(t, c.Checkpoint(ctx), step)
@@ -201,6 +202,8 @@ func TestWriteBehindRestoresWhatTheCacheHeld(t *testing.T) {
 		}
 	})
 	require.NotZero(t, pruned)
+	writeBehindTestSettle(t, cloud, "the scenario's end")
+	writeBehindTestDrain(t, ctx, cloud, "the scenario's end", nil)
 	want := writeBehindTestSavedState(cloud)
 	require.NotContains(t, want, pruned, "the pruned root's value is gone before the crash")
 	// The process dies: nothing saves whole or marks the store clean.
@@ -522,6 +525,28 @@ func TestWriteBehindFollowsATaughtContentDigest(t *testing.T) {
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root, compressed")
 	require.NoError(t, cloud.TeachContentDigest(ctx, Result[Typed]{shared: storedBundleTestEntry(cloud, root)}, testDigest("wb-taught-content")))
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a content digest taught")
+}
+
+// writeBehindTestSettle waits until the Cloud's body worker has given every
+// framed entry the content digests spans taught it: it changes entries off
+// the test's goroutine, so a write and a whole save compared while it works
+// would see two states.
+func writeBehindTestSettle(t *testing.T, c *Cache, step string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c.egraphMu.RLock()
+		defer c.egraphMu.RUnlock()
+		for _, res := range c.resultsByID {
+			// An entry with no frame has nothing to give one.
+			if !res.entryFrameLocked().ok() {
+				continue
+			}
+			if res.taughtGiven < len(res.taught) || res.taughtFrom.ok() {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 5*time.Millisecond, "%s: the body worker gives every taught content digest", step)
 }
 
 // writeBehindTestDrain writes behind until no marks are left, calling each,
