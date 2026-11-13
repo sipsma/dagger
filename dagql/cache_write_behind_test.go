@@ -824,7 +824,10 @@ func TestWriteBehindBudgetNeverWritesACycleThroughAWrittenOwner(t *testing.T) {
 			require.True(t, stored, "B and C are marked first")
 		}
 		// Each step replaces an entry nothing else depends on any more, as
-		// another engine's records of it, with the step's dependencies.
+		// another engine's records of it, with the step's dependencies: only
+		// that entry is expired, so its dependencies' records land on the
+		// entries there are.
+		numbers := map[string]uint64{"a": root, "b": b, "c": c}
 		step := func(name string, deps ...string) {
 			ectx, e, esrv := transferTestCache(t)
 			mine := map[string]AnyResult{}
@@ -835,9 +838,7 @@ func TestWriteBehindBudgetNeverWritesACycleThroughAWrittenOwner(t *testing.T) {
 				transferTestDependency(e, ectx, mine[name], mine[d])
 			}
 			cloud.egraphMu.Lock()
-			for _, id := range []uint64{root, b, c} {
-				cloud.resultsByID[sharedResultID(id)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
-			}
+			cloud.resultsByID[sharedResultID(numbers[name])].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
 			cloud.egraphMu.Unlock()
 			_, err := cloud.MergeValues(ctx, "cache-a", exportTestBundle(t, ectx, e, mine[name]))
 			require.NoError(t, err)
