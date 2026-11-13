@@ -352,6 +352,8 @@ func (c *Cache) mergeEqClassesNoRepairLocked(a, b eqClassID) (root eqClassID, ab
 		}
 		for termID := range src {
 			dst[termID] = struct{}{}
+			// Its saved row names its input by the survivor now.
+			c.markSavedTermIDLocked(termID)
 		}
 		delete(c.inputEqClassToTerms, rb)
 		absorbedInputTerms = true
@@ -367,6 +369,8 @@ func (c *Cache) mergeEqClassesNoRepairLocked(a, b eqClassID) (root eqClassID, ab
 		}
 		for termID := range srcOutputTerms {
 			dstOutputTerms[termID] = struct{}{}
+			// Its saved row names its output by the survivor now.
+			c.markSavedTermIDLocked(termID)
 		}
 		delete(c.outputEqClassToTerms, rb)
 	}
