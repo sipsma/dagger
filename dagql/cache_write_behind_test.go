@@ -391,3 +391,45 @@ func TestWriteBehindAfterAWholeSaveDuringAReplacement(t *testing.T) {
 	require.Contains(t, ids, fmt.Sprintf("id=%d", root), "the stored root is back")
 	require.Contains(t, ids, fmt.Sprintf("id=%d", child), "its dependency is back")
 }
+
+// A write rewrites what changed, not what shares its class: a new term of a
+// stored class with many terms is written alone.
+func TestWriteBehindWritesATermAlone(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	stored := storedPruneTestRoot(t, ctx, cloud, "wb-many-terms")
+	writeBehindTestJoin(t, ctx, cloud, testDigest("wb-many-terms-content"), stored)
+	attach := func(i int) {
+		h := holdingOf(fmt.Sprintf("wb-term-%d", i))
+		h.ContentDigest = testDigest("wb-many-terms-content")
+		_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-t", Number: uint64(i + 1)}, h)
+		require.NoError(t, err)
+	}
+	for i := range 30 {
+		attach(i)
+	}
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored class with thirty engines' terms")
+	require.GreaterOrEqual(t, len(writeBehindTestTables(t, ctx, cloud)["terms"]), 30)
+	attach(30)
+	report, err := cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, report.Terms, "the new term, not its class's thirty")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "one more term")
+}
+
+// A change of last use alone updates that one field of its entry's row.
+func TestWriteBehindUpdatesALastUseAlone(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	root := storedPruneTestRoot(t, ctx, cloud, "wb-used")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root")
+	cloud.egraphMu.RLock()
+	cloud.touchLastUsed(cloud.resultsByID[sharedResultID(root)], time.Now().Add(time.Hour).UnixNano())
+	cloud.egraphMu.RUnlock()
+	report, err := cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	require.Equal(t, WriteBehindReport{Used: 1}, report)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a last use")
+}
