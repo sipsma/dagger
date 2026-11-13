@@ -109,7 +109,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 
 	step := c.readLockGraphAs(ctx, "dagql.persist.snapshot")
 	snapshot.nextResultID = c.nextSharedResultID
-	selectedResultIDs, persistedRootIDs := c.snapshotPersistedRootClosureLocked()
+	selectedResultIDs, persistedRootIDs, invalidResultIDs := c.persistedRootClosureLocked()
 
 	eqClassIDs := make(map[eqClassID]struct{})
 	retainedOutputEqClassIDs := make(map[eqClassID]struct{})
@@ -173,7 +173,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		snapshot.eqClassDigests = append(snapshot.eqClassDigests, digests...)
 	}
 	if c.blobBacked {
-		snapshot.behind = c.newWriteBehindStateLocked(selectedResultIDs, persistedRootIDs)
+		snapshot.behind = c.newWriteBehindStateLocked(selectedResultIDs, persistedRootIDs, invalidResultIDs)
 	}
 
 	c.runlockGraphAs(step)
@@ -461,7 +461,15 @@ func (c *Cache) encodePersistedResultRow(ctx context.Context, resultSnapshot *pe
 // a persisted root whose full dependency closure is clean and registered. It
 // requires egraphMu for reading.
 func (c *Cache) snapshotPersistedRootClosureLocked() (map[sharedResultID]struct{}, map[sharedResultID]struct{}) {
-	invalid := make(map[sharedResultID]struct{})
+	selected, roots, _ := c.persistedRootClosureLocked()
+	return selected, roots
+}
+
+// persistedRootClosureLocked is snapshotPersistedRootClosureLocked, with the
+// results it left out as invalid: unclean, missing a dependency, or owning
+// one that is. It requires egraphMu for reading.
+func (c *Cache) persistedRootClosureLocked() (selected, persistedRoots, invalid map[sharedResultID]struct{}) {
+	invalid = make(map[sharedResultID]struct{})
 	parentsByDependency := make(map[sharedResultID][]sharedResultID)
 	invalidQueue := make([]sharedResultID, 0)
 	markInvalid := func(resultID sharedResultID) {
@@ -494,7 +502,7 @@ func (c *Cache) snapshotPersistedRootClosureLocked() (map[sharedResultID]struct{
 		}
 	}
 
-	persistedRoots := make(map[sharedResultID]struct{}, len(c.persistedEdgesByResult))
+	persistedRoots = make(map[sharedResultID]struct{}, len(c.persistedEdgesByResult))
 	stack := make([]sharedResultID, 0, len(c.persistedEdgesByResult))
 	for resultID := range c.persistedEdgesByResult {
 		if c.resultsByID[resultID] == nil {
@@ -507,7 +515,7 @@ func (c *Cache) snapshotPersistedRootClosureLocked() (map[sharedResultID]struct{
 		stack = append(stack, resultID)
 	}
 
-	selected := make(map[sharedResultID]struct{})
+	selected = make(map[sharedResultID]struct{})
 	for len(stack) > 0 {
 		resultID := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
@@ -526,7 +534,7 @@ func (c *Cache) snapshotPersistedRootClosureLocked() (map[sharedResultID]struct{
 			stack = append(stack, depID)
 		}
 	}
-	return selected, persistedRoots
+	return selected, persistedRoots, invalid
 }
 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
