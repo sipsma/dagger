@@ -157,6 +157,14 @@ func storedBenchPart(seed uint64) PersistedPartOffer {
 // merged, as the service receives it.
 func storedBenchCloud(b testing.TB) (context.Context, *Cache, []uint64) {
 	b.Helper()
+	ctx, cloud, batch, _ := storedBenchCloudBundle(b)
+	return ctx, cloud, batch
+}
+
+// storedBenchCloudBundle is storedBenchCloud, with the bundle the Cloud
+// merged.
+func storedBenchCloudBundle(b testing.TB) (context.Context, *Cache, []uint64, ValueBundle) {
+	b.Helper()
 	actx := cacheTestContext(context.Background())
 	a, err := NewCache(actx, filepath.Join(b.TempDir(), "a.db"), nil, nil)
 	require.NoError(b, err)
@@ -222,7 +230,7 @@ func storedBenchCloud(b testing.TB) (context.Context, *Cache, []uint64) {
 	for _, root := range bundle.Roots {
 		batch = append(batch, numbers[root.Ordinal])
 	}
-	return ctx, cloud, batch
+	return ctx, cloud, batch, bundle
 }
 
 // storedBenchClosure walks the batch's closure as StoredBundle does, and
