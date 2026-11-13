@@ -7,6 +7,8 @@ import (
 	"slices"
 	"sync/atomic"
 	"time"
+
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 // An engine's identity-only entry (sharedResult.identityOnly) stands for a
@@ -191,6 +193,19 @@ func (c *Cache) resolveIdentityFrame(ctx context.Context, id sharedResultID) (*R
 		return nil, fmt.Errorf("entry %d: %w: its stand-in %d has no call frame", id, errRowUnavailable, resolved.id)
 	}
 	return frame, nil
+}
+
+// markRowUnavailable records that a hit on res became a miss because its
+// value needed an unavailable row: lookups and publications pass res by from
+// then on (sharedResult.rowUnavailable), and the miss is counted.
+func (c *Cache) markRowUnavailable(ctx context.Context, res *sharedResult) {
+	c.identityRows.hitsMissed.Add(1)
+	if res == nil {
+		return
+	}
+	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	res.rowUnavailable = true
+	c.egraphMu.Unlock()
 }
 
 // MergeFetchedRows merges a fetch's answer from the Cloud: its full rows

@@ -363,8 +363,10 @@ func TestMergeHeldRowRefusesARecordOfTheSameRecipe(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	bctx, b, _ := heldTestEngineWithP(t, ctx, cloud, p)
-	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
+	// P a root too, so the bundle carries its record in full.
+	full, err := cloud.StoredBundle(ctx, []uint64{r, p}, time.Now().Unix())
 	require.NoError(t, err)
+	require.Empty(t, heldTestRow(t, full.Bundle, p).Held)
 	recipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p))
 	ordinal := TransferOrdinal(len(full.Bundle.Values) + 1)
 	bundle := full.Bundle
@@ -381,7 +383,7 @@ func TestMergeHeldRowRefusesARecordOfTheSameRecipe(t *testing.T) {
 }
 
 // A merge's reply counts a held row as held, apart from the records it
-// creates; the full bundle afterwards keeps both.
+// creates; the same bundle again keeps R and holds P.
 func TestMergeHeldRowCountsAsHeld(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := heldTestChainedCloud(t)
@@ -394,9 +396,7 @@ func TestMergeHeldRowCountsAsHeld(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, MergeRowCounts{Held: 1, Created: 1}, reply.Rows)
 
-	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
+	again, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
 	require.NoError(t, err)
-	again, err := b.MergeValues(bctx, cloudCacheID, full.Bundle)
-	require.NoError(t, err)
-	require.Equal(t, MergeRowCounts{Kept: 2}, again.Rows)
+	require.Equal(t, MergeRowCounts{Held: 1, Kept: 1}, again.Rows)
 }
