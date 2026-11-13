@@ -1417,32 +1417,46 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 
 // liveClosure returns the rows the bundle's unexpired roots need, judged at
 // now, and each root, in order, marked expired or not: an expired root is
-// skipped, with whatever only it needs. It reads the prepared bundle alone.
+// skipped, with whatever only it needs. An unexpired identity row outside
+// every root's closure, the input of a call the bundle sends, is needed too:
+// the call's term names its recipe, which the row joins to the classes its
+// digests name. It reads the prepared bundle alone.
 func (prep *valueMergePrep) liveClosure(now int64) (map[uint64]bool, []MergedRoot) {
-	merged := map[uint64]bool{}
-	var roots []MergedRoot
-	var need func(uint64)
-	need = func(id uint64) {
-		if merged[id] {
-			return
-		}
-		merged[id] = true
-		row := prep.index[id]
-		for _, dep := range row.DependencyIDs {
-			need(dep)
-		}
-		for _, offer := range row.Record.Envelope.PendingOffers {
-			for _, dep := range offer.Owner.DependencyIDs {
+	closure := func(set map[uint64]bool) func(uint64) {
+		var need func(uint64)
+		need = func(id uint64) {
+			if set[id] {
+				return
+			}
+			set[id] = true
+			row := prep.index[id]
+			for _, dep := range row.DependencyIDs {
 				need(dep)
 			}
+			for _, offer := range row.Record.Envelope.PendingOffers {
+				for _, dep := range offer.Owner.DependencyIDs {
+					need(dep)
+				}
+			}
 		}
+		return need
 	}
+	merged, reached := map[uint64]bool{}, map[uint64]bool{}
+	need, reach := closure(merged), closure(reached)
+	var roots []MergedRoot
 	for _, root := range prep.bundle.Roots {
 		expiry := prep.index[uint64(root.Ordinal)].ExpiresAtUnix
 		expired := root.ExpiresAtUnix != 0 && root.ExpiresAtUnix <= now || expiry != 0 && expiry <= now
 		roots = append(roots, MergedRoot{Ordinal: root.Ordinal, Expired: expired})
+		reach(uint64(root.Ordinal))
 		if !expired {
 			need(uint64(root.Ordinal))
+		}
+	}
+	for _, id := range prep.order {
+		row := prep.index[id]
+		if !reached[id] && row.Held != "" && (row.ExpiresAtUnix == 0 || row.ExpiresAtUnix > now) {
+			need(id)
 		}
 	}
 	return merged, roots

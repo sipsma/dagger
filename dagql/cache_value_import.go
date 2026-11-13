@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -339,6 +340,16 @@ func checkValueBundle(bundle ValueBundle, shapeOnly bool, stored map[uint64][]de
 		roots[id] = true
 		if err := walk(id); err != nil {
 			return nil, err
+		}
+	}
+	// An identity row may stand outside every root's closure, as the input
+	// of a call the bundle sends, which names it by recipe: it carries no
+	// value to own.
+	for _, id := range slices.Sorted(maps.Keys(rows)) {
+		if seen[id] == 0 && rows[id].Held != "" {
+			if err := walk(id); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if len(seen) != len(rows) {
