@@ -255,7 +255,9 @@ func (a *fakeAdapter) Pushes() PushQueue { return a.pushes }
 // fakePushQueue is a push queue a test fills (add): it hands out what is
 // queued, and is idle once every result it handed out has its fate.
 type fakePushQueue struct {
-	mu      sync.Mutex
+	// afterFlush, when set, runs once after a flush, outside the lock.
+	afterFlush func()
+	mu         sync.Mutex
 	queued  []uint64
 	busy    []uint64
 	taken   int
@@ -330,11 +332,22 @@ func (q *fakePushQueue) WaitRemotePushesBusy(numbers []uint64) {
 
 func (q *fakePushQueue) FlushRemotePushes() {
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	if len(q.busy) > 0 {
 		q.flush = true
 		q.changedLocked()
 	}
+	after := q.afterFlush
+	q.afterFlush = nil
+	q.mu.Unlock()
+	if after != nil {
+		after()
+	}
+}
+
+func (q *fakePushQueue) busyLen() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.busy)
 }
 
 func (q *fakePushQueue) RemotePushesIdle() (bool, <-chan struct{}) {

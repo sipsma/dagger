@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
@@ -28,6 +29,10 @@ type ValueSelection struct {
 	// selection of no outputs pushes.
 	Push *PushRows
 }
+
+// ErrNotRetained leaves out of a push a root whose retention edge is gone:
+// a push says its roots are retained.
+var ErrNotRetained = errors.New("not retained")
 
 // PushRows is how a push captures its roots' closures: every row Known
 // doesn't know goes as a held row, with nothing below it, but those Full
