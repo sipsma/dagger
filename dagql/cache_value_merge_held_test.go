@@ -103,7 +103,7 @@ func heldTestSessionValue(t *testing.T, ctx context.Context, c *Cache, srv *Serv
 // and returns the engine and P's number there.
 func heldTestEngineWithP(t *testing.T, ctx context.Context, cloud *Cache, p uint64) (context.Context, *Cache, uint64) {
 	t.Helper()
-	alone, err := cloud.StoredBundle(ctx, []uint64{p}, time.Now().Unix(), nil)
+	alone, err := cloud.StoredBundle(ctx, []uint64{p}, time.Now().Unix())
 	require.NoError(t, err)
 	bctx, b, _ := transferTestCache(t)
 	reply, err := b.MergeValues(bctx, cloudCacheID, alone.Bundle)
@@ -111,59 +111,14 @@ func heldTestEngineWithP(t *testing.T, ctx context.Context, cloud *Cache, p uint
 	require.True(t, reply.Committed)
 	return bctx, b, reply.Imported()[0].ResultID
 }
-
-// The reads that judge what a recipient holds judge its holdings at the
-// reader's clock, not their own: a holding that expires an hour from the
-// wall clock makes a held row before that moment and none from it, in the
-// bundle, its sizes and its lower half alike.
-func TestHeldRowsAtTheReadersClock(t *testing.T) {
-	t.Parallel()
-	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
-	expiresAt := time.Now().Add(time.Hour).Unix()
-	heldTestHold(t, ctx, cloud, "cache-b", 7, p, expiresAt)
-	held := &HeldBy{Cache: "cache-b"}
-
-	bundle, err := cloud.StoredBundle(ctx, []uint64{r}, expiresAt-1, held)
-	require.NoError(t, err)
-	require.Equal(t, []uint64{p}, bundle.Held, "held before the holding expires")
-	bundle, err = cloud.StoredBundle(ctx, []uint64{r}, expiresAt, held)
-	require.NoError(t, err)
-	require.Empty(t, bundle.Held, "the holding has expired at the reader's moment, though not by the wall clock")
-
-	whole, err := cloud.StoredSizes(ctx, []uint64{r}, expiresAt, nil)
-	require.NoError(t, err)
-	before, err := cloud.StoredSizes(ctx, []uint64{r}, expiresAt-1, held)
-	require.NoError(t, err)
-	require.Less(t, before[0].Bytes, whole[0].Bytes, "priced with a held row before the holding expires")
-	at, err := cloud.StoredSizes(ctx, []uint64{r}, expiresAt, held)
-	require.NoError(t, err)
-	require.Equal(t, whole, at, "priced whole once it has expired")
-	measured, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, expiresAt-1, held)
-	require.NoError(t, err)
-	require.Equal(t, before, measured, "measured as StoredSizes prices it, at the same moment")
-	measured, err = cloud.MeasuredStoredSizes(ctx, []uint64{r}, expiresAt, held)
-	require.NoError(t, err)
-	require.Equal(t, whole, measured, "measured whole once the holding has expired")
-
-	_, carried, err := cloud.StoredLowerHalf(ctx, r, expiresAt-1, held)
-	require.NoError(t, err)
-	require.Equal(t, 1, carried, "the held row isn't counted before the holding expires")
-	_, carried, err = cloud.StoredLowerHalf(ctx, r, expiresAt, held)
-	require.NoError(t, err)
-	require.Equal(t, 2, carried, "both records once it has expired")
-}
-
-// The Cloud carries an entry the recipient holds as a held row: its recipe
-// and sending facts, with no record and nothing below it. Not, an expired
-// holding and another cache's holding each leave it a record.
+// The Cloud carries an entry a root references as a held row, an identity
+// row: its recipe and sending facts, with no record and nothing below it.
 func TestStoredBundleCarriesAHeldEntryAsAHeldRow(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	now := time.Now().Unix()
-	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	heldTestHold(t, ctx, cloud, "cache-c", 8, p, now-10)
 
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, now, &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, now)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{p}, got.Held)
 	require.Len(t, got.Bundle.Values, 2)
@@ -174,16 +129,6 @@ func TestStoredBundleCarriesAHeldEntryAsAHeldRow(t *testing.T) {
 	require.Empty(t, held.DependencyIDs)
 	require.Equal(t, []uint64{uint64(held.Ordinal)}, heldTestRow(t, got.Bundle, r).DependencyIDs, "R depends on the held row")
 
-	for name, by := range map[string]*HeldBy{
-		"not":     {Cache: "cache-b", Not: map[uint64]bool{p: true}},
-		"expired": {Cache: "cache-c"},
-		"other":   {Cache: "cache-d"},
-	} {
-		got, err := cloud.StoredBundle(ctx, []uint64{r}, now, by)
-		require.NoError(t, err, name)
-		require.Empty(t, got.Held, name)
-		require.Empty(t, heldTestRow(t, got.Bundle, p).Held, name)
-	}
 }
 
 // A held row lands on the engine's own entry of its recipe, and the record
@@ -195,7 +140,7 @@ func TestMergeHeldRowLandsOnTheEnginesEntry(t *testing.T) {
 	ctx, cloud, r, p := heldTestChainedCloud(t)
 	bctx, b, pb := heldTestEngineWithP(t, ctx, cloud, p)
 	heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, []uint64{p}, got.Held)
 
@@ -214,7 +159,7 @@ func TestMergeHeldRowLandsOnTheEnginesEntry(t *testing.T) {
 	b.egraphMu.RUnlock()
 
 	entries := heldTestEntries(b)
-	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	again, err := b.MergeValues(bctx, cloudCacheID, full.Bundle)
 	require.NoError(t, err)
@@ -232,7 +177,7 @@ func TestMergeHeldRowTheEngineLacksLandsWithItsIdentity(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := heldTestChainedCloud(t)
 	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, []uint64{p}, got.Held)
 	content := digest.FromString("p's content")
@@ -278,7 +223,7 @@ func TestCloudStillRefusesAHeldRowItLacks(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	octx, other := storedPartTestCache(t, WithBlobStore())
 	entries := heldTestEntries(other)
@@ -297,7 +242,7 @@ func TestMergeHeldRowOverAnExpiredValueLandsWithItsIdentity(t *testing.T) {
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	bctx, b, pb := heldTestEngineWithP(t, ctx, cloud, p)
 	heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	b.egraphMu.RLock()
 	entry := b.resultsByID[sharedResultID(pb)]
@@ -333,7 +278,7 @@ func TestMergeHeldRowKeepsASessionValueAlive(t *testing.T) {
 	bctx, b, bsrv := transferTestCache(t)
 	pb := heldTestSessionValue(t, bctx, b, bsrv)
 	heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, []uint64{p}, got.Held)
 
@@ -352,28 +297,6 @@ func TestMergeHeldRowKeepsASessionValueAlive(t *testing.T) {
 	require.False(t, kept.noValueLocked())
 	require.NotNil(t, b.resultsByID[sharedResultID(rMerged.Number)])
 }
-
-// A held root is retained on the engine's entry, with nothing resent.
-func TestMergeHeldRootRenewsRetention(t *testing.T) {
-	t.Parallel()
-	ctx, cloud, _, p := storedBundleTestCloud(t, "root")
-	bctx, b, pb := heldTestEngineWithP(t, ctx, cloud, p)
-	heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{p}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
-	require.NoError(t, err)
-	require.Len(t, got.Bundle.Values, 1)
-	require.NotEmpty(t, got.Bundle.Values[0].Held)
-
-	entries := heldTestEntries(b)
-	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
-	require.NoError(t, err)
-	require.True(t, reply.Committed)
-	require.Equal(t, entries, heldTestEntries(b))
-	require.Len(t, reply.Roots, 1)
-	require.Equal(t, pb, reply.Roots[0].Number)
-	require.True(t, reply.Roots[0].Retained)
-}
-
 // A held row holds only where the recipient has its recipe's value: another
 // Cloud without it answers the bundle stale. A held row carries no record,
 // though it can carry dependencies.
@@ -381,7 +304,7 @@ func TestMergeHeldRowRefusals(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 
 	cctx, other := storedPartTestCache(t, WithBlobStore())
@@ -408,7 +331,7 @@ func TestMergeHeldRowExtraDigests(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	heldTestHold(t, ctx, cloud, "cache-b", 7, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	_, err = validateValueBundleShape(got.Bundle)
 	require.NoError(t, err)
@@ -440,7 +363,7 @@ func TestMergeHeldRowRefusesARecordOfTheSameRecipe(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 	bctx, b, _ := heldTestEngineWithP(t, ctx, cloud, p)
-	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	recipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p))
 	ordinal := TransferOrdinal(len(full.Bundle.Values) + 1)
@@ -464,14 +387,14 @@ func TestMergeHeldRowCountsAsHeld(t *testing.T) {
 	ctx, cloud, r, p := heldTestChainedCloud(t)
 	bctx, b, pb := heldTestEngineWithP(t, ctx, cloud, p)
 	heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
-	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, []uint64{p}, got.Held)
 	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
 	require.NoError(t, err)
 	require.Equal(t, MergeRowCounts{Held: 1, Created: 1}, reply.Rows)
 
-	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	full, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	again, err := b.MergeValues(bctx, cloudCacheID, full.Bundle)
 	require.NoError(t, err)

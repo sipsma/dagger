@@ -20,8 +20,7 @@ import (
 // own records also depend on a shared chain of 6 records of about 155 KB, the
 // ~930 KB dependency that run resent hundreds of times. The other records
 // are about 4 KB. Every root stores a part. 15 engine caches hold about 100k
-// of the entries between them, so HeldBy's walk over an entry's holdings
-// sees as many as the service's Cloud cache does.
+// of the entries between them, as the service's Cloud cache's entries do.
 const (
 	sizesBenchChains    = 16
 	sizesBenchChain     = 540
@@ -197,7 +196,7 @@ func BenchmarkStoredSizesAtScale(b *testing.B) {
 			storedSizesBenchForget(cloud)
 			runtime.GC()
 			b.StartTimer()
-			sizes, err := cloud.StoredSizes(ctx, roots, time.Now().Unix(), nil)
+			sizes, err := cloud.StoredSizes(ctx, roots, time.Now().Unix())
 			require.NoError(b, err)
 			records = 0
 			for _, size := range sizes {
@@ -216,19 +215,10 @@ func BenchmarkStoredSizesAtScale(b *testing.B) {
 		measured bool
 	}{{"warm-64", 64, false}, {"warm-9", 9, false}, {"measured-64", 64, true}} {
 		b.Run(run.name, func(b *testing.B) {
-			_, err := cloud.StoredSizes(ctx, roots, time.Now().Unix(), nil)
+			_, err := cloud.StoredSizes(ctx, roots, time.Now().Unix())
 			require.NoError(b, err)
 			now := time.Now().Unix()
-			held := &HeldBy{Cache: "cache-03"}
-			// Only the roots the engine cache doesn't hold are candidates.
-			var candidates []uint64
-			cloud.egraphMu.RLock()
-			for _, root := range roots {
-				if !held.heldLocked(cloud.resultsByID[sharedResultID(root)], now) {
-					candidates = append(candidates, root)
-				}
-			}
-			cloud.egraphMu.RUnlock()
+			candidates := roots
 			measure := cloud.StoredSizes
 			if run.measured {
 				measure = cloud.MeasuredStoredSizes
@@ -239,7 +229,7 @@ func BenchmarkStoredSizesAtScale(b *testing.B) {
 			b.ResetTimer()
 			for i := range b.N {
 				start := (i * run.n) % (len(candidates) - run.n)
-				sizes, err := measure(ctx, candidates[start:start+run.n], now, held)
+				sizes, err := measure(ctx, candidates[start:start+run.n], now)
 				require.NoError(b, err)
 				records = 0
 				for _, size := range sizes {

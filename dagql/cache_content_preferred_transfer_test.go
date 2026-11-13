@@ -74,7 +74,7 @@ func TestFreshEngineGivesAServiceTheContentPreferredDigestItsProducerUsed(t *tes
 	cloudCtx, cloud := storedPartTestCache(t, WithBlobStore())
 	numbers := storedPersistenceTestMerge(t, cloudCtx, cloud, exportTestBundle(t, actx, a, service))
 	require.Len(t, numbers, 1)
-	sent, err := cloud.StoredBundle(cloudCtx, numbers, time.Now().Unix(), nil)
+	sent, err := cloud.StoredBundle(cloudCtx, numbers, time.Now().Unix())
 	require.NoError(t, err)
 
 	bctx, b, bsrv := transferTestCache(t)

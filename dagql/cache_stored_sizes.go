@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -37,11 +38,10 @@ type StoredSize struct {
 // recipe key to measure by: an xxh3 digest, as recipes are.
 var heldRowSizeDigest = digest.Digest("xxh3:0000000000000000")
 
-// StoredSizes measures what StoredBundle(roots, nowUnix, held) carries
-// without building it, judging held's holdings at nowUnix, the reader's
-// clock: for each root, in order, what its closure adds beyond the
-// closures of the roots before it, an entry held holds counted as its held
-// row. A root's closure includes the entries StoredBundle adds for the inputs
+// StoredSizes measures what StoredBundle(roots, nowUnix) carries without
+// building it, at nowUnix, the reader's clock: for each root, in order, what
+// it adds beyond the roots before it, its own record and an identity row for
+// each entry it references (identityRows). A root's closure includes the entries StoredBundle adds for the inputs
 // of its entries' kept calls, priced so that the sizes of the first roots
 // are never less than what a bundle of them carries (walkStoredRoot). A root
 // the cache has no value for, or one an earlier root's closure already
@@ -61,8 +61,8 @@ var heldRowSizeDigest = digest.Digest("xxh3:0000000000000000")
 // keeps each size under the lock again only for an entry whose value is
 // still the one read. A hold is the walk, or that check, alone. Only a
 // blob-backed cache answers.
-func (c *Cache) StoredSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy) ([]StoredSize, error) {
-	return c.storedSizes(ctx, roots, nowUnix, held, true)
+func (c *Cache) StoredSizes(ctx context.Context, roots []uint64, nowUnix int64) ([]StoredSize, error) {
+	return c.storedSizes(ctx, roots, nowUnix, true)
 }
 
 // MeasuredStoredSizes answers as StoredSizes does without measuring anything:
@@ -70,8 +70,8 @@ func (c *Cache) StoredSizes(ctx context.Context, roots []uint64, nowUnix int64, 
 // yet measured is answered Unmeasured, with no records or bytes, and the
 // later roots are measured as if it weren't there. It normalizes and encodes
 // nothing: a held row's size is computed (heldRowSize).
-func (c *Cache) MeasuredStoredSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy) ([]StoredSize, error) {
-	return c.storedSizes(ctx, roots, nowUnix, held, false)
+func (c *Cache) MeasuredStoredSizes(ctx context.Context, roots []uint64, nowUnix int64) ([]StoredSize, error) {
+	return c.storedSizes(ctx, roots, nowUnix, false)
 }
 
 // StoredSizeEncodes counts the values StoredSizes has measured: each first
@@ -81,11 +81,15 @@ func (c *Cache) StoredSizeEncodes() uint64 {
 	return c.storedSizeEncodes.Load()
 }
 
-func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy, measure bool) ([]StoredSize, error) {
+func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, measure bool) ([]StoredSize, error) {
 	if !c.blobBacked {
 		return nil, fmt.Errorf("stored sizes: the cache has no blob store")
 	}
 	sizes := make([]StoredSize, len(roots))
+	held := identityRows{roots: make(map[sharedResultID]bool, len(roots))}
+	for _, number := range roots {
+		held.roots[sharedResultID(number)] = true
+	}
 	seen, ordinary := map[sharedResultID]bool{}, map[sharedResultID]bool{}
 	outputs := &storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}
 	for i, number := range roots {
@@ -161,7 +165,7 @@ func (c *Cache) storedSizesRLock() func() {
 // (ordinary), or the recipient (held), have its inputs, never for an input
 // another call adds. Otherwise its first stored alternative's inputs are
 // priced, which is the call a bundle that can't place it chooses too.
-func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
+func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held identityRows, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
 	defer c.storedSizesRLock()()
 	res := c.resultsByID[root]
 	if res == nil || res.noValueLocked() {
@@ -173,7 +177,7 @@ func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy,
 
 // storedRootWalkLocked is walkStoredRoot's walk of res, and how many of the
 // entries it reached, first, are res's ordinary closure. Requires egraphMu.
-func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen) (*storedSizeWalk, int) {
+func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held identityRows, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen) (*storedSizeWalk, int) {
 	walk := &storedSizeWalk{c: c, held: held, now: nowUnix, seen: seen, visited: map[sharedResultID]bool{}, outputs: outputs}
 	walk.visit(res)
 	own := len(walk.closure)
@@ -188,7 +192,7 @@ func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *Hel
 		}
 		for _, group := range c.keptCallTermsLocked(entry) {
 			_, add := c.placeableCallLocked(group, func(input *sharedResult) bool {
-				return ordinary[input.id] || mine[input.id] || held.heldLocked(input, nowUnix)
+				return ordinary[input.id] || mine[input.id] || held.heldLocked(input)
 			})
 			for _, input := range add {
 				walk.visit(input)
@@ -203,7 +207,7 @@ func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *Hel
 // what they add up to.
 type storedSizeWalk struct {
 	c       *Cache
-	held    *HeldBy
+	held    identityRows
 	now     int64
 	seen    map[sharedResultID]bool
 	visited map[sharedResultID]bool
@@ -264,9 +268,9 @@ func (w *storedSizeWalk) visit(res *sharedResult) {
 	}
 	w.visited[res.id] = true
 	w.closure = append(w.closure, res.id)
-	if w.held.heldLocked(res, w.now) {
+	if w.held.heldLocked(res) {
 		w.size.Records++
-		w.size.Bytes += heldRowSizeLocked(res)
+		w.size.Bytes += w.c.heldRowSizeLocked(res)
 		w.order = append(w.order, res)
 		return
 	}
@@ -437,18 +441,30 @@ func encodedSize(v any) (int64, error) {
 // recipe measured by one of its recipe keys: StoredBundle derives the recipe
 // from its call frame after the lock, and recipes are of one length.
 // Requires egraphMu.
-func heldRowSizeLocked(res *sharedResult) int64 {
+func (c *Cache) heldRowSizeLocked(res *sharedResult) int64 {
 	recipe := heldRowSizeDigest
 	if len(res.recipeKeys) > 0 {
 		recipe = res.recipeKeys[0]
 	}
-	return heldRowSize(uint64(res.id), res.replacements, res.expiresAtUnix, recipe)
+	return heldRowSize(uint64(res.id), res.replacements, res.expiresAtUnix, recipe) + heldRowExtraSize(c.entryExtraDigestsLocked(res))
+}
+
+// heldRowExtraSize is what a held row's extra digests add to its encoding.
+func heldRowExtraSize(extras []call.ExtraDigest) int64 {
+	if len(extras) == 0 {
+		return 0
+	}
+	data, err := json.Marshal(extras)
+	if err != nil {
+		panic(err)
+	}
+	return heldRowEncoding.extra + int64(len(data))
 }
 
 // heldRowEncoding is what a held row's json.Marshal encoding is made of:
 // a row with every field zero, and what a nonzero replacement count, expiry
 // and recipe each add beyond their digits or characters.
-var heldRowEncoding = func() (enc struct{ base, replacements, expires, held int64 }) {
+var heldRowEncoding = func() (enc struct{ base, replacements, expires, held, extra int64 }) {
 	size := func(v TransferredValue) int64 {
 		data, err := json.Marshal(v)
 		if err != nil {
@@ -460,6 +476,7 @@ var heldRowEncoding = func() (enc struct{ base, replacements, expires, held int6
 	enc.replacements = size(TransferredValue{SenderReplacements: 1}) - enc.base - 1
 	enc.expires = size(TransferredValue{ExpiresAtUnix: 1}) - enc.base - 1
 	enc.held = size(TransferredValue{Held: "x"}) - enc.base - 1
+	enc.extra = size(TransferredValue{Extra: []call.ExtraDigest{}}) - enc.base - 2
 	return enc
 }()
 
@@ -500,58 +517,3 @@ const (
 	storedOutputReferenceSlack = 96
 )
 
-// StoredLowerHalf returns what goes ahead of a merge of root whose message
-// would be over the limit, as the service's split of a merge refused as over
-// it (its lowerHalf) chooses from the bundle: of the entries a bundle of root
-// carries (StoredBundle, its kept calls' inputs included), but the entries
-// held holds, those below root, not root nor an entry that depends on it, as
-// a call's input can; the first half of them in the bundle's order,
-// dependencies first; and of those the ones no other of them depends on.
-// Once the recipient holds them, a merge of root carries that half as held
-// rows. It also returns how many records, but held rows, a bundle of root
-// carries, as that split counts them. A root the cache has no value for has
-// none.
-func (c *Cache) StoredLowerHalf(ctx context.Context, root uint64, nowUnix int64, held *HeldBy) ([]uint64, int, error) {
-	if !c.blobBacked {
-		return nil, 0, fmt.Errorf("stored lower half: the cache has no blob store")
-	}
-	if err := context.Cause(ctx); err != nil {
-		return nil, 0, err
-	}
-	defer c.storedSizesRLock()()
-	res := c.resultsByID[sharedResultID(root)]
-	if res == nil || res.noValueLocked() {
-		return nil, 0, nil
-	}
-	walk, _ := c.storedRootWalkLocked(res, nowUnix, held, map[sharedResultID]bool{}, map[sharedResultID]bool{},
-		&storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}})
-	above := map[sharedResultID]bool{res.id: true}
-	var below []*sharedResult
-	carried := 0
-	for _, entry := range walk.order {
-		if held.heldLocked(entry, nowUnix) {
-			continue
-		}
-		carried++
-		if !above[entry.id] && slices.ContainsFunc(storedClosureChildrenLocked(entry), func(id sharedResultID) bool { return above[id] }) {
-			above[entry.id] = true
-		}
-		if !above[entry.id] {
-			below = append(below, entry)
-		}
-	}
-	half := below[:(len(below)+1)/2]
-	under := map[sharedResultID]bool{}
-	for _, entry := range half {
-		for _, dep := range storedClosureChildrenLocked(entry) {
-			under[dep] = true
-		}
-	}
-	var lower []uint64
-	for _, entry := range half {
-		if !under[entry.id] {
-			lower = append(lower, uint64(entry.id))
-		}
-	}
-	return lower, carried, nil
-}
