@@ -39,8 +39,9 @@ type StoredBundleResult struct {
 	// A reader that keeps the bundle can't tell from ChangedSince alone
 	// whether these changed.
 	Partial []uint64
-	// CallInputs are the numbers of the entries the bundle carries as
-	// roots only because a call it sends has them as inputs, and
+	// CallInputs are the numbers of the entries the bundle carries only
+	// because a call it sends has them as inputs: as identity rows, or, for
+	// an entry with no call frame, as roots; and
 	// UnsendableCalls counts the terms of its entries' kept calls it sends
 	// no call for: none had inputs it could place.
 	CallInputs      []uint64
@@ -66,12 +67,17 @@ type StoredBundleResult struct {
 // so it travels as its record.
 type identityRows struct {
 	roots map[sharedResultID]bool
+	// full are entries that travel as their records though they aren't
+	// roots: an answer to a fetch that decodes a value carries its child
+	// rows so (StoredRows).
+	full map[sharedResultID]bool
 }
 
-// heldLocked reports whether res travels as an identity row. Requires
-// egraphMu.
+// heldLocked reports whether res travels as an identity row. This is the one
+// rule for which rows travel in full with a root, which a bundle and its
+// price share. Requires egraphMu.
 func (h identityRows) heldLocked(res *sharedResult) bool {
-	return !h.roots[res.id] && res.hasCallFrameLocked()
+	return !h.roots[res.id] && !h.full[res.id] && res.hasCallFrameLocked()
 }
 
 // entryExtraDigestsLocked returns the extra digests of res's output classes,
@@ -127,9 +133,19 @@ func (c *Cache) StoredBundle(ctx context.Context, roots []uint64, nowUnix int64)
 	if err := context.Cause(ctx); err != nil {
 		return out, err
 	}
-	out, frames, err := c.storedBundle(roots, nowUnix)
-	if err != nil || len(frames) == 0 {
+	out, frames, err := c.storedBundle(roots, nowUnix, nil)
+	if err != nil {
 		return out, err
+	}
+	return c.finishStoredBundle(out, frames)
+}
+
+// finishStoredBundle gives each held row of a bundle storedBundle built its
+// recipe, derived outside egraphMu, and validates the bundle.
+func (c *Cache) finishStoredBundle(out StoredBundleResult, frames map[TransferOrdinal]entryFrame) (StoredBundleResult, error) {
+	var err error
+	if len(frames) == 0 {
+		return out, nil
 	}
 	for i := range out.Bundle.Values {
 		value := &out.Bundle.Values[i]
@@ -150,7 +166,7 @@ func (c *Cache) StoredBundle(ctx context.Context, roots []uint64, nowUnix int64)
 // storedBundle builds StoredBundle's answer in one hold of egraphMu.RLock,
 // with held rows' recipes left empty, and returns the call frame of each held
 // row by ordinal. A bundle without held rows is validated here.
-func (c *Cache) storedBundle(roots []uint64, nowUnix int64) (StoredBundleResult, map[TransferOrdinal]entryFrame, error) {
+func (c *Cache) storedBundle(roots []uint64, nowUnix int64, full map[sharedResultID]bool) (StoredBundleResult, map[TransferOrdinal]entryFrame, error) {
 	var out StoredBundleResult
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
@@ -172,7 +188,7 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64) (StoredBundleResult,
 	if len(rootEntries) == 0 {
 		return out, nil, nil
 	}
-	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, identity: identityRows{roots: seenRoot}, held: map[sharedResultID]bool{},
+	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, identity: identityRows{roots: seenRoot, full: full}, held: map[sharedResultID]bool{},
 		owners: map[sharedResultID]int{}, ordinary: map[sharedResultID]bool{}, rootSeen: seenRoot}
 	build.bundle.Version = ValueBundleVersion
 	visiting := map[sharedResultID]bool{}
