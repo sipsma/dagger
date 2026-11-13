@@ -210,7 +210,7 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 		if len(walked) == 0 {
 			return nil, nil
 		}
-		build.roots = append(walked, build.callRoots...)
+		build.roots = slices.Concat(walked, build.callRoots)
 		// Only the build's own state: done with the lock let go.
 		hold.unlocked(build.dropUnreachable)
 		for _, res := range build.roots {
@@ -226,9 +226,7 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 				continue
 			}
 			hold.step()
-			if err := c.storedBundleOutputsLocked(build, res); err != nil {
-				return nil, err
-			}
+			c.storedBundleOutputsLocked(build, res)
 		}
 		return build, nil
 	}()
@@ -941,7 +939,7 @@ func normalizeStoredTransfer(res *sharedResult, env *PersistedResultEnvelope, ca
 // are cloned and relocated after the lock (finishStoredBundle). res is read
 // again by its number, as a piece may have let the lock go. Requires
 // egraphMu.
-func (c *Cache) storedBundleOutputsLocked(build *storedBundleBuild, res *sharedResult) error {
+func (c *Cache) storedBundleOutputsLocked(build *storedBundleBuild, res *sharedResult) {
 	snap := build.snaps[res.id]
 	if cur := c.resultsByID[res.id]; cur != nil {
 		res = cur
@@ -976,7 +974,6 @@ func (c *Cache) storedBundleOutputsLocked(build *storedBundleBuild, res *sharedR
 		}
 		snap.borrowed = append(snap.borrowed, storedBorrowedPart{part: stored, donor: donor.id, rows: rows})
 	}
-	return nil
 }
 
 // addOutput adds a part of the entry id to the bundle, relocated to
