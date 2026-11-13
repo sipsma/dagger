@@ -681,8 +681,9 @@ func (c *Cache) servableCandidateLocked(resID sharedResultID, nowUnix int64, exp
 	if res.attachmentState() == resultAttachmentFailed {
 		return nil
 	}
-	// An entry known only through holdings has no value to serve.
-	if res.noValueLocked() {
+	// An entry known only through holdings has no value to serve, and one
+	// whose decode needed an unavailable row can't be served.
+	if res.noValueLocked() || res.rowUnavailable {
 		return nil
 	}
 	if c.resultExpiredAtLocked(res, nowUnix) {
@@ -1334,7 +1335,7 @@ func (c *Cache) lookupCacheForRequest(
 		// A row the hit's value needs, which a merge carried as identity
 		// alone, could be neither found here nor fetched: the hit becomes
 		// a miss and the call runs, as on an engine that never had it.
-		c.identityRows.hitsMissed.Add(1)
+		c.markRowUnavailable(ctx, hitShared)
 		if ev := req.CacheEvidence; ev != nil {
 			ev.MissRowUnavailable = true
 		}
