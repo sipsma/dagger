@@ -70,7 +70,11 @@ func noteModuleCallResult(ctx context.Context, res dagql.AnyResult) error {
 	if !fnCall.TracksBorrowing() {
 		return nil
 	}
-	// A result the cache doesn't hold carries no requirements to note.
+	// A null result, or one the cache doesn't hold, carries no requirements
+	// to note.
+	if res.Unwrap() == nil {
+		return nil
+	}
 	if id, err := res.ID(); err != nil || id == nil || id.EngineResultID() == 0 {
 		return nil //nolint:nilerr // see above
 	}
