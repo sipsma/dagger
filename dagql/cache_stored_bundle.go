@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync/atomic"
 )
@@ -23,6 +24,9 @@ type StoredBundleResult struct {
 	NoValue []uint64
 	// Held are the numbers of the entries the bundle carries as held rows.
 	Held []uint64
+	// Incomplete are the numbers of the entries the walk reached that the
+	// recipient holds but which go in full, as HeldBy.Whole judged them.
+	Incomplete []uint64
 	// CallInputs are the numbers of the entries the bundle carries as
 	// roots only because a call it sends has them as inputs, and
 	// UnsendableCalls counts the terms of its entries' kept calls it sends
@@ -46,9 +50,24 @@ type StoredBundleResult struct {
 // Cache that hasn't expired at the read's clock, and isn't in Not, by
 // number: the values the recipient answered stale. Only an entry with a call
 // frame can be held: its recipe names it to the recipient.
+//
+// With Whole set, StoredBundle holds such an entry only if no holding of
+// Cache on it has a closure, through Cache's own holdings, that names a
+// dependency no holding of Cache has (unknownDeps), such as a list's element
+// no span names: the walk stops at a held row, so a bundle wouldn't reach
+// that dependency, and no offer can reach it either. Such an entry goes in
+// full, its closure walked, and the bundle reports it (Incomplete). Known
+// keeps those answers by holding, for a caller that builds several bundles
+// of the cache unchanged; nil keeps them for one build. Whole judges only
+// the walk's held rows, where it stops: a call the bundle sends places an
+// input the recipient holds by its recipe, whatever is below it, so the
+// call's inputs are judged held as without Whole. StoredSizes and
+// StoredLowerHalf don't read Whole.
 type HeldBy struct {
 	Cache CacheID
 	Not   map[uint64]bool
+	Whole bool
+	Known map[HolderKey]bool
 }
 
 // heldLocked reports whether the recipient holds res at nowUnix. A nil
@@ -159,6 +178,13 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 	}
 	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, heldBy: held, held: map[sharedResultID]bool{},
 		owners: map[sharedResultID]int{}, ordinary: map[sharedResultID]bool{}, rootSeen: seenRoot}
+	if held != nil && held.Whole {
+		build.known = held.Known
+		if build.known == nil {
+			build.known = map[HolderKey]bool{}
+		}
+		build.incomplete = map[sharedResultID]bool{}
+	}
 	build.bundle.Version = valueBundleVersion
 	visiting := map[sharedResultID]bool{}
 	// Root by root, as StoredSizes prices them: its closure, then the calls
@@ -214,6 +240,11 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy) (Store
 		}
 	}
 	out.Bundle, out.Donors, out.stored = build.bundle, build.donors, build.stored
+	for _, res := range build.order {
+		if build.incomplete[res.id] {
+			out.Incomplete = append(out.Incomplete, uint64(res.id))
+		}
+	}
 	out.CallInputs, out.UnsendableCalls = build.callInputs, build.unsendableCalls
 	for _, res := range rootEntries {
 		out.RootOwners = append(out.RootOwners, build.owners[res.id])
@@ -235,9 +266,14 @@ type storedBundleBuild struct {
 	bundle   ValueBundle
 	donors   []uint64
 	// heldBy says which entries the recipient holds, and held are the
-	// closure's entries that become held rows.
-	heldBy *HeldBy
-	held   map[sharedResultID]bool
+	// closure's entries that become held rows. With heldBy.Whole, known
+	// keeps whether each holding's closure names an unknown dependency
+	// (holdingsUnknownLocked), and incomplete are the entries the walk
+	// reached that go in full for it.
+	heldBy     *HeldBy
+	held       map[sharedResultID]bool
+	known      map[HolderKey]bool
+	incomplete map[sharedResultID]bool
 	// rootSeen are the roots' entries, and callRoots the entries added as
 	// roots for the inputs of calls the bundle sends, callInputs their
 	// numbers, and unsendableCalls the terms it sends no call for
@@ -282,7 +318,11 @@ func (c *Cache) storedBundleVisitLocked(build *storedBundleBuild, res *sharedRes
 	if visiting[res.id] {
 		return fmt.Errorf("stored bundle: dependency cycle through entry %d", res.id)
 	}
-	if build.heldBy.heldLocked(res, build.now) {
+	held, incomplete := c.buildHeldLocked(build, res)
+	if incomplete {
+		build.incomplete[res.id] = true
+	}
+	if held {
 		build.held[res.id] = true
 		build.order = append(build.order, res)
 		build.ordinals[res.id] = TransferOrdinal(len(build.order))
@@ -307,6 +347,71 @@ func (c *Cache) storedBundleVisitLocked(build *storedBundleBuild, res *sharedRes
 	build.ordinals[res.id] = TransferOrdinal(len(build.order))
 	build.owners[res.id] = build.current
 	return nil
+}
+
+// buildHeldLocked reports whether a bundle's build carries res as a held
+// row: the recipient holds it (HeldBy.heldLocked) and, with Whole, its
+// holdings of the recipient's cache name no unknown dependency below them
+// (holdingsUnknownLocked). It reports incomplete when the recipient holds
+// res but Whole sends it in full. Requires egraphMu.
+func (c *Cache) buildHeldLocked(build *storedBundleBuild, res *sharedResult) (held, incomplete bool) {
+	if !build.heldBy.heldLocked(res, build.now) {
+		return false, false
+	}
+	if build.heldBy.Whole && c.holdingsUnknownLocked(build.heldBy.Cache, res, build.known) {
+		return false, true
+	}
+	return true, false
+}
+
+// holdingsUnknownLocked reports whether a holding of cache on res, expired or
+// not, has a closure, through cache's own holdings, that names a dependency
+// no holding of cache has (unknownBelowLocked), keeping each answer in known.
+// Requires egraphMu.
+func (c *Cache) holdingsUnknownLocked(cache CacheID, res *sharedResult, known map[HolderKey]bool) bool {
+	for _, number := range slices.Sorted(maps.Keys(res.cacheHolders[cache])) {
+		if unknown, _ := c.unknownBelowLocked(HolderKey{Cache: cache, Number: number}, known, map[HolderKey]bool{}); unknown {
+			return true
+		}
+	}
+	return false
+}
+
+// unknownBelowLocked answers whether the holding key, or a holding it
+// depends on, transitively through its cache's own dependencies, names a
+// dependency its cache holds no holding for, walking each holding once a
+// call (reached), in dependency order, and keeps each answer known whole. A
+// holding reached again before its answer is known adds nothing to the walk
+// that reaches it, but leaves that walk's false answer partial: a replacement
+// observed before its dependent's replacement can leave the holdings a cycle
+// for a while, whose members' closures each include the others'. A partial
+// answer isn't kept, and reports final false. Requires egraphMu.
+func (c *Cache) unknownBelowLocked(key HolderKey, known, reached map[HolderKey]bool) (unknown, final bool) {
+	if unknown, ok := known[key]; ok {
+		return unknown, true
+	}
+	if reached[key] {
+		return false, false
+	}
+	reached[key] = true
+	_, h := c.holdingLocked(key)
+	if h == nil {
+		known[key] = false
+		return false, true
+	}
+	unknown, final = len(h.unknownDeps) > 0, true
+	for _, dep := range slices.Sorted(maps.Keys(h.deps)) {
+		if unknown {
+			break
+		}
+		var whole bool
+		unknown, whole = c.unknownBelowLocked(HolderKey{Cache: key.Cache, Number: dep}, known, reached)
+		final = final && whole
+	}
+	if unknown || final {
+		known[key] = unknown
+	}
+	return unknown, unknown || final
 }
 
 // storedClosureChildrenLocked returns what a stored bundle walks below res,
