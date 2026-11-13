@@ -79,9 +79,9 @@ func storedBodyTestRecordBytes(cloud *Cache) int64 {
 // a live service does before it places them, and returns the bundle.
 func storedBodyTestUse(t *testing.T, ctx context.Context, cloud *Cache, roots []uint64) ValueBundle {
 	t.Helper()
-	_, err := cloud.StoredSizes(ctx, roots, time.Now().Unix(), nil)
+	_, err := cloud.StoredSizes(ctx, roots, time.Now().Unix())
 	require.NoError(t, err)
-	got, err := cloud.StoredBundle(ctx, roots, time.Now().Unix(), nil)
+	got, err := cloud.StoredBundle(ctx, roots, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, got.Bundle.Values, len(roots))
 	return got.Bundle
@@ -245,13 +245,13 @@ func TestStoredBundleChecksANestedPartOfACompressedRecord(t *testing.T) {
 func TestStoredValueEncodesAsTheWholeValue(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, _ := storedBundleTestCloudIn(t, "root", true)
-	whole, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	whole, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	for _, value := range whole.Bundle.Values {
 		require.Nil(t, value.storedEnvelope, "the record goes whole")
 	}
 	storedTestCompress(cloud)
-	compressed, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
+	compressed, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.NotNil(t, compressed.Bundle.Values[0].storedEnvelope, "the record goes compressed")
 	require.Equal(t, string(mustTransferJSON(t, whole.Bundle.Values)), string(mustTransferJSON(t, compressed.Bundle.Values)))

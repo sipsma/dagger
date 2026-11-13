@@ -33,8 +33,8 @@ func TestTransferRoundTripState(t *testing.T) {
 	bsrv.InstallObject(NewClass(bsrv, ClassOpts[*storedBenchValue]{}))
 	bctx = srvToContext(ContextWithCache(bctx, b), bsrv)
 
-	place := func(roots []uint64, held *HeldBy) StoredBundleResult {
-		got, err := cloud.StoredBundle(ctx, roots, time.Now().Unix(), held)
+	place := func(roots []uint64) StoredBundleResult {
+		got, err := cloud.StoredBundle(ctx, roots, time.Now().Unix())
 		require.NoError(t, err)
 		reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
 		require.NoError(t, err)
@@ -43,8 +43,8 @@ func TestTransferRoundTripState(t *testing.T) {
 		require.NoError(t, err)
 		return got
 	}
-	place(batch[:1], nil)
-	second := place(batch, &HeldBy{Cache: "cache-b"})
+	place(batch[:1])
+	second := place(batch)
 	require.NotEmpty(t, second.Held, "the second bundle carries held rows")
 
 	// B holds each record as the Cloud stores it, references renamed from

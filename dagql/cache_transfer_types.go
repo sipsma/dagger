@@ -94,7 +94,7 @@ type TransferredValue struct {
 	// but its DependencyIDs can name rows below it that the bundle carries,
 	// which then go with it, and an output can sit on it; the recipient
 	// checks such an output against its own copy of the row. The Cloud sends
-	// held rows to an engine (StoredBundle's HeldBy), with no dependencies
+	// held rows to an engine (StoredBundle's identity rows), with no dependencies
 	// and no outputs, and an engine sends them to the Cloud in an export.
 	Held digest.Digest `json:"held,omitempty"`
 	// Extra are a held row's extra digests, its entry's content digest

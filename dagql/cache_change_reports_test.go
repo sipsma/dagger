@@ -413,7 +413,7 @@ func TestChangeReportsNameEveryChangedAnswer(t *testing.T) {
 
 	// Placement: R's closure merged into engine D.
 	w.step("apply cache-d's merged reply for R", func() RemoteChange {
-		built, err := cloud.StoredBundle(ctx, []uint64{r}, now, nil)
+		built, err := cloud.StoredBundle(ctx, []uint64{r}, now)
 		require.NoError(t, err)
 		reply := MergeReply{Generation: 1, EngineTimeUnixNano: time.Now().UnixNano()}
 		for _, value := range built.Bundle.Values {
