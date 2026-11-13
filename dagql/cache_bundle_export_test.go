@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/engine/snapshots/config"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,4 +73,42 @@ func TestExportBundleStopsWaitingAtItsLimit(t *testing.T) {
 	require.ErrorIs(t, err, ErrPersistStateNotReady)
 	require.NoError(t, ctx.Err(), "the export stopped at its limit, not at its context's end")
 	require.ErrorContains(t, err, "export bundle: 1 of 1 results left out")
+}
+
+// A cache export reads its results' records before it captures them, to
+// find their parts and what they hold, and those reads wait for a busy row
+// too: a result busy when the export starts is exported once it's free.
+func TestExportBundleSetupWaitsForABusyResult(t *testing.T) {
+	t.Parallel()
+	ctx, c, srv := transferTestCache(t)
+	rows := newLeftOutTestRows(t, ctx, c, srv)
+	res := rows.ready.cacheSharedResult()
+	attaching := make(chan struct{})
+	c.egraphMu.Lock()
+	res.attachDepsMu.Lock()
+	res.attachDepsWaitCh = attaching
+	res.attachDepsMu.Unlock()
+	c.egraphMu.Unlock()
+	freed := time.AfterFunc(200*time.Millisecond, func() { close(attaching) })
+	defer freed.Stop()
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var bundle *ValueBundle
+	err := c.ExportBundle(ctx, srv, []AnyResult{rows.ready}, config.RefConfig{}, bundleCatcher{&bundle})
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.Roots, 1, "the result is exported")
+}
+
+// bundleCatcher keeps the bundle an export writes.
+type bundleCatcher struct{ bundle **ValueBundle }
+
+func (b bundleCatcher) WriteBundle(_ context.Context, bundle ValueBundle) error {
+	*b.bundle = &bundle
+	return nil
+}
+
+func (bundleCatcher) WriteBlob(context.Context, digest.Digest, content.ReaderAt) error {
+	return nil
 }
