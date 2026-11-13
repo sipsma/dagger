@@ -256,17 +256,34 @@ func (c *Cache) ensureEqClassForDigestLocked(ctx context.Context, dig string) eq
 // compaction freed, or the next after every slot. Requires egraphMu for
 // writing, and an initialized e-graph.
 func (c *Cache) allocEqClassLocked() eqClassID {
+	c.noteEqClassSlotsLocked()
+	var id eqClassID
 	if n := len(c.freeEqClassIDs); n > 0 {
-		id := c.freeEqClassIDs[n-1]
+		id = c.freeEqClassIDs[n-1]
 		c.freeEqClassIDs = c.freeEqClassIDs[:n-1]
 		c.egraphParents[id] = id
 		c.egraphRanks[id] = 0
-		return id
+	} else {
+		id = eqClassID(len(c.egraphParents))
+		c.egraphParents = append(c.egraphParents, id)
+		c.egraphRanks = append(c.egraphRanks, 0)
 	}
-	id := eqClassID(len(c.egraphParents))
-	c.egraphParents = append(c.egraphParents, id)
-	c.egraphRanks = append(c.egraphRanks, 0)
+	if c.changes != nil && int(id) < c.eqClassSlotsEver {
+		if c.eqClassReuses == nil {
+			c.eqClassReuses = make(map[eqClassID]uint32)
+		}
+		c.eqClassReuses[id]++
+	}
 	return id
+}
+
+// noteEqClassSlotsLocked notes the e-graph's slots before they are taken or
+// trimmed: on a blob-backed cache, a number below the most it has had was a
+// class's before. Requires egraphMu for writing.
+func (c *Cache) noteEqClassSlotsLocked() {
+	if c.changes != nil && len(c.egraphParents) > c.eqClassSlotsEver {
+		c.eqClassSlotsEver = len(c.egraphParents)
+	}
 }
 
 func (c *Cache) findEqClassLocked(id eqClassID) eqClassID {
@@ -2381,6 +2398,7 @@ func (c *Cache) maybeResetEgraphLocked() {
 		return
 	}
 
+	c.noteEqClassSlotsLocked()
 	c.egraphDigestToClass = nil
 	c.egraphParents = nil
 	c.egraphRanks = nil
@@ -2454,6 +2472,7 @@ func (c *Cache) compactEqClassesModeLocked(force, freeAll bool) (changed bool, o
 
 	oldSlots = c.eqClassSlotsLocked()
 	newSlots = len(liveRoots)
+	c.noteEqClassSlotsLocked()
 	if (newSlots == 0 && !freeAll) || oldSlots == newSlots || (!force && oldSlots < newSlots*2) {
 		return false, oldSlots, newSlots
 	}
