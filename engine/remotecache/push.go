@@ -56,6 +56,9 @@ func (s *session) push(q PushQueue, roots []uint64, flushed bool) {
 		var exp Export
 		var pushed protocol.Pushed
 		var checked protocol.CheckedRows
+		// The roots are retained as of the moment before the capture: a
+		// root whose retention ends after it is observed so later.
+		captured := time.Now().UnixNano()
 		err := s.adapter.Push(s.ctx, roots, s.known, rows, func(ctx context.Context, e Export) error {
 			exp = e
 			if e.Bundle == nil {
@@ -66,7 +69,7 @@ func (s *session) push(q PushQueue, roots []uint64, flushed bool) {
 			if rows.List {
 				typ, msg, answer = protocol.TypeCheckRows, protocol.CheckRows{Rows: e.Bundle.Values}, &checked
 			} else {
-				typ, msg, answer = protocol.TypePush, protocol.Push{Bundle: *e.Bundle}, &pushed
+				typ, msg, answer = protocol.TypePush, protocol.Push{Bundle: *e.Bundle, EngineTimeUnixNano: captured}, &pushed
 			}
 			if data, err := json.Marshal(msg); err != nil {
 				return err
