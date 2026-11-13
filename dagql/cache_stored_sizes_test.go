@@ -86,8 +86,8 @@ func TestStoredSizesPriceCallInputs(t *testing.T) {
 	{
 		built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix())
 		require.NoError(t, err)
-		require.Empty(t, built.CallInputs)
-		require.Contains(t, built.Held, test.receiverNumber)
+		require.Equal(t, []uint64{test.receiverNumber}, built.CallInputs)
+		require.Contains(t, built.Held, test.receiverNumber, "the input travels as an identity row")
 		var want StoredSize
 		for _, value := range built.Bundle.Values {
 			data, err := json.Marshal(value)
@@ -167,7 +167,9 @@ func TestStoredSizesChooseCallsInTheBundlesOrder(t *testing.T) {
 			require.Less(t, test.number, numbers["c"], "inner's calls come first in R's bundle")
 			require.Len(t, storedBundleTestEntry(cloud, test.number).calls, 2)
 
-			built, err := cloud.StoredBundle(test.ctx, []uint64{numbers["r"]}, time.Now().Unix())
+			// Inner and C are roots too: an identity row carries no calls.
+			roots := []uint64{numbers["r"], test.number, numbers["c"]}
+			built, err := cloud.StoredBundle(test.ctx, roots, time.Now().Unix())
 			require.NoError(t, err)
 			require.Len(t, built.Bundle.Calls, 2, "one call on inner, one on C")
 			require.NotEmpty(t, built.CallInputs)
@@ -178,9 +180,14 @@ func TestStoredSizesChooseCallsInTheBundlesOrder(t *testing.T) {
 				want.Records++
 				want.Bytes += int64(len(data))
 			}
-			got, err := cloud.StoredSizes(test.ctx, []uint64{numbers["r"]}, time.Now().Unix())
+			got, err := cloud.StoredSizes(test.ctx, roots, time.Now().Unix())
 			require.NoError(t, err)
-			storedSizesTestClose(t, []StoredSize{want}, got)
+			var priced StoredSize
+			for _, size := range got {
+				priced.Records += size.Records
+				priced.Bytes += size.Bytes
+			}
+			storedSizesTestClose(t, []StoredSize{want}, []StoredSize{priced})
 		})
 	}
 }
@@ -297,9 +304,8 @@ func TestStoredSizesNeverPriceLessThanTheBundle(t *testing.T) {
 		want.Records++
 		want.Bytes += int64(len(data))
 	}
-	require.Greater(t, want.Bytes, int64(64<<10), "the bundle carries Z")
-	require.Len(t, built.CallInputs, 2, "X for P's call, Z for Q's")
-	require.Equal(t, []int{0, 1, 0, 1}, built.RootOwners, "X travels with P, Z with Q")
+	require.NotEmpty(t, built.CallInputs, "the calls' inputs travel as identity rows")
+	require.Equal(t, []int{0, 1}, built.RootOwners, "no input travels as a root")
 	got, err := cloud.StoredSizes(a.ctx, []uint64{test.number, qNumber}, time.Now().Unix())
 	require.NoError(t, err)
 	var priced StoredSize
@@ -411,9 +417,9 @@ func TestStoredSizesMeasureOutsideTheLock(t *testing.T) {
 	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Equal(t, 2, got[0].Records)
-	require.Equal(t, 2, free, "R and P are measured with the lock free")
+	require.Equal(t, 1, free, "R is measured with the lock free; P is an identity row, which isn't encoded")
 	require.Zero(t, held)
-	require.Equal(t, before+2, cloud.StoredSizeEncodes())
+	require.Equal(t, before+1, cloud.StoredSizeEncodes())
 
 	again, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
@@ -582,9 +588,10 @@ func TestStoredSizesPriceOutputsAsTheWireCarriesThem(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
-	sizes, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
+	// R and P are both roots: an identity row carries no outputs.
+	sizes, err := cloud.StoredSizes(ctx, []uint64{r, p}, time.Now().Unix())
 	require.NoError(t, err)
-	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
+	built, err := cloud.StoredBundle(ctx, []uint64{r, p}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Outputs, 2)
 	shared, err := ShareChainLayers(built.Bundle)
@@ -595,7 +602,7 @@ func TestStoredSizesPriceOutputsAsTheWireCarriesThem(t *testing.T) {
 	require.NoError(t, err)
 	carried := int64(len(outputs) + len(layers))
 	addresses := int64(4) * storedBlobAddressAllowance // two base layers and two tops
-	priced := sizes[0].OutputBytes - addresses
+	priced := sizes[0].OutputBytes + sizes[1].OutputBytes - addresses
 	require.GreaterOrEqual(t, priced, carried, "never less than the wire carries")
 	require.LessOrEqual(t, priced, carried+2*storedOutputReferenceSlack, "more only by renewal keys and the digits of references")
 }
@@ -616,9 +623,10 @@ func TestStoredSizesAllowForEachAddressOfABlobInDifferentPacks(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
-	sizes, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
+	// R and P are both roots: an identity row carries no outputs.
+	sizes, err := cloud.StoredSizes(ctx, []uint64{r, p}, time.Now().Unix())
 	require.NoError(t, err)
-	built, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
+	built, err := cloud.StoredBundle(ctx, []uint64{r, p}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Len(t, built.Bundle.Outputs, 2)
 	unsigned, err := ShareChainLayers(built.Bundle)
@@ -629,7 +637,7 @@ func TestStoredSizesAllowForEachAddressOfABlobInDifferentPacks(t *testing.T) {
 	require.NoError(t, err)
 	addresses := storedSizesTestAddresses(t, built.Bundle)
 	require.Equal(t, 2, addresses, "the bundle's and one chain's own")
-	require.GreaterOrEqual(t, sizes[0].OutputBytes-int64(len(outputs)+len(layers)), int64(addresses)*storedBlobAddressAllowance)
+	require.GreaterOrEqual(t, sizes[0].OutputBytes+sizes[1].OutputBytes-int64(len(outputs)+len(layers)), int64(addresses)*storedBlobAddressAllowance)
 }
 
 // storedSizesTestAddresses counts the download addresses a merge's message

@@ -115,12 +115,13 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 	// Entries the bundle adds for a call's inputs are visited too.
 	for i := start; i < len(build.order); i++ {
 		res := build.order[i]
-		if len(res.calls) == 0 {
+		// An identity row carries no calls: it has no value to answer them.
+		if len(res.calls) == 0 || build.held[res.id] {
 			continue
 		}
 		for _, group := range c.keptCallTermsLocked(res) {
 			chosen, add := c.placeableCallLocked(group, func(entry *sharedResult) bool {
-				return build.ordinary[entry.id] || build.identity.heldLocked(entry)
+				return build.ordinary[entry.id]
 			})
 			if chosen == nil {
 				build.unsendableCalls++
@@ -128,14 +129,21 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 				continue
 			}
 			for _, input := range add {
+				asked := build.rootSeen[input.id]
 				if err := c.storedBundleVisitLocked(build, input, map[sharedResultID]bool{}); err != nil {
 					return fmt.Errorf("call %s input: %w", chosen.id.recipe, err)
 				}
-				// A merge installs only what its roots need, so an input
-				// entry travels as a root.
-				if !build.rootSeen[input.id] {
+				// An input travels as an identity row. One with no call
+				// frame travels as its record, and as a root, since a merge
+				// installs only what its roots need.
+				if asked {
+					continue
+				}
+				if !build.held[input.id] {
 					build.rootSeen[input.id] = true
 					build.callRoots = append(build.callRoots, input)
+				}
+				if !slices.Contains(build.callInputs, uint64(input.id)) {
 					build.callInputs = append(build.callInputs, uint64(input.id))
 				}
 			}

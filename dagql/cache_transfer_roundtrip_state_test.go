@@ -43,9 +43,10 @@ func TestTransferRoundTripState(t *testing.T) {
 		require.NoError(t, err)
 		return got
 	}
+	// Every record goes as a root, so B holds them all: a bundle carries its
+	// roots' records and only identity rows below them.
 	place(batch[:1])
-	second := place(batch)
-	require.NotEmpty(t, second.Held, "the second bundle carries held rows")
+	second := place(storedTestEveryEntry(cloud))
 
 	// B holds each record as the Cloud stores it, references renamed from
 	// B's entries to the Cloud's of the same recipe.

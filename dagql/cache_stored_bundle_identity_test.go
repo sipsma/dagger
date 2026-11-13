@@ -92,3 +92,19 @@ func TestStoredBundleCarriesRootsAndIdentityRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, sizes[0].Records+sizes[1].Records)
 }
+
+// storedTestEveryEntry returns the numbers of every entry of a Cloud with a
+// stored record, in order: a bundle with them all as roots carries every
+// record, as a bundle of the first carried its closure before identity rows.
+func storedTestEveryEntry(c *Cache) []uint64 {
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	var numbers []uint64
+	for id, res := range c.resultsByID {
+		if res.persistedEnvelope != nil && !res.noValueLocked() {
+			numbers = append(numbers, uint64(id))
+		}
+	}
+	slices.Sort(numbers)
+	return numbers
+}

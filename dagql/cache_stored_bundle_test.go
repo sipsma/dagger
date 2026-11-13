@@ -328,7 +328,7 @@ func TestStoredBundleRecordGoesWithThePrunedValue(t *testing.T) {
 			if compressed {
 				storedTestCompress(cloud)
 			}
-			_, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix())
+			_, err := cloud.StoredBundle(ctx, []uint64{r, p}, time.Now().Unix())
 			require.NoError(t, err)
 			require.True(t, storedBundleTestKept(cloud, r))
 			require.True(t, storedBundleTestKept(cloud, p))
