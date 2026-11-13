@@ -175,3 +175,34 @@ func TestIdentityEntrySavedAndRestored(t *testing.T) {
 	require.Equal(t, p, key.Number)
 	require.Equal(t, pEntry.id, b.entriesByRecipe[pRecipe])
 }
+
+// A hit whose value needs a row the engine holds only by identity, which
+// can be neither found here nor fetched, becomes a miss: the call runs, and
+// the miss and the failed fetch are counted.
+func TestIdentityEntryUnavailableTurnsAHitIntoAMiss(t *testing.T) {
+	t.Parallel()
+	bctx, b, bsrv, rEntry, pEntry, _, _, _ := identityTestEngine(t)
+	b.SetRowFetcher(&identityTestFetcher{fetch: func([]uint64, bool) (ValueBundle, []uint64, error) {
+		return ValueBundle{}, nil, errors.New("connection lost")
+	}})
+	// R's value names P as a row its decode loads.
+	transferDecodeHooks.Store(uint64(rEntry.id), func(ctx context.Context, dec *PersistDecodeContext, _ *transferTestValue) error {
+		_, err := dec.ResultRef(ctx, uint64(pEntry.id))
+		return err
+	})
+	t.Cleanup(func() { transferDecodeHooks.Delete(uint64(rEntry.id)) })
+
+	ran := false
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "held-chained", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(pEntry.id)}}
+	ev := &CacheDecision{}
+	_, err := b.GetOrInitCall(bctx, "test-session", bsrv, &CallRequest{ResultCall: frame, CacheEvidence: ev}, func(context.Context) (AnyResult, error) {
+		ran = true
+		return NewResultForCall(&transferTestValue{Text: "chained"}, frame)
+	})
+	require.NoError(t, err, "the pipeline doesn't fail")
+	require.True(t, ran, "the hit became a miss and the call ran")
+	require.True(t, ev.MissRowUnavailable)
+	counts := b.IdentityRowCounts()
+	require.Equal(t, int64(1), counts.HitsMissed)
+	require.Equal(t, int64(1), counts.FetchFailed)
+}
