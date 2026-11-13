@@ -413,6 +413,18 @@ func TestCallRecordPrefersAnInputTheRecipientHolds(t *testing.T) {
 	}()
 	require.NoError(t, err)
 	require.Equal(t, encodedB, built.Bundle.Calls[0].Call)
+
+	// A recipient whose holding of B names, below it, a dependency it holds
+	// no holding of places the call on B just the same under Whole, which
+	// judges only the walk's held rows: the call needs B's recipe, not what
+	// is below it.
+	_, err = cloud.AttachRemoteHolding(test.ctx, HolderKey{Cache: "cache-partial", Number: 1}, RemoteHolding{Recipe: recipeB, Request: recipeB, Field: "receiver", Deps: []uint64{99}})
+	require.NoError(t, err)
+	built, err = cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix(), &HeldBy{Cache: "cache-partial", Whole: true})
+	require.NoError(t, err)
+	require.Len(t, built.Bundle.Calls, 1)
+	require.Empty(t, built.CallInputs, "B is held for the call")
+	require.Equal(t, encodedB, built.Bundle.Calls[0].Call)
 }
 
 // Keeping a call on a stored entry, or giving it a call's expiry, is a change
