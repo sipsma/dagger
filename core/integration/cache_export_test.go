@@ -194,3 +194,37 @@ func findJSONKey(v gjson.Result, key string) gjson.Result {
 	walk(v)
 	return found
 }
+
+// A nested client, such as a module function's exec, can export cache entries
+// for results it holds, as engine-dev's image build does from its exec. The
+// local cache's entry listing and pruning stay with the main client.
+//
+// It runs on an engine of its own, whose only main client never selects
+// engine.localCache: a cached localCache from another test's main client
+// could otherwise serve the nested client's selection without its resolver.
+func (CacheSuite) TestCacheExportFromNestedClient(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+	devEngine := devEngineContainerAsService(devEngineContainer(c))
+	t.Cleanup(func() { _, _ = devEngine.Stop(context.Background()) })
+
+	nested := `set -e
+id=$(echo '{ directory { withNewFile(path: "f", contents: "` + rand.Text() + `") { id } } }' | dagger query | tr -d ' \n' | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+test -n "$id"
+echo "{ engine { localCache { _export(results: [\"$id\"]) { entries } } } }" | dagger query
+for q in '{ engine { localCache { entrySet { diskSpaceBytes } } } }' '{ engine { localCache { prune } } }'; do
+  if echo "$q" | dagger query > /out 2> /err; then echo "allowed: $q"; exit 1; fi
+  grep -q "only the main client" /err || { cat /err; exit 1; }
+  echo "refused: $q"
+done
+`
+	out, err := engineClientContainer(ctx, t, c, devEngine).
+		WithNewFile("/nested.sh", nested).
+		WithExec([]string{"dagger", "-c",
+			`container | from ` + alpineImage + ` | with-mounted-file /usr/local/bin/dagger $(host | file /bin/dagger) | with-mounted-file /nested.sh $(host | file /nested.sh) | with-exec sh /nested.sh | stdout`,
+		}, core.ContainerWithExecOpts{DisableDaggerInDagger: true}).
+		Stdout(ctx)
+	require.NoError(t, err)
+	require.Contains(t, out, dagql.BundleFile)
+	require.Contains(t, out, "refused: { engine { localCache { entrySet { diskSpaceBytes } } } }")
+	require.Contains(t, out, "refused: { engine { localCache { prune } } }")
+}
