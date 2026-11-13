@@ -864,16 +864,9 @@ func (fn *ModuleFunction) DynamicInputsForCall(
 	if err != nil || gitClientsDigest == "" {
 		return err
 	}
-	if err := req.SetImplicitInput(ctx, declaredGitClientsInput, dagql.NewString(gitClientsDigest)); err != nil {
-		return err
-	}
-	// The result may come from credentials this session lent, which another
-	// session may lack.
-	session, err := dagql.PerSessionInput.Resolver(ctx, nil)
-	if err != nil {
-		return err
-	}
-	return req.SetImplicitInput(ctx, dagql.PerSessionInput.Name, session)
+	// A result that used credentials the session lent to a declared client
+	// requires them instead, as the call returns (see Call).
+	return req.SetImplicitInput(ctx, declaredGitClientsInput, dagql.NewString(gitClientsDigest))
 }
 
 // declaredGitClientsDigest digests the git clients that the config governing
@@ -1147,6 +1140,11 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 
 	// Delegate the actual function execution to the runtime
 	err = runtime.Call(ctx, &execMD, fnCall, fn.mod)
+	// What the function's work used of the session's lent resources, which
+	// its key doesn't name, its result requires.
+	if borrowErr := dagql.RequireSessionResourcesOf(ctx, fnCall.borrowedResults()...); borrowErr != nil {
+		return nil, borrowErr
+	}
 	returned, returnedSet, returnStateErr := fnCall.returnResult()
 	if returnStateErr != nil {
 		return nil, returnStateErr
