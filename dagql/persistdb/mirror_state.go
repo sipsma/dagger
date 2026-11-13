@@ -171,6 +171,12 @@ func (q *Queries) DeleteMirrorResultRows(ctx context.Context, id int64) error {
 	return nil
 }
 
+// UpdateMirrorResultLastUsed sets the last use of the entry numbered id.
+func (q *Queries) UpdateMirrorResultLastUsed(ctx context.Context, id, lastUsedAtUnixNano int64) error {
+	_, err := q.exec(ctx, nil, `UPDATE results SET last_used_at_unix_nano = ? WHERE id = ?`, lastUsedAtUnixNano, id)
+	return err
+}
+
 // DeleteMirrorEqClassRows deletes the class numbered id and its digests.
 func (q *Queries) DeleteMirrorEqClassRows(ctx context.Context, id int64) error {
 	for _, stmt := range []string{

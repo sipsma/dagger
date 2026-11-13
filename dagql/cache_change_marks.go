@@ -46,6 +46,7 @@ import (
 type changeMarks struct {
 	saveEntries []sharedResultID
 	saveClasses []eqClassID
+	saveTerms   []egraphTermID
 	// opened are the entries whose attachment opened (attachDepsWaitCh), for
 	// the save: until it closes cleanly, a whole save leaves them out.
 	opened []sharedResultID
@@ -122,15 +123,22 @@ func (c *Cache) noteAttachmentOpenedLocked(id sharedResultID) {
 	c.changes.opened = append(c.changes.opened, id)
 }
 
-// markSavedTermLocked marks, for the save, the classes of term: its output,
-// whose rows hold the term, and its inputs, whether written or not may turn
-// with it. Requires egraphMu for writing.
+// markSavedTermLocked marks term for the save: its row, or whether it is
+// written, may have changed. Requires egraphMu for writing.
 func (c *Cache) markSavedTermLocked(term *egraphTerm) {
-	if c.changes == nil || term == nil {
+	if term == nil {
 		return
 	}
-	c.changes.saveClasses = append(c.changes.saveClasses, term.outputEqID)
-	c.changes.saveClasses = append(c.changes.saveClasses, term.inputEqIDs...)
+	c.markSavedTermIDLocked(term.id)
+}
+
+// markSavedTermIDLocked marks the term numbered id for the save. Requires
+// egraphMu for writing.
+func (c *Cache) markSavedTermIDLocked(id egraphTermID) {
+	if c.changes == nil || id == 0 {
+		return
+	}
+	c.changes.saveTerms = append(c.changes.saveTerms, id)
 }
 
 // markLeavingLocked marks an entry that is leaving its classes, before it

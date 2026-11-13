@@ -18,30 +18,36 @@ import (
 // cache and without rewriting it. A write is one transaction, so a crash
 // keeps the last write whole.
 //
-// The rows fall in two kinds:
+// The rows fall in three kinds, each written by its own number:
 //   - an entry's, while it is saved: its result row, dependencies, output
 //     classes, kept calls and persisted edge. An entry is saved while a
 //     stored root reaches it, the closure a whole save selects
 //     (snapshotPersistedRootClosureLocked). The writer counts each entry's
 //     stored owners, its edge and each saved entry that owns it, and moves
 //     the counts by what changed in the marked entries' edges and children,
-//     so it knows the closure without walking it.
-//   - a class's, by its root: the class and its digests while it is written,
-//     and the terms whose output it is while it is retained. A class is
-//     retained while a saved entry's output is in it, and written while it
-//     is retained or a retained class's term takes it as input. Class numbers
-//     outlive compactions (compactEqClassesModeLocked), so a class's rows
-//     stay right until a mark names it again.
+//     so it knows the closure without walking it. A change of an entry's
+//     last use alone updates that field.
+//   - a term's, while its output class is retained: the term and its inputs,
+//     named by their classes' roots. A class is retained while a saved
+//     entry's output is in it.
+//   - a class's, by its root: the class and its digests, while it is
+//     retained or a written term takes it as input.
+//
+// The writer counts, for each class, the saved entries whose outputs name
+// it and the written terms that take it as input, so whether a class is
+// written costs a lookup. Class numbers outlive compactions
+// (compactEqClassesModeLocked), so the rows stay right until a mark names
+// them again.
 
 // writeBehindState is what the writer behind knows of the store: the counts
-// that make the saved closure, each saved entry's output classes in the
-// store, and each written class's state there. It belongs to the save:
-// Checkpoint and WriteBehind change it under checkpointMu, and read the
-// cache for it under egraphMu.
+// that make the saved closure, and what the store holds of each saved
+// entry's outputs, each written term and each written class. It belongs to
+// the save: Checkpoint and WriteBehind change it under checkpointMu, and
+// read the cache for it under egraphMu.
 type writeBehindState struct {
 	// owners counts each entry's stored owners: its persisted edge, and each
 	// saved entry that owns it (children). An entry is saved while it has
-	// one and is registered.
+	// one, is registered, and isn't invalid.
 	owners map[sharedResultID]int32
 	// edges are the entries whose edge owners counts.
 	edges map[sharedResultID]struct{}
@@ -49,8 +55,18 @@ type writeBehindState struct {
 	children map[sharedResultID][]sharedResultID
 	// outputs are each saved entry's output classes, as the store holds them.
 	outputs map[sharedResultID][]eqClassID
-	// classes are the written classes, as the store holds them.
-	classes map[eqClassID]writtenClass
+	// retainedBy counts, for each class, the saved entries whose outputs in
+	// the store name it; retained are the classes it counted, as of the last
+	// write.
+	retainedBy map[eqClassID]int32
+	retained   map[eqClassID]struct{}
+	// terms are the written terms, with the input classes the store holds
+	// for them; inputRefs counts, for each class, the written terms that
+	// take it as input.
+	terms     map[egraphTermID][]eqClassID
+	inputRefs map[eqClassID]int32
+	// classes are the written classes.
+	classes map[eqClassID]struct{}
 	// unclean are the entries whose attachment opened and hasn't been seen
 	// to close cleanly (noteAttachmentOpenedLocked). invalid are the ones it
 	// left failed and every entry that owns one of them, which a whole save
@@ -59,26 +75,18 @@ type writeBehindState struct {
 	invalid map[sharedResultID]struct{}
 	// nextResultID is the next result number the store holds.
 	nextResultID sharedResultID
-	// broken is set when a write failed after the counts moved: the next
+	// broken is set when a write failed after the state moved: the next
 	// write saves the cache whole, which starts the state afresh.
 	broken bool
 }
 
-// writtenClass is a written class's state in the store: whether it is
-// retained, and the terms the store holds with it as their output.
-type writtenClass struct {
-	retained bool
-	terms    []egraphTermID
-}
-
 // WriteBehindReport is what one write behind wrote: how many entries,
-// classes and terms it wrote or deleted the rows of. Whole is set when it
-// saved the cache whole instead, after a failed write. Waited is set when it
-// wrote nothing because a replacement was in flight: what changed waits for
-// the next write.
+// classes and terms it wrote or deleted the rows of, and how many entries'
+// last use alone it updated. Whole is set when it saved the cache whole
+// instead, after a failed write. Waited is set when it wrote nothing because
+// a replacement was in flight: what changed waits for the next write.
 type WriteBehindReport struct {
 	Entries int  `json:"entries"`
-	// Used is how many entries' last use alone it updated.
 	Used    int  `json:"used,omitempty"`
 	Classes int  `json:"classes"`
 	Terms   int  `json:"terms"`
@@ -142,42 +150,27 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 		return WriteBehindReport{}, err
 	}
 	b := c.behind
-	for id, outputs := range plan.outputs {
-		if outputs == nil {
-			delete(b.outputs, id)
-		} else {
-			b.outputs[id] = outputs
-		}
-	}
-	for id, class := range plan.classes {
-		if class == nil {
-			delete(b.classes, id)
-		} else {
-			b.classes[id] = writtenClass{retained: class.retained, terms: class.termIDs()}
-		}
-	}
 	b.nextResultID = plan.nextResultID
 	step = c.lockGraphAs(ctx, "dagql.persist.behind.count")
 	c.persistedResults = len(b.outputs)
 	c.unlockGraphAs(step)
-	report := WriteBehindReport{Entries: len(plan.entries), Classes: len(plan.classes)}
-	for _, class := range plan.classes {
-		if class != nil {
-			report.Terms += len(class.terms)
-		}
-	}
-	return report, nil
+	return WriteBehindReport{
+		Entries: len(plan.entries),
+		Used:    len(plan.used),
+		Classes: len(plan.classes),
+		Terms:   len(plan.terms),
+	}, nil
 }
 
-// writeBehindPlan is what one write writes: for each changed entry its rows,
-// nil to delete them; for each changed class its rows, nil to delete them,
-// with the terms the store held with it; and the next result number.
+// writeBehindPlan is what one write writes: for each changed entry, class
+// and term its rows, nil to delete them; the last uses of entries whose last
+// use alone changed; and the next result number.
 type writeBehindPlan struct {
 	entries      map[sharedResultID]*persistResultRows
 	edges        map[sharedResultID]persistdb.MirrorPersistedEdge
-	outputs      map[sharedResultID][]eqClassID
+	used         map[sharedResultID]int64
 	classes      map[eqClassID]*classRows
-	oldTerms     map[eqClassID][]egraphTermID
+	terms        map[egraphTermID]*persistTermRows
 	nextResultID sharedResultID
 	nextChanged  bool
 	// waited is set when a replacement in flight made the write wait.
@@ -185,24 +178,13 @@ type writeBehindPlan struct {
 }
 
 func (p *writeBehindPlan) empty() bool {
-	return len(p.entries) == 0 && len(p.classes) == 0 && len(p.oldTerms) == 0 && !p.nextChanged
+	return len(p.entries) == 0 && len(p.used) == 0 && len(p.classes) == 0 && len(p.terms) == 0 && !p.nextChanged
 }
 
-// classRows are a written class's rows: the class, its digests, and, while
-// it is retained, the terms whose output it is.
+// classRows are a written class's rows: the class and its digests.
 type classRows struct {
-	retained bool
-	class    persistdb.MirrorEqClass
-	digests  []persistdb.MirrorEqClassDigest
-	terms    []persistTermRows
-}
-
-func (r *classRows) termIDs() []egraphTermID {
-	ids := make([]egraphTermID, 0, len(r.terms))
-	for _, term := range r.terms {
-		ids = append(ids, egraphTermID(term.term.ID))
-	}
-	return ids
+	class   persistdb.MirrorEqClass
+	digests []persistdb.MirrorEqClassDigest
 }
 
 // savedLocked reports whether the entry numbered id is saved: a stored root
@@ -337,17 +319,6 @@ func (c *Cache) countOwnersLocked(b *writeBehindState, id sharedResultID) []shar
 	return turned
 }
 
-// retainedLocked reports whether the class rooted at root is retained: a
-// saved entry's output is in it. Requires egraphMu for reading.
-func (c *Cache) retainedLocked(b *writeBehindState, root eqClassID) bool {
-	for id := range c.outputEqClassResults[root] {
-		if c.savedLocked(b, id) {
-			return true
-		}
-	}
-	return false
-}
-
 // classTermsLocked returns the terms whose output is the class rooted at
 // root, sorted. Requires egraphMu for reading.
 func (c *Cache) classTermsLocked(root eqClassID) []egraphTermID {
@@ -363,17 +334,49 @@ func (c *Cache) classTermsLocked(root eqClassID) []egraphTermID {
 	return ids
 }
 
-// planWriteBehindLocked takes the save's marks and plans the write: the
-// counts move, and the changed entries' and classes' rows are copied.
-// Requires egraphMu for reading; only the save changes its marks under it.
+// retainedRootLocked reports whether eqID is a root that is retained: a
+// saved entry's output, as the store holds it, is in it. Requires egraphMu
+// for reading.
+func (c *Cache) retainedRootLocked(b *writeBehindState, eqID eqClassID) bool {
+	return eqID != 0 && b.retainedBy[eqID] > 0 && c.eqClassRootLocked(eqID) == eqID
+}
+
+// moveCounts moves a count map by -1 for each of old and +1 for each of new,
+// dropping counts that reach zero, and adds every class it moved to touched.
+func moveCounts(counts map[eqClassID]int32, old, new []eqClassID, touched map[eqClassID]struct{}) {
+	for _, eqID := range old {
+		if eqID == 0 {
+			continue
+		}
+		if counts[eqID]--; counts[eqID] <= 0 {
+			delete(counts, eqID)
+		}
+		touched[eqID] = struct{}{}
+	}
+	for _, eqID := range new {
+		if eqID == 0 {
+			continue
+		}
+		counts[eqID]++
+		touched[eqID] = struct{}{}
+	}
+}
+
+// planWriteBehindLocked takes the save's marks and plans the write, moving
+// the writer's state as it goes: the counts of the closure, then the
+// changed entries' rows and the classes their outputs name, then the terms
+// marked or whose output class turned retained or not, then the classes
+// those name. Requires egraphMu for reading; only the save changes its marks
+// under it. A failed write leaves the state broken, and the next saves
+// whole.
 func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 	b := c.behind
 	plan := &writeBehindPlan{
 		entries:      map[sharedResultID]*persistResultRows{},
 		edges:        map[sharedResultID]persistdb.MirrorPersistedEdge{},
-		outputs:      map[sharedResultID][]eqClassID{},
+		used:         map[sharedResultID]int64{},
 		classes:      map[eqClassID]*classRows{},
-		oldTerms:     map[eqClassID][]egraphTermID{},
+		terms:        map[egraphTermID]*persistTermRows{},
 		nextResultID: c.nextSharedResultID,
 		nextChanged:  c.nextSharedResultID != b.nextResultID,
 	}
@@ -383,12 +386,15 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 		plan.nextChanged, plan.waited = false, true
 		return plan, nil
 	}
-	marked := append(c.usedMarks.take(), turnedInvalid...)
+	used := c.usedMarks.take()
+	marked := turnedInvalid
 	var markedClasses []eqClassID
+	var markedTerms []egraphTermID
 	if c.changes != nil {
 		marked = append(marked, c.changes.saveEntries...)
 		markedClasses = c.changes.saveClasses
-		c.changes.saveEntries, c.changes.saveClasses = nil, nil
+		markedTerms = c.changes.saveTerms
+		c.changes.saveEntries, c.changes.saveClasses, c.changes.saveTerms = nil, nil, nil
 	}
 
 	// The counts: each marked entry, and each entry whose being saved turns,
@@ -402,116 +408,122 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 		queue = append(queue, c.countOwnersLocked(b, id)...)
 	}
 
+	// The entries: a changed one's rows, and the classes its outputs name
+	// in the store, before and after.
 	saved := func(id sharedResultID) bool { return c.savedLocked(b, id) }
 	classes := map[eqClassID]struct{}{}
 	for _, id := range slices.Sorted(maps.Keys(changed)) {
-		for _, eqID := range b.outputs[id] {
-			classes[eqID] = struct{}{}
-		}
-		if !saved(id) {
+		var outputs []eqClassID
+		if saved(id) {
+			rows, err := c.persistResultRowsLocked(c.resultsByID[id], saved)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows.outputs {
+				outputs = append(outputs, eqClassID(row.EqClassID))
+			}
+			plan.entries[id] = &rows
+			if _, edge := c.persistedEdgesByResult[id]; edge {
+				plan.edges[id] = c.persistEdgeRowLocked(id)
+			}
+		} else if _, held := b.outputs[id]; held {
 			plan.entries[id] = nil
-			plan.outputs[id] = nil
+		}
+		moveCounts(b.retainedBy, b.outputs[id], outputs, classes)
+		if outputs == nil {
+			delete(b.outputs, id)
+		} else {
+			b.outputs[id] = outputs
+		}
+	}
+	// A last use alone: the store's row has everything else already.
+	for _, id := range used {
+		if _, rewritten := changed[id]; rewritten || !saved(id) {
 			continue
 		}
-		rows, err := c.persistResultRowsLocked(c.resultsByID[id], saved)
-		if err != nil {
-			return nil, err
+		plan.used[id] = c.resultsByID[id].loadPayloadState().lastUsedAtUnixNano
+	}
+
+	// The classes whose being retained turned: their terms are written or
+	// deleted with them.
+	for _, eqID := range markedClasses {
+		classes[eqID] = struct{}{}
+		if root := c.eqClassRootLocked(eqID); root != 0 {
+			classes[root] = struct{}{}
 		}
-		outputs := make([]eqClassID, 0, len(rows.outputs))
-		for _, row := range rows.outputs {
-			outputs = append(outputs, eqClassID(row.EqClassID))
-			classes[eqClassID(row.EqClassID)] = struct{}{}
+	}
+	terms := map[egraphTermID]struct{}{}
+	for _, termID := range markedTerms {
+		terms[termID] = struct{}{}
+	}
+	for eqID := range classes {
+		now := c.retainedRootLocked(b, eqID)
+		if _, was := b.retained[eqID]; was == now {
+			continue
 		}
-		plan.entries[id] = &rows
-		plan.outputs[id] = outputs
-		if _, edge := c.persistedEdgesByResult[id]; edge {
-			plan.edges[id] = c.persistEdgeRowLocked(id)
+		if now {
+			b.retained[eqID] = struct{}{}
+		} else {
+			delete(b.retained, eqID)
+		}
+		for _, termID := range c.classTermsLocked(eqID) {
+			terms[termID] = struct{}{}
+		}
+		for termID := range c.outputEqClassToTerms[eqID] {
+			terms[termID] = struct{}{}
 		}
 	}
 
-	// The classes: each marked or touched one, and its root; and the input
-	// classes of the terms of each class whose being retained turns, whose
-	// being written may turn with it.
-	queueClasses := slices.Clone(markedClasses)
-	for eqID := range classes {
-		queueClasses = append(queueClasses, eqID)
+	// The terms: each written while its output class is retained, with the
+	// classes it takes as input.
+	for _, termID := range slices.Sorted(maps.Keys(terms)) {
+		var inputs []eqClassID
+		term := c.egraphTerms[termID]
+		written := term != nil && c.retainedRootLocked(b, c.eqClassRootLocked(term.outputEqID))
+		if written {
+			rows, err := c.persistTermRowsLocked(termID, term)
+			if err != nil {
+				return nil, err
+			}
+			for _, input := range rows.inputs {
+				inputs = append(inputs, eqClassID(input.InputEqClassID))
+			}
+			plan.terms[termID] = &rows
+		} else if _, held := b.terms[termID]; held {
+			plan.terms[termID] = nil
+		}
+		moveCounts(b.inputRefs, b.terms[termID], inputs, classes)
+		if written {
+			b.terms[termID] = inputs
+		} else {
+			delete(b.terms, termID)
+		}
 	}
-	classes = map[eqClassID]struct{}{}
-	for len(queueClasses) > 0 {
-		eqID := queueClasses[len(queueClasses)-1]
-		queueClasses = queueClasses[:len(queueClasses)-1]
+
+	// The classes: each written while it is a retained root or a written
+	// term's input.
+	for _, eqID := range slices.Sorted(maps.Keys(classes)) {
 		if eqID == 0 {
 			continue
 		}
-		if _, seen := classes[eqID]; seen {
-			continue
-		}
-		classes[eqID] = struct{}{}
-		root := c.eqClassRootLocked(eqID)
-		if root != eqID {
-			if root != 0 {
-				queueClasses = append(queueClasses, root)
-			}
-			continue
-		}
-		// A class whose being retained turned, or whose terms changed, as a
-		// join moves them, changes which of its terms' input classes a
-		// retained term takes.
-		terms := c.classTermsLocked(root)
-		old := b.classes[root]
-		if c.retainedLocked(b, root) == old.retained && slices.Equal(terms, old.terms) {
-			continue
-		}
-		for _, termID := range append(terms, old.terms...) {
-			if term := c.egraphTerms[termID]; term != nil {
-				queueClasses = append(queueClasses, term.inputEqIDs...)
-			}
-		}
-	}
-
-	for _, eqID := range slices.Sorted(maps.Keys(classes)) {
-		if old, ok := b.classes[eqID]; ok {
-			plan.oldTerms[eqID] = old.terms
-		}
-		var rows *classRows
-		if root := c.eqClassRootLocked(eqID); root == eqID {
-			retained := c.retainedLocked(b, root)
-			written := retained
-			if !written {
-				for termID := range c.inputEqClassToTerms[root] {
-					term := c.egraphTerms[termID]
-					if term != nil && c.retainedLocked(b, c.eqClassRootLocked(term.outputEqID)) {
-						written = true
-						break
-					}
-				}
-			}
-			if written {
-				rows = &classRows{retained: retained}
-				rows.class, rows.digests = c.persistEqClassRowsLocked(root)
-				if retained {
-					for _, termID := range c.classTermsLocked(root) {
-						termRows, err := c.persistTermRowsLocked(termID, c.egraphTerms[termID])
-						if err != nil {
-							return nil, err
-						}
-						rows.terms = append(rows.terms, termRows)
-					}
-				}
-			}
-		}
-		if rows != nil || plan.oldTerms[eqID] != nil {
+		written := c.eqClassRootLocked(eqID) == eqID && (b.retainedBy[eqID] > 0 || b.inputRefs[eqID] > 0)
+		_, held := b.classes[eqID]
+		switch {
+		case written:
+			rows := &classRows{}
+			rows.class, rows.digests = c.persistEqClassRowsLocked(eqID)
 			plan.classes[eqID] = rows
-		} else if _, held := b.classes[eqID]; held {
+			b.classes[eqID] = struct{}{}
+		case held:
 			plan.classes[eqID] = nil
+			delete(b.classes, eqID)
 		}
 	}
 	return plan, nil
 }
 
 // applyWriteBehindPlan writes the plan in one transaction: every delete
-// first, so a term or class that moved is never deleted after its new rows
-// are written, then every insert.
+// first, then every insert.
 func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan) (rerr error) {
 	tx, err := c.sqlDB.BeginTx(ctx, nil)
 	if err != nil {
@@ -532,10 +544,10 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		if err := q.DeleteMirrorEqClassRows(ctx, int64(eqID)); err != nil {
 			return fmt.Errorf("write behind: delete eq_class %d: %w", eqID, err)
 		}
-		for _, termID := range plan.oldTerms[eqID] {
-			if err := q.DeleteMirrorTermRows(ctx, int64(termID)); err != nil {
-				return fmt.Errorf("write behind: delete term %d: %w", termID, err)
-			}
+	}
+	for _, termID := range slices.Sorted(maps.Keys(plan.terms)) {
+		if err := q.DeleteMirrorTermRows(ctx, int64(termID)); err != nil {
+			return fmt.Errorf("write behind: delete term %d: %w", termID, err)
 		}
 	}
 	for _, eqID := range slices.Sorted(maps.Keys(plan.classes)) {
@@ -551,14 +563,18 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 				return fmt.Errorf("write behind: insert eq_class_digest (%d,%s,%s): %w", row.EqClassID, row.Digest, row.Label, err)
 			}
 		}
-		for _, term := range rows.terms {
-			if err := q.InsertMirrorTerm(ctx, term.term); err != nil {
-				return fmt.Errorf("write behind: insert term %d: %w", term.term.ID, err)
-			}
-			for _, input := range term.inputs {
-				if err := q.InsertMirrorTermInput(ctx, input); err != nil {
-					return fmt.Errorf("write behind: insert term_input (%d,%d): %w", input.TermID, input.Position, err)
-				}
+	}
+	for _, termID := range slices.Sorted(maps.Keys(plan.terms)) {
+		term := plan.terms[termID]
+		if term == nil {
+			continue
+		}
+		if err := q.InsertMirrorTerm(ctx, term.term); err != nil {
+			return fmt.Errorf("write behind: insert term %d: %w", term.term.ID, err)
+		}
+		for _, input := range term.inputs {
+			if err := q.InsertMirrorTermInput(ctx, input); err != nil {
+				return fmt.Errorf("write behind: insert term_input (%d,%d): %w", input.TermID, input.Position, err)
 			}
 		}
 	}
@@ -596,6 +612,11 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 			}
 		}
 	}
+	for _, id := range slices.Sorted(maps.Keys(plan.used)) {
+		if err := q.UpdateMirrorResultLastUsed(ctx, int64(id), plan.used[id]); err != nil {
+			return fmt.Errorf("write behind: update result %d last use: %w", id, err)
+		}
+	}
 	if plan.nextChanged || len(plan.entries) > 0 {
 		if err := q.UpsertMeta(ctx, persistdb.MetaKeyNextResultID, strconv.FormatUint(uint64(plan.nextResultID), 10)); err != nil {
 			return fmt.Errorf("write behind: save next result ID: %w", err)
@@ -609,15 +630,19 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 
 // newWriteBehindStateLocked is the writer's state for a store that holds
 // what a whole save of the cache writes now: the counts of the closure
-// selected, the entries it left out as invalid, and the classes and outputs
-// that save writes. Requires egraphMu for reading.
+// selected, the entries it left out as invalid, and the outputs, terms and
+// classes that save writes. Requires egraphMu for reading.
 func (c *Cache) newWriteBehindStateLocked(selected, roots, invalid map[sharedResultID]struct{}) *writeBehindState {
 	b := &writeBehindState{
 		owners:       map[sharedResultID]int32{},
 		edges:        map[sharedResultID]struct{}{},
 		children:     map[sharedResultID][]sharedResultID{},
 		outputs:      map[sharedResultID][]eqClassID{},
-		classes:      map[eqClassID]writtenClass{},
+		retainedBy:   map[eqClassID]int32{},
+		retained:     map[eqClassID]struct{}{},
+		terms:        map[egraphTermID][]eqClassID{},
+		inputRefs:    map[eqClassID]int32{},
+		classes:      map[eqClassID]struct{}{},
 		unclean:      map[sharedResultID]struct{}{},
 		invalid:      map[sharedResultID]struct{}{},
 		nextResultID: c.nextSharedResultID,
@@ -637,6 +662,7 @@ func (c *Cache) newWriteBehindStateLocked(selected, roots, invalid map[sharedRes
 		b.edges[id] = struct{}{}
 		b.owners[id]++
 	}
+	touched := map[eqClassID]struct{}{}
 	for id := range selected {
 		res := c.resultsByID[id]
 		if res == nil {
@@ -659,21 +685,22 @@ func (c *Cache) newWriteBehindStateLocked(selected, roots, invalid map[sharedRes
 		}
 		slices.Sort(outputs)
 		b.outputs[id] = outputs
-		for _, eqID := range outputs {
-			b.classes[eqID] = writtenClass{retained: true}
+		moveCounts(b.retainedBy, nil, outputs, touched)
+	}
+	for root := range b.retainedBy {
+		b.retained[root] = struct{}{}
+		b.classes[root] = struct{}{}
+		for _, termID := range c.classTermsLocked(root) {
+			var inputs []eqClassID
+			for _, input := range c.egraphTerms[termID].inputEqIDs {
+				inputs = append(inputs, c.eqClassRootLocked(input))
+			}
+			b.terms[termID] = inputs
+			moveCounts(b.inputRefs, nil, inputs, touched)
 		}
 	}
-	for _, root := range slices.Collect(maps.Keys(b.classes)) {
-		terms := c.classTermsLocked(root)
-		b.classes[root] = writtenClass{retained: true, terms: terms}
-		for _, termID := range terms {
-			for _, input := range c.egraphTerms[termID].inputEqIDs {
-				input = c.eqClassRootLocked(input)
-				if _, ok := b.classes[input]; !ok && input != 0 {
-					b.classes[input] = writtenClass{}
-				}
-			}
-		}
+	for eqID := range b.inputRefs {
+		b.classes[eqID] = struct{}{}
 	}
 	return b
 }
