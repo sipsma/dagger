@@ -179,12 +179,13 @@ func (s *session) waitPushes(ctx context.Context) bool {
 	for {
 		// A push in flight as the settle began can find a root busy after
 		// it: each change flushes again, and a flushed busy root is
-		// dropped, so this ends.
-		q.FlushRemotePushes()
+		// dropped, so this ends. The wait subscribes to the queue's changes
+		// before it flushes, so a root parked busy after the flush wakes it.
 		idle, changed := q.RemotePushesIdle()
 		if idle {
 			return true
 		}
+		q.FlushRemotePushes()
 		select {
 		case <-changed:
 		case <-ctx.Done():

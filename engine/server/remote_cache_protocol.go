@@ -181,9 +181,12 @@ func (a *RemoteCacheAdapter) export(ctx context.Context, req protocol.Export, kn
 	leftOut := func(left []dagql.LeftOutRoot) {
 		for _, root := range left {
 			reason := protocol.SkipRefused
-			if errors.Is(root.Err, dagql.ErrPersistStateNotReady) {
+			switch {
+			case errors.Is(root.Err, dagql.ErrPersistStateNotReady):
 				reason = protocol.SkipBusy
-			} else {
+			case errors.Is(root.Err, dagql.ErrNotRetained):
+				reason = protocol.SkipGone
+			default:
 				slog.Warn("remote cache export refused a root", "number", roots[root.Index].number, "row", root.Row, "error", root.Err)
 			}
 			skipped = append(skipped, protocol.SkippedRoot{Number: roots[root.Index].number, Reason: reason, Message: skippedMessage(root.Err)})

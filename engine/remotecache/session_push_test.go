@@ -211,3 +211,44 @@ func TestASettleFlushesARootFoundBusyAfterItBegan(t *testing.T) {
 	mu.Unlock()
 	require.True(t, pushesIdle(adapter.pushes))
 }
+
+// A root parked busy just after the settle's flush, which found none busy,
+// still wakes the settle's wait: it subscribes to the queue's changes before
+// it flushes. The settle flushes again, the root is dropped, and the settle
+// goes.
+func TestASettleSeesARootParkedBusyJustAfterItsFlush(t *testing.T) {
+	t.Parallel()
+	adapter := newFakeAdapter()
+	adapter.setSettle(SettleState{Period: 1, Live: true})
+	gate := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	adapter.push = func(ctx context.Context, roots []uint64, _ *dagql.PushRows, consume func(context.Context, Export) error) error {
+		mu.Lock()
+		calls++
+		first := calls == 1
+		mu.Unlock()
+		if first {
+			<-gate
+		}
+		return consume(ctx, Export{Skipped: []protocol.SkippedRoot{{Number: roots[0], Reason: protocol.SkipBusy}}})
+	}
+	_, conn, _ := servedSession(t, adapter)
+
+	adapter.pushes.add(7)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls == 1
+	}, 5*time.Second, 10*time.Millisecond, "the push's capture is in flight")
+	// The settle's first flush finds nothing busy; the push then parks its
+	// root busy before the wait goes on.
+	adapter.pushes.afterFlush = func() {
+		close(gate)
+		require.Eventually(t, func() bool { return adapter.pushes.busyLen() == 1 }, 5*time.Second, time.Millisecond)
+	}
+	adapter.setSettle(SettleState{Period: 1, Sessions: []protocol.SettleSession{{ID: "sess-1"}}})
+	settle := conn.next(t)
+	require.Equal(t, protocol.TypeSettle, settle.Type)
+	require.True(t, pushesIdle(adapter.pushes))
+}
