@@ -1885,6 +1885,7 @@ func (c *Cache) upsertPersistedEdgeLocked(ctx context.Context, res *sharedResult
 			expiresAtUnix:     expiresAtUnix,
 		}
 		c.incrementIncomingOwnershipLocked(ctx, res)
+		c.notePushLocked(res)
 	}
 	if unpruneable {
 		edge.unpruneable = true

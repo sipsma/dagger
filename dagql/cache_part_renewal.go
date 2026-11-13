@@ -79,6 +79,9 @@ type RemoteCacheBridge struct {
 	// lookups are the attachment's remote lookups, under their own lock
 	// (cache_remote_lookup.go).
 	lookups remoteLookups
+	// pushes are the results queued for a push to the Cloud, under their
+	// own lock (cache_remote_push.go).
+	pushes remotePushes
 }
 
 type renewalExchange struct {
@@ -92,6 +95,7 @@ type renewalExchange struct {
 func newRemoteCacheBridge(mu *sync.Mutex) (*RemoteCacheBridge, error) {
 	b := &RemoteCacheBridge{mu: mu, exchanges: map[uint64]*renewalExchange{}, ready: make(chan struct{})}
 	b.lookups.init()
+	b.pushes.init()
 	if _, err := rand.Read(b.epoch[:]); err != nil {
 		return nil, fmt.Errorf("remote cache bridge epoch: %w", err)
 	}
@@ -303,6 +307,7 @@ func (b *RemoteCacheBridge) closeLocked() {
 	b.queue = nil
 	close(b.ready)
 	b.lookups.close()
+	b.pushes.close()
 }
 
 func cloneExportLayers(layers []snapshots.ExportLayer) ([]snapshots.ExportLayer, error) {
