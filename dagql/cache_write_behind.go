@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"time"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
 )
@@ -119,6 +120,9 @@ type WriteBehindReport struct {
 	Whole   bool `json:"whole,omitempty"`
 	Waited  bool `json:"waited,omitempty"`
 	More    bool `json:"more,omitempty"`
+	// Held is how long the write held the cache's read lock to plan; a
+	// write that wrote nothing reports none.
+	Held time.Duration `json:"held,omitempty"`
 }
 
 // WriteBehind writes to a blob-backed cache's store the rows of whatever
@@ -152,7 +156,9 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 		return WriteBehindReport{Whole: true}, nil
 	}
 	step := c.readLockGraphAs(ctx, "dagql.persist.behind")
+	locked := time.Now()
 	plan, err := c.planWriteBehindLocked()
+	held := time.Since(locked)
 	c.runlockGraphAs(step)
 	if err != nil {
 		c.behind.broken = true
@@ -194,6 +200,7 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 		Classes: len(plan.classes),
 		Terms:   len(plan.terms),
 		More:    plan.more,
+		Held:    held,
 	}, nil
 }
 
