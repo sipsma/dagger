@@ -51,6 +51,12 @@ type writeBehindState struct {
 	outputs map[sharedResultID][]eqClassID
 	// classes are the written classes, as the store holds them.
 	classes map[eqClassID]writtenClass
+	// unclean are the entries whose attachment opened and hasn't been seen
+	// to close cleanly (noteAttachmentOpenedLocked). invalid are the ones it
+	// left failed and every entry that owns one of them, which a whole save
+	// leaves out (snapshotPersistedRootClosureLocked): none of them is saved.
+	unclean map[sharedResultID]struct{}
+	invalid map[sharedResultID]struct{}
 	// nextResultID is the next result number the store holds.
 	nextResultID sharedResultID
 	// broken is set when a write failed after the counts moved: the next
@@ -190,9 +196,81 @@ func (r *classRows) termIDs() []egraphTermID {
 }
 
 // savedLocked reports whether the entry numbered id is saved: a stored root
-// reaches it. Requires egraphMu for reading.
+// reaches it through entries that are all clean. Requires egraphMu for
+// reading.
 func (c *Cache) savedLocked(b *writeBehindState, id sharedResultID) bool {
+	if _, invalid := b.invalid[id]; invalid {
+		return false
+	}
 	return b.owners[id] > 0 && c.resultsByID[id] != nil
+}
+
+// settleUncleanLocked brings the unclean and invalid entries up to date, and
+// returns the entries whose being invalid turned, which the counts must look
+// at again. It reports open when an attachment is still open: the write
+// waits for it, as a whole save would leave out the entry and every entry
+// that owns it only until it closes. Requires egraphMu for reading.
+func (c *Cache) settleUncleanLocked(b *writeBehindState) (turned []sharedResultID, open bool) {
+	if c.changes != nil {
+		for _, id := range c.changes.opened {
+			b.unclean[id] = struct{}{}
+		}
+		c.changes.opened = nil
+	}
+	var failed []sharedResultID
+	for id := range b.unclean {
+		res := c.resultsByID[id]
+		if res == nil {
+			delete(b.unclean, id)
+			continue
+		}
+		switch res.attachmentState() {
+		case resultAttachmentOpen:
+			open = true
+		case resultAttachmentClean:
+			delete(b.unclean, id)
+			turned = append(turned, id)
+		default:
+			failed = append(failed, id)
+		}
+	}
+	if open {
+		return nil, true
+	}
+	invalid := c.ownersOfLocked(failed)
+	for id := range invalid {
+		if _, was := b.invalid[id]; !was {
+			turned = append(turned, id)
+		}
+	}
+	for id := range b.invalid {
+		if _, is := invalid[id]; !is {
+			turned = append(turned, id)
+		}
+	}
+	b.invalid = invalid
+	return turned, false
+}
+
+// ownersOfLocked returns the entries numbered ids and every entry that
+// depends on one of them, transitively. Requires egraphMu for reading.
+func (c *Cache) ownersOfLocked(ids []sharedResultID) map[sharedResultID]struct{} {
+	out := map[sharedResultID]struct{}{}
+	queue := slices.Clone(ids)
+	for len(queue) > 0 {
+		id := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if _, seen := out[id]; seen {
+			continue
+		}
+		out[id] = struct{}{}
+		if res := c.resultsByID[id]; res != nil && res.depParents != nil {
+			for parent := range res.depParents.Items() {
+				queue = append(queue, parent)
+			}
+		}
+	}
+	return out
 }
 
 // countOwnersLocked brings the counts up to date for entry id: its edge, and
@@ -289,7 +367,13 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 		nextResultID: c.nextSharedResultID,
 		nextChanged:  c.nextSharedResultID != b.nextResultID,
 	}
-	marked := c.usedMarks.take()
+	turnedInvalid, open := c.settleUncleanLocked(b)
+	if open {
+		// The marks wait for the next write.
+		plan.nextChanged = false
+		return plan, nil
+	}
+	marked := append(c.usedMarks.take(), turnedInvalid...)
 	var markedClasses []eqClassID
 	if c.changes != nil {
 		marked = append(marked, c.changes.saveEntries...)
@@ -360,11 +444,18 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 			}
 			continue
 		}
-		if c.retainedLocked(b, root) == b.classes[root].retained {
+		// A class whose being retained turned, or whose terms changed, as a
+		// join moves them, changes which of its terms' input classes a
+		// retained term takes.
+		terms := c.classTermsLocked(root)
+		old := b.classes[root]
+		if c.retainedLocked(b, root) == old.retained && slices.Equal(terms, old.terms) {
 			continue
 		}
-		for _, termID := range c.classTermsLocked(root) {
-			queueClasses = append(queueClasses, c.egraphTerms[termID].inputEqIDs...)
+		for _, termID := range append(terms, old.terms...) {
+			if term := c.egraphTerms[termID]; term != nil {
+				queueClasses = append(queueClasses, term.inputEqIDs...)
+			}
 		}
 	}
 
@@ -517,7 +608,24 @@ func (c *Cache) newWriteBehindStateLocked(selected, roots map[sharedResultID]str
 		children:     map[sharedResultID][]sharedResultID{},
 		outputs:      map[sharedResultID][]eqClassID{},
 		classes:      map[eqClassID]writtenClass{},
+		unclean:      map[sharedResultID]struct{}{},
+		invalid:      map[sharedResultID]struct{}{},
 		nextResultID: c.nextSharedResultID,
+	}
+	var failed []sharedResultID
+	for id, res := range c.resultsByID {
+		switch res.attachmentState() {
+		case resultAttachmentClean:
+		case resultAttachmentOpen:
+			b.unclean[id] = struct{}{}
+		default:
+			b.unclean[id] = struct{}{}
+			failed = append(failed, id)
+		}
+	}
+	b.invalid = c.ownersOfLocked(failed)
+	if c.changes != nil {
+		c.changes.opened = nil
 	}
 	for id := range roots {
 		b.edges[id] = struct{}{}

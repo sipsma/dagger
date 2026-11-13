@@ -8053,6 +8053,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		}
 	}
 	if !resWasCacheBacked {
+		c.noteAttachmentOpenedLocked(oc.res.id)
 		oc.res.attachDepsMu.Lock()
 		oc.res.attachDepsWaitCh = make(chan struct{})
 		oc.res.attachDepsErr = nil
