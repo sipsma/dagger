@@ -11,6 +11,7 @@ import (
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
 	"github.com/dagger/dagger/engine/slog"
+	"github.com/opencontainers/go-digest"
 )
 
 // Checkpoint saves a blob-backed cache, the Cloud's, without closing it: the
@@ -162,7 +163,12 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		if payload.snapshotLinkIntent != nil {
 			payload.snapshotOwnerLinks = cloneSnapshotRefLinks(payload.snapshotLinkIntent.Links)
 		}
+		var identityRecipe digest.Digest
+		if res.identityOnly {
+			identityRecipe = res.identityRecipe
+		}
 		snapshot.results = append(snapshot.results, persistResultSnapshot{
+			identityRecipe:        identityRecipe,
 			resultID:              resultID,
 			imported:              res.imported,
 			persistDeclined:       res.persistDeclined,
@@ -656,6 +662,16 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 			}
 		}
 	}()
+	if snapshot != nil && snapshot.identityRecipe != "" {
+		// An identity-only entry saves its recipe alone: restore makes it
+		// identity-only again, never an absent value that could be served.
+		return PersistedResultEncoding{Envelope: PersistedResultEnvelope{
+			Version:        persistedResultEnvelopeVersion,
+			Kind:           persistedResultKindNull,
+			ResultID:       uint64(snapshot.resultID),
+			IdentityRecipe: snapshot.identityRecipe,
+		}}, nil
+	}
 	if snapshot != nil && snapshot.persistedEnvelope != nil {
 		return PersistedResultEncoding{
 			Envelope:      *snapshot.persistedEnvelope,

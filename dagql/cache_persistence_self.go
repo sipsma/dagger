@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	set "github.com/hashicorp/go-set/v3"
+	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -57,7 +58,12 @@ type PersistedResultEnvelope struct {
 	// only its saved envelope carries: in memory they stay on the entry, so
 	// no record sent to an engine carries them.
 	StoredParts []PersistedPartOffer `json:"storedParts,omitempty"`
-	Version     int                  `json:"version"`
+	// IdentityRecipe marks an engine's saved identity-only entry
+	// (sharedResult.identityOnly): the Cloud entry's recipe, with no value
+	// and no frame. Only a saved envelope carries it; restore makes the
+	// entry identity-only again.
+	IdentityRecipe digest.Digest `json:"identityRecipe,omitempty"`
+	Version        int           `json:"version"`
 	Kind        string               `json:"kind"`
 	// TypeName identifies the GraphQL value type of object and scalar
 	// envelopes.
