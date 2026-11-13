@@ -3104,6 +3104,12 @@ type sharedResult struct {
 	// from (recipeDigestForCachedResult). Set when the entry is made, and
 	// never changed.
 	identityRecipe digest.Digest
+	// rowUnavailable marks an entry whose value, decoded for a hit, needed
+	// a row that could be neither found on the engine nor fetched
+	// (errRowUnavailable): lookups and publications pass it by from then
+	// on, so the call it was a hit for runs and keeps its own value.
+	// Guarded by egraphMu.
+	rowUnavailable bool
 	// Origin is immutable; slots and graph revisions are guarded by egraphMu.
 	imported bool
 	// persistDeclined records that the call that computed the entry's value
@@ -7178,6 +7184,12 @@ func (c *Cache) lookupCacheForDigests(
 	}
 
 	loadedHit, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
+	if errors.Is(err, errRowUnavailable) {
+		// A row the value needs is unavailable: a miss, as in
+		// lookupCacheForRequest.
+		c.markRowUnavailable(ctx, hitShared)
+		return nil, false, nil
+	}
 	if err != nil {
 		if errors.Is(err, errAttachRefusedByProducerRelease) {
 			// The producing session's release failed the attachment; this
@@ -7828,7 +7840,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		if cur == nil {
 			break
 		}
-		if !cur.noValueLocked() && !c.resultExpiredAtLocked(cur, now.Unix()) && servableLocked(cur) {
+		if !cur.noValueLocked() && !cur.rowUnavailable && !c.resultExpiredAtLocked(cur, now.Unix()) && servableLocked(cur) {
 			// A value bound to its session is that session's own outcome,
 			// which another session's live entry doesn't stand for: it
 			// registers beside the entry, not indexed, and its session hits
