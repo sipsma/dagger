@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/snapshots/config"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -637,4 +639,83 @@ func TestDecodedParentKeepsAChildFilledMidDecode(t *testing.T) {
 	require.False(t, d.b.resultsByID[d.identity].identityOnly)
 	d.b.egraphMu.RUnlock()
 	d.exportsWhole(t)
+}
+
+// A decode that fails after resolving a stand-in leaves no substitution
+// behind: the retry, with the stand-in gone and the row fetched, keeps the
+// row its installed value names.
+func TestDecodeRetryKeepsTheRowItsValueNames(t *testing.T) {
+	t.Parallel()
+	d := newDecodedParentTest(t)
+	pNumber := uint64(d.p.cacheSharedResult().id)
+	failed := false
+	transferDecodeHooks.Store(d.rNumber, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
+		child, err := dec.ResultRef(ctx, value.Child)
+		if err != nil {
+			return err
+		}
+		if !failed {
+			failed = true
+			return errors.New("first attempt fails after resolving its child")
+		}
+		value.Child = uint64(child.cacheSharedResult().id)
+		return nil
+	})
+	t.Cleanup(func() { transferDecodeHooks.Delete(d.rNumber) })
+	_, err := d.b.LoadResultByResultID(d.bctx, "", d.bsrv, d.rNumber)
+	require.Error(t, err)
+
+	// The stand-in goes; the retry fetches the row itself.
+	d.b.egraphMu.RLock()
+	ownEntry := d.b.resultsByID[sharedResultID(d.own)]
+	d.b.egraphMu.RUnlock()
+	mergeTestExpire(d.b, ownEntry)
+	d.b.SetRowFetcher(&identityTestFetcher{fetch: func(numbers []uint64, _, _ bool) (ValueBundle, []uint64, error) {
+		require.Equal(t, []uint64{pNumber}, numbers)
+		return exportTestBundle(t, d.actx, d.a, d.p), nil, nil
+	}})
+	_, err = d.b.LoadResultByResultID(d.bctx, "", d.bsrv, d.rNumber)
+	require.NoError(t, err)
+	d.b.egraphMu.RLock()
+	require.Contains(t, d.b.resultsByID[sharedResultID(d.rNumber)].deps, d.identity, "R keeps the row its value names")
+	d.b.egraphMu.RUnlock()
+	d.exportsWhole(t)
+}
+
+// A stand-in of another recipe, in the class only through a shared content
+// digest, serves the decode, but R keeps the identity-only entry its frame
+// names, and its frame and recipe index stay as they were.
+func TestStandInOfAnotherRecipeLeavesTheFrame(t *testing.T) {
+	t.Parallel()
+	d := newDecodedParentTest(t)
+	content := digest.FromString("dep content")
+	d.b.egraphMu.Lock()
+	identityEntry := d.b.resultsByID[d.identity]
+	d.b.teachHeldRowDigestsLocked(d.bctx, identityEntry, identityEntry.identityRecipe, []call.ExtraDigest{{Digest: content, Label: call.ExtraDigestLabelContent}})
+	ownEntry := d.b.resultsByID[sharedResultID(d.own)]
+	d.b.egraphMu.Unlock()
+	mergeTestExpire(d.b, ownEntry)
+	// Another recipe, the same content.
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "bundle-dep-elsewhere", Type: NewResultCallType((&transferTestValue{}).Type())}
+	other, err := d.b.GetOrInitCall(d.bctx, "test-session", d.bsrv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "dep"}, frame)
+	})
+	require.NoError(t, err)
+	require.NoError(t, d.b.TeachContentDigest(d.bctx, other, content))
+	d.b.egraphMu.RLock()
+	rEntry := d.b.resultsByID[sharedResultID(d.rNumber)]
+	rFrame := rEntry.loadResultCall()
+	d.b.egraphMu.RUnlock()
+	rRecipe, err := rFrame.deriveRecipeDigest(d.b)
+	require.NoError(t, err)
+
+	d.decode(t, nil)
+	d.b.egraphMu.RLock()
+	require.Contains(t, rEntry.deps, d.identity, "R keeps the identity-only entry its frame names")
+	require.Contains(t, rEntry.deps, other.cacheSharedResult().id, "and owns the stand-in its value names")
+	after := rEntry.loadResultCall()
+	d.b.egraphMu.RUnlock()
+	got, err := after.deriveRecipeDigest(d.b)
+	require.NoError(t, err)
+	require.Equal(t, rRecipe, got, "R's recipe is unchanged")
 }
