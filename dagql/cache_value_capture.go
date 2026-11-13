@@ -239,7 +239,12 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 		if res.identityOnly {
 			// A row a Cloud merge carried as identity alone is the Cloud's
 			// own entry, of which the engine has no record to send: the
-			// export names it as a held row, by its recipe.
+			// export names it as a held row, by its recipe. Once the Cloud
+			// has refused it, having no value of it any more, the roots
+			// above it stay here.
+			if known.refusedLocked(res) {
+				return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: identity-only row %d was refused: the Cloud holds no value of it", res.id)})
+			}
 			c.incrementIncomingOwnershipLocked(ctx, res)
 			row := &capturedTransferRow{shared: res, held: true, imported: true, recipe: res.identityRecipe, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
 			capture.rows[res.id] = row
