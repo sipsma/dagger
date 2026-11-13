@@ -336,4 +336,16 @@ func TestMergeListsSharedLayersOnce(t *testing.T) {
 	require.NoError(t, env.Decode(&got))
 	require.NoError(t, dagql.ResolveChainPrefixes(&got.Bundle), "the engine's merge resolves the layers")
 	require.Equal(t, Merge{Bundle: bundle, Lookup: 3}, got)
+
+	// A fetch's answer lists them once too, whichever encoder writes it.
+	require.Equal(t, 1, count(FetchedRows{Bundle: bundle}))
+	data, err := EncodeEnvelope(1, 0, TypeFetchedRows, FetchedRows{Bundle: bundle, Missing: []uint64{7}})
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(string(data), "https://blobs.example/layer"))
+	env, err = NewEnvelope(1, 0, TypeFetchedRows, FetchedRows{Bundle: bundle, Missing: []uint64{7}})
+	require.NoError(t, err)
+	var fetched FetchedRows
+	require.NoError(t, env.Decode(&fetched))
+	require.NoError(t, dagql.ResolveChainPrefixes(&fetched.Bundle))
+	require.Equal(t, FetchedRows{Bundle: bundle, Missing: []uint64{7}}, fetched)
 }
