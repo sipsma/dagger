@@ -2646,6 +2646,9 @@ type Cache struct {
 	// ownRunRowsKeptApart, ownRunRowsSameContent and ownRunRowsNotRun count
 	// committed merge rows (OwnRunStats).
 	ownRunRowsKeptApart, ownRunRowsSameContent, ownRunRowsNotRun atomic.Uint64
+	// ownRunApartFull, ownRunApartHeld, ownRunOverApartFull and
+	// ownRunOverApartHeld count committed merge rows by route (OwnRunStats).
+	ownRunApartFull, ownRunApartHeld, ownRunOverApartFull, ownRunOverApartHeld atomic.Uint64
 
 	taughtContentQueued         atomic.Uint64
 	taughtContentRewrites       atomic.Uint64

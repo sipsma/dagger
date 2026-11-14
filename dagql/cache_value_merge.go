@@ -391,9 +391,15 @@ type MergeReply struct {
 // computed itself and weren't kept apart: shown a copy of a run of the
 // cache's own by content (OwnSameContent), or on an entry with no run of the
 // cache's own at or below it yet (OwnNotRun).
+//
+// By route, it counts the rows kept apart from a run of the cache's own as
+// full rows (ApartFull) and as held rows (ApartHeld), and the rows kept apart
+// or not installed because they are over one of those (OverApartFull,
+// OverApartHeld, by the route of the row at the bottom).
 type MergeRowCounts struct {
 	Held, Kept, Created, Stored, Replaced, Retired, OtherRun int
 	OwnSameContent, OwnNotRun                                int
+	ApartFull, ApartHeld, OverApartFull, OverApartHeld       int
 }
 
 // count counts one decided row.
@@ -1314,8 +1320,11 @@ type valueMergeCommit struct {
 	roots   []MergedRoot
 	now     int64
 	// apartRecipes are the recipes of the rows keepOwnRunsLocked kept apart
-	// or dropped.
+	// or dropped, ownDropped the ordinals it dropped, and ownRoutes its
+	// counts by route.
 	apartRecipes map[digest.Digest]bool
+	ownDropped   map[uint64]bool
+	ownRoutes    MergeRowCounts
 }
 
 // mergeAttachedOffer is an offer a merge attached: the entry, its part key
@@ -1717,6 +1726,17 @@ func (c *Cache) relocateMergeRowsLocked(commit *valueMergeCommit) error {
 				if err != nil {
 					return err
 				}
+				// An offer owned by a row keepOwnRunsLocked dropped was made
+				// over another run: the row, which lands as a copy of the
+				// entry's value by content, takes it from no owner.
+				offers = slices.DeleteFunc(offers, func(offer PersistedPartOffer) bool {
+					for _, provisional := range offer.Owner.DependencyIDs {
+						if commit.ownDropped[provisional-prep.firstID+1] {
+							return true
+						}
+					}
+					return false
+				})
 				for i := range offers {
 					if err := visitPersistedPartOffer(&offers[i], nil, relocate); err != nil {
 						return err
@@ -2592,6 +2612,8 @@ func (c *Cache) bindMergedFrameLocked(res *sharedResult, published bool) error {
 // egraphMu.
 func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 	reply := MergeReply{Generation: c.identity.Generation, EngineTimeUnixNano: time.Now().UnixNano()}
+	reply.Rows.ApartFull, reply.Rows.ApartHeld = commit.ownRoutes.ApartFull, commit.ownRoutes.ApartHeld
+	reply.Rows.OverApartFull, reply.Rows.OverApartHeld = commit.ownRoutes.OverApartFull, commit.ownRoutes.OverApartHeld
 	for _, row := range commit.rows {
 		reply.Rows.count(row)
 		res := row.res

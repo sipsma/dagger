@@ -531,6 +531,12 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 		// which targets had one.
 		"other_run_rows", reply.Rows.OtherRun,
 		"other_run_roots", otherRunRoots,
+		// The same refusals by route: rows kept apart as full rows and as
+		// held rows, and rows over each, kept apart or not installed.
+		"apart_full_rows", reply.Rows.ApartFull,
+		"apart_held_rows", reply.Rows.ApartHeld,
+		"over_apart_full_rows", reply.Rows.OverApartFull,
+		"over_apart_held_rows", reply.Rows.OverApartHeld,
 		"same_content_rows", reply.Rows.OwnSameContent,
 		"own_unrun_rows", reply.Rows.OwnNotRun,
 		"own_runs_read", reply.OwnRunsRead,
