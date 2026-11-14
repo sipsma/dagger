@@ -2977,9 +2977,9 @@ func TestCommitObservesItsRootsRetention(t *testing.T) {
 	at := time.Now().UnixNano()
 	expires := time.Now().Add(time.Hour).Unix()
 	for _, tc := range []struct {
-		name         string
-		before       *RetentionObservation
-		retained     bool
+		name           string
+		before         *RetentionObservation
+		retained       bool
 		expiresAtLeast int64
 	}{
 		{"not retained before", nil, true, expires},

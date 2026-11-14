@@ -170,7 +170,7 @@ func newFakeAdapter() *fakeAdapter {
 		restored:       make(chan RestoreReport, 64),
 		restoreSeen:    make(chan dagql.ValueBundle, 64),
 		unretainedSeen: make(chan []dagql.TransferOrdinal, 64),
-		pushes:   newFakePushQueue(),
+		pushes:         newFakePushQueue(),
 	}
 }
 
