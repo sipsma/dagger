@@ -86,12 +86,14 @@ func heldTestChainedCloud(t *testing.T) (context.Context, *Cache, uint64, uint64
 }
 
 // heldTestSessionValue computes the value of P's call in the engine's
-// "test-session", not persistable: only the session holds it.
+// "test-session", not persistable: only the session holds it. It is lazy and
+// nothing evaluates it, so the engine has no run of its own of P: a held row
+// stands for it (keepOwnRunsLocked).
 func heldTestSessionValue(t *testing.T, ctx context.Context, c *Cache, srv *Server) uint64 {
 	t.Helper()
 	frame := &ResultCall{Kind: ResultCallKindField, Field: "bundle-dep", Type: NewResultCallType((&transferTestValue{}).Type())}
 	res, err := c.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
-		return NewResultForCall(&transferTestValue{Text: "dep"}, frame)
+		return NewResultForCall(ownRunTestLazy("dep"), frame)
 	})
 	require.NoError(t, err)
 	return uint64(res.cacheSharedResult().id)
