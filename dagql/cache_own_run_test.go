@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -303,4 +304,95 @@ func TestCallRecordOverAKeptApartInputIsNotTaught(t *testing.T) {
 		})
 	require.NoError(t, err)
 	require.True(t, ran, "the call over the engine's own receiver runs")
+}
+
+// The service sends R, which another engine computed over its run of P,
+// with P as a held row, because this engine's rows report its own P. A held
+// row carries nothing the engine can compare: where the engine's P has run,
+// the held row is kept apart as a full row would be, and R isn't installed
+// over it. Where the engine's P is lazy and hasn't run, the held row stands
+// for it as before. (The service sends such rows: its
+// TestPlacementHeldFromRows.)
+func TestMergeKeepsApartAHeldRowOnAnOwnRun(t *testing.T) {
+	t.Parallel()
+	for _, ran := range []bool{true, false} {
+		t.Run(map[bool]string{true: "own run", false: "not yet run"}[ran], func(t *testing.T) {
+			t.Parallel()
+			ctx, cloud, r, p := heldTestChainedCloud(t)
+			bctx, b, bsrv := transferTestCache(t)
+			value := &transferTestValue{Text: "own dep"}
+			if !ran {
+				value = ownRunTestLazy("own dep")
+			}
+			own := persistedListTestResult(t, bctx, b, bsrv, "bundle-dep", value)
+			require.Equal(t, ran, own.cacheSharedResult().ranHere())
+			pb := uint64(own.cacheSharedResult().id)
+			heldTestHold(t, ctx, cloud, "cache-b", pb, p, 0)
+			got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+			require.NoError(t, err)
+			require.Equal(t, []uint64{p}, got.Held)
+
+			reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+			require.NoError(t, err)
+			require.True(t, reply.Committed)
+			heldOrdinal := heldTestRow(t, got.Bundle, p).Ordinal
+			if !ran {
+				require.Empty(t, reply.OtherRun)
+				require.Len(t, reply.Imported(), 1, "R lands over the engine's P")
+				return
+			}
+			require.Equal(t, []TransferOrdinal{heldOrdinal}, reply.OtherRun, "the held row is kept apart")
+			require.Empty(t, reply.Imported(), "R isn't installed over the engine's run")
+			require.Equal(t, 1, reply.Rows.ApartHeld)
+			require.Equal(t, 1, reply.Rows.OverApartHeld)
+			require.Zero(t, reply.Rows.ApartFull+reply.Rows.OverApartFull)
+		})
+	}
+}
+
+// A record of C carries an offer owned by B, and B was computed over A,
+// which the merge keeps apart: B isn't installed, so the offer has no owner.
+// The merge still commits. Where C lands as a copy of the engine's own value
+// by content it lands without the offer; where it lands on a value the
+// engine took from another cache, the offer would give it a part made over
+// another run, so it is kept apart.
+func TestMergeValuesLeavesAnOfferOwnedByADroppedRow(t *testing.T) {
+	t.Parallel()
+	content := digest.FromString("c content")
+	actx, a, asrv := transferTestCache(t)
+	// The sender's numbers aren't the bundle's ordinals.
+	for i := range 5 {
+		persistedListTestResult(t, actx, a, asrv, fmt.Sprintf("owner-padding-%d", i), String("padding"))
+	}
+	sentA := persistedListTestResult(t, actx, a, asrv, "owner-a", String("fill a"))
+	sentB := persistedListTestResult(t, actx, a, asrv, "owner-b", &transferTestValue{Text: "fill b"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentB, sentA, "test"))
+	sentC := persistedListTestResult(t, actx, a, asrv, "owner-c", &transferTestValue{Text: "fill c"})
+	require.NoError(t, a.TeachContentDigest(actx, sentC, content))
+	mergeTestOfferOn(t, actx, a, sentC, "/c", sentB)
+	bundle := exportTestBundle(t, actx, a, sentC, sentB)
+
+	for _, sameContent := range []bool{true, false} {
+		t.Run(map[bool]string{true: "own copy by content", false: "taken value"}[sameContent], func(t *testing.T) {
+			ctx, c, srv := transferTestCache(t)
+			persistedListTestResult(t, ctx, c, srv, "owner-a", String("own a"))
+			var own AnyResult
+			if sameContent {
+				own = persistedListTestResult(t, ctx, c, srv, "owner-c", &transferTestValue{Text: "own c"})
+				require.NoError(t, c.TeachContentDigest(ctx, own, content))
+			} else {
+				own = takenTestResult(t, ctx, c, srv, "owner-c", &transferTestValue{Text: "taken c"})
+			}
+			reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+			require.NoError(t, err, "the merge commits")
+			require.True(t, reply.Committed)
+			require.Zero(t, mergeTestOffers(c, own.cacheSharedResult()), "C takes no offer from a dropped owner")
+			if sameContent {
+				require.Equal(t, 1, reply.Rows.OwnSameContent)
+			} else {
+				require.Equal(t, 1, reply.Rows.ApartFull, "A")
+				require.Equal(t, 2, reply.Rows.OverApartFull, "B, and C over B's offer")
+			}
+		})
+	}
 }

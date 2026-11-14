@@ -59,6 +59,16 @@ func sameContentLocked(row *mergeRow, res *sharedResult) bool {
 	return frame.ContentDigest() == incoming
 }
 
+// ownRoute is how a row kept apart reached the cache: as a full row, with
+// its record, or as a held row, which stands for the cache's own value
+// without one.
+type ownRoute uint8
+
+const (
+	ownRouteFull ownRoute = iota + 1
+	ownRouteHeld
+)
+
 // ownLanding is how a merge row landed on an entry the cache computed
 // itself without being kept apart.
 type ownLanding uint8
@@ -151,29 +161,48 @@ func (c *Cache) readOwnRuns(prep *valueMergePrep) {
 // cache: the Cloud computes nothing, so on it no row is kept apart. Requires
 // egraphMu.
 func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
-	apart := map[uint64]bool{}
+	// apart maps each row kept apart, or dropped, to the route of the row it
+	// was first kept apart for: a full row or a held one.
+	apart := map[uint64]ownRoute{}
+	counts := &commit.ownRoutes
 	for _, row := range commit.rows {
-		if row.action.installs() || commit.prep.held[row.ordinal] {
-			// An installed record lands on an entry with no value of its own,
-			// or one whose expired value it replaces; a held row is the
-			// entry's own value.
+		if row.action.installs() {
+			// An installed record lands on an entry with no value of its
+			// own, or one whose expired value it replaces.
 			continue
 		}
 		if !c.computedHereLocked(row.res) {
 			continue
 		}
+		// A held row stands for the entry's own value but carries nothing
+		// the cache could compare with it: the sender's run of the recipe
+		// may be another. Where the entry has a run of the cache's own, it
+		// is kept apart as a full row is.
+		held := commit.prep.held[row.ordinal]
 		switch run, read := commit.prep.ownRuns[row.res]; {
-		case sameContentLocked(row, row.res):
+		case !held && sameContentLocked(row, row.res):
 			row.own = ownSameContent
 		case read && !run:
 			row.own = ownNotRun
+		case held:
+			row.otherRun = true
+			apart[row.ordinal] = ownRouteHeld
+			counts.ApartHeld++
 		default:
 			row.otherRun = true
-			apart[row.ordinal] = true
+			apart[row.ordinal] = ownRouteFull
+			counts.ApartFull++
 		}
 	}
 	if len(apart) == 0 {
 		return
+	}
+	over := func(route ownRoute) {
+		if route == ownRouteHeld {
+			counts.OverApartHeld++
+		} else {
+			counts.OverApartFull++
+		}
 	}
 	// Rows are in dependency order, so one pass drops every row it must. A
 	// dropped row that decides its recipe takes the recipe's other rows,
@@ -194,14 +223,19 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 				// as that value, whatever run its record was computed over.
 				continue
 			}
+			// A row's dependencies, and its offers' owners', are named by
+			// ordinal.
 			deps := slices.Clone(row.value.DependencyIDs)
 			for _, offer := range row.value.Record.Envelope.PendingOffers {
 				deps = append(deps, offer.Owner.DependencyIDs...)
 			}
 			for _, dep := range deps {
-				if !dropped[dep] && !apart[dep] {
+				route, isApart := apart[dep]
+				if !isApart {
 					continue
 				}
+				apart[row.ordinal] = route
+				over(route)
 				if row.action.installs() {
 					dropped[row.ordinal] = true
 				} else {
@@ -210,7 +244,6 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 					// parts made over another run: it gives none. A record
 					// over it is over another run too.
 					row.otherRun, row.own = true, ownNone
-					apart[row.ordinal] = true
 				}
 				changed = true
 				break
@@ -223,6 +256,10 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 			for _, other := range commit.rows {
 				if other.res == row.res && !dropped[other.ordinal] {
 					dropped[other.ordinal] = true
+					if _, counted := apart[other.ordinal]; !counted {
+						apart[other.ordinal] = apart[row.ordinal]
+						over(apart[row.ordinal])
+					}
 					changed = true
 				}
 			}
@@ -236,6 +273,7 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 			commit.apartRecipes[row.plan.recipe] = true
 		}
 	}
+	commit.ownDropped = dropped
 	kept := commit.rows[:0]
 	for _, row := range commit.rows {
 		if dropped[row.ordinal] {
@@ -354,6 +392,9 @@ type OwnRunStats struct {
 	// RowsKeptApart, RowsSameContent and RowsNotRun are the committed merge
 	// rows counted as MergeRowCounts' OtherRun, OwnSameContent and OwnNotRun.
 	RowsKeptApart, RowsSameContent, RowsNotRun uint64
+	// ApartFull, ApartHeld, OverApartFull and OverApartHeld are the
+	// committed merges' MergeRowCounts of the same names.
+	ApartFull, ApartHeld, OverApartFull, OverApartHeld uint64
 	// OffersRefused are the parts OfferParts refused for rows with a run of
 	// this cache's own below them, and OffersLent the parts it attached.
 	OffersRefused, OffersLent uint64
@@ -364,6 +405,10 @@ func (c *Cache) noteOwnRunRows(rows MergeRowCounts) {
 	c.ownRunRowsKeptApart.Add(uint64(rows.OtherRun))
 	c.ownRunRowsSameContent.Add(uint64(rows.OwnSameContent))
 	c.ownRunRowsNotRun.Add(uint64(rows.OwnNotRun))
+	c.ownRunApartFull.Add(uint64(rows.ApartFull))
+	c.ownRunApartHeld.Add(uint64(rows.ApartHeld))
+	c.ownRunOverApartFull.Add(uint64(rows.OverApartFull))
+	c.ownRunOverApartHeld.Add(uint64(rows.OverApartHeld))
 }
 
 // OwnRunStats reports what keeping the cache's own runs refused and let
@@ -373,6 +418,10 @@ func (c *Cache) OwnRunStats() OwnRunStats {
 		RowsKeptApart:   c.ownRunRowsKeptApart.Load(),
 		RowsSameContent: c.ownRunRowsSameContent.Load(),
 		RowsNotRun:      c.ownRunRowsNotRun.Load(),
+		ApartFull:       c.ownRunApartFull.Load(),
+		ApartHeld:       c.ownRunApartHeld.Load(),
+		OverApartFull:   c.ownRunOverApartFull.Load(),
+		OverApartHeld:   c.ownRunOverApartHeld.Load(),
 		OffersRefused:   c.ownRunOffersRefused.Load(),
 		OffersLent:      c.ownRunOffersLent.Load(),
 	}
