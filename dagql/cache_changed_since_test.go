@@ -14,7 +14,7 @@ import (
 // changedSinceTestBuild builds a stored bundle of the roots.
 func changedSinceTestBuild(t *testing.T, cloud *Cache, roots ...uint64) StoredBundleResult {
 	t.Helper()
-	built, err := cloud.StoredBundle(t.Context(), roots, time.Now().Unix(), nil)
+	built, err := cloud.StoredBundle(t.Context(), roots, time.Now().Unix())
 	require.NoError(t, err)
 	return built
 }
@@ -152,7 +152,7 @@ func TestChangedSinceAStoredBundle(t *testing.T) {
 		stored, _, err := cloud.SetStoredPart(ctx, p, testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
-		require.Equal(t, []uint64{p}, changedSinceTestRebuild(t, cloud, before, r))
+		require.Empty(t, changedSinceTestRebuild(t, cloud, before, r), "the dependency travels as an identity row, which carries no parts")
 		require.False(t, changedSinceTestOne(t, cloud, r, before.Position), "the root's own record and parts didn't change: the dependency is a record of its own")
 	})
 
