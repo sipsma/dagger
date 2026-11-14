@@ -147,26 +147,14 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 		c.identityRows.fetchFailed.Add(1)
 		return nil, fmt.Errorf("entry %d: %w: %w", res.id, errRowUnavailable, err)
 	}
-	fetcher := c.loadRowFetcher()
-	if fetcher == nil {
-		return fail(errors.New("no fetcher"))
-	}
 	if h == nil {
 		return fail(errors.New("no Cloud entry"))
 	}
-	releases = nil
-	fetchCtx, cancel := context.WithTimeout(ctx, rowFetchTimeout)
-	defer cancel()
-	bundle, missing, err := fetcher.FetchRows(fetchCtx, []uint64{key.Number}, decode, frames)
+	bundle, err := c.fetchIdentityRow(ctx, res, key.Number, decode, frames)
 	if err != nil {
 		return fail(err)
 	}
-	if slices.Contains(missing, key.Number) || len(bundle.Values) == 0 {
-		return fail(fmt.Errorf("the Cloud no longer holds entry %d", key.Number))
-	}
-	if _, err := c.mergeFetchedRowsInto(ctx, bundle, map[uint64]sharedResultID{key.Number: res.id}); err != nil {
-		return fail(err)
-	}
+	releases = nil
 	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 	landed := !res.identityOnly
 	if !landed {
@@ -191,6 +179,59 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 		}
 	}
 	return res, nil
+}
+
+// fetchIdentityRow asks the Cloud for its record of res, Cloud entry number,
+// and merges it onto res, bounded by rowFetchTimeout. It returns the fetched
+// bundle.
+func (c *Cache) fetchIdentityRow(ctx context.Context, res *sharedResult, number uint64, decode, frames bool) (ValueBundle, error) {
+	fetcher := c.loadRowFetcher()
+	if fetcher == nil {
+		return ValueBundle{}, errors.New("no fetcher")
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, rowFetchTimeout)
+	defer cancel()
+	bundle, missing, err := fetcher.FetchRows(fetchCtx, []uint64{number}, decode, frames)
+	if err != nil {
+		return ValueBundle{}, err
+	}
+	if slices.Contains(missing, number) || len(bundle.Values) == 0 {
+		return ValueBundle{}, fmt.Errorf("the Cloud no longer holds entry %d", number)
+	}
+	if _, err := c.mergeFetchedRowsInto(ctx, bundle, map[uint64]sharedResultID{number: res.id}); err != nil {
+		return ValueBundle{}, err
+	}
+	return bundle, nil
+}
+
+// fillIdentityEntry lands the Cloud's record on res itself, an identity-only
+// entry a caller needs exactly, as a part delegation needs its recorded
+// parent: no stand-in serves. Its error wraps errRowUnavailable.
+func (c *Cache) fillIdentityEntry(ctx context.Context, res *sharedResult) error {
+	c.egraphMu.RLock()
+	identity := res.identityOnly
+	key, h := res.cloudHoldingLocked()
+	c.egraphMu.RUnlock()
+	if !identity {
+		return nil
+	}
+	err := errors.New("no Cloud entry")
+	if h != nil {
+		_, err = c.fetchIdentityRow(ctx, res, key.Number, false, false)
+	}
+	if err == nil {
+		c.egraphMu.RLock()
+		if res.identityOnly {
+			err = fmt.Errorf("the fetched record of Cloud entry %d didn't land", key.Number)
+		}
+		c.egraphMu.RUnlock()
+	}
+	if err != nil {
+		c.identityRows.fetchFailed.Add(1)
+		return fmt.Errorf("entry %d: %w: %w", res.id, errRowUnavailable, err)
+	}
+	c.identityRows.fetched.Add(1)
+	return nil
 }
 
 // ownStandInLocked makes the entry that needed res own the entry that stands

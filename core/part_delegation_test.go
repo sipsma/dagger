@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,7 +83,7 @@ func attachDelegationChild(t *testing.T, ctx context.Context, cache *dagql.Cache
 }
 
 func TestPartDelegationRealStore(t *testing.T) {
-	for _, mode := range []string{"ready-parent", "pending-parent", "borrowed-sync", "native-restart", "ready-parent-over-chain", "ordinary-ready-tie", "child-chain-first", "late-child", "child-and-parent-failure"} {
+	for _, mode := range []string{"ready-parent", "pending-parent", "borrowed-sync", "native-restart", "ready-parent-over-chain", "ordinary-ready-tie", "child-chain-first", "late-child", "child-and-parent-failure", "identity-parent"} {
 		t.Run(mode, func(t *testing.T) {
 			aStore, bStore := testutil.NewStore(t), testutil.NewStore(t)
 			actx, a, asrv := transferCache(t, aStore, "", "a")
@@ -103,7 +105,7 @@ func TestPartDelegationRealStore(t *testing.T) {
 			observed := &partObservedManager{SnapshotManager: bStore.Manager}
 			bStore.Manager = observed
 			bctx, b, bsrv := transferCache(t, bStore, filepath.Join(t.TempDir(), "b.db"), "b")
-			if mode != "pending-parent" && mode != "child-chain-first" && mode != "late-child" && mode != "child-and-parent-failure" {
+			if mode != "pending-parent" && mode != "child-chain-first" && mode != "late-child" && mode != "child-and-parent-failure" && mode != "identity-parent" {
 				localRef, _ := bStore.Build(t, nil, "payload", "delegated bytes")
 				local := NewContainer(base.Platform)
 				local.FS.setValue(partTestDirectory(localRef, "/"))
@@ -116,7 +118,11 @@ func TestPartDelegationRealStore(t *testing.T) {
 			require.NoError(t, a.WithExportedValues(actx, selection, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(_ context.Context, exported *dagql.ExportedValues) error {
 				provider := &testutil.Provider{InfoReaderProvider: exported.Chains.Entries[0].Provider}
 				b.SetPartContentSource(partTestContentSource{provider})
-				importedReply, err := b.MergeValues(bctx, dagql.CloudCacheID, exported.Bundle)
+				bundle := exported.Bundle
+				if mode == "identity-parent" {
+					bundle = identityParentBundle(t, actx, a, b, parent, bundle)
+				}
+				importedReply, err := b.MergeValues(bctx, dagql.CloudCacheID, bundle)
 				imported := importedReply.Imported()
 				require.NoError(t, err)
 				loaded, err := b.LoadResultByResultID(bctx, "", bsrv, imported[0].ResultID)
@@ -290,7 +296,7 @@ func assertDelegationRoute(t *testing.T, bctx context.Context, b *dagql.Cache, b
 	} else {
 		require.True(t, shared, "the child's fs is its parent's, by delegation")
 	}
-	if mode == "pending-parent" || mode == "child-chain-first" || mode == "late-child" {
+	if mode == "pending-parent" || mode == "child-chain-first" || mode == "late-child" || mode == "identity-parent" {
 		require.Positive(t, provider.Reads.Load())
 	} else {
 		require.Zero(t, provider.Reads.Load())
@@ -346,4 +352,55 @@ func testNativeDelegationRestart(t *testing.T, store *testutil.Store, snapshotID
 	require.Equal(t, snapshotID, record.SnapshotLinks[0].RefKey)
 	require.Zero(t, observed.bodies.Load())
 	require.Equal(t, dagql.CachePersistenceResetNone, cache.PersistenceResetReason(), fmt.Sprint(cache.PersistenceResetReason()))
+}
+
+// identityParentFetcher answers an engine's fetch of rows with one bundle.
+type identityParentFetcher struct {
+	bundle dagql.ValueBundle
+	calls  atomic.Int32
+}
+
+func (f *identityParentFetcher) FetchRows(context.Context, []uint64, bool, bool) (dagql.ValueBundle, []uint64, error) {
+	f.calls.Add(1)
+	return f.bundle, nil, nil
+}
+
+// identityParentBundle sends the delegated child's parent as identity alone,
+// as a Cloud merge does for a row the receiver doesn't hold, and has b fetch
+// the parent's record, with its part, when something needs it.
+func identityParentBundle(t *testing.T, actx context.Context, a, b *dagql.Cache, parent dagql.ObjectResult[*Container], bundle dagql.ValueBundle) dagql.ValueBundle {
+	t.Helper()
+	number, err := a.PersistedResultID(parent)
+	require.NoError(t, err)
+	recipe, err := parent.RecipeDigest(actx)
+	require.NoError(t, err)
+	fetched := dagql.ValueBundle{Version: bundle.Version, Layers: bundle.Layers, Addresses: bundle.Addresses}
+	out := bundle
+	out.Values = slices.Clone(bundle.Values)
+	var ordinal dagql.TransferOrdinal
+	for i, v := range out.Values {
+		if v.SenderNumber == number {
+			ordinal = v.Ordinal
+			full := v
+			full.Ordinal = 1
+			fetched.Values = []dagql.TransferredValue{full}
+			fetched.Roots = []dagql.TransferredRoot{{Ordinal: 1}}
+			out.Values[i] = dagql.TransferredValue{Ordinal: v.Ordinal, SenderNumber: v.SenderNumber, Record: dagql.PersistedRecord{ResultID: v.SenderNumber}, Held: recipe, ExpiresAtUnix: v.ExpiresAtUnix}
+		}
+	}
+	require.NotZero(t, ordinal, "the parent is in the bundle")
+	out.Outputs = nil
+	for _, o := range bundle.Outputs {
+		if o.Ordinal == ordinal {
+			o.Ordinal = 1
+			fetched.Outputs = append(fetched.Outputs, o)
+			continue
+		}
+		out.Outputs = append(out.Outputs, o)
+	}
+	require.NotEmpty(t, fetched.Outputs, "the parent's part travels with its fetched record")
+	fetcher := &identityParentFetcher{bundle: fetched}
+	b.SetRowFetcher(fetcher)
+	t.Cleanup(func() { require.Positive(t, fetcher.calls.Load(), "the parent's record was fetched") })
+	return out
 }
