@@ -2636,7 +2636,10 @@ type Cache struct {
 	// testFirstUseInstall, nil but in tests, runs as a first use has
 	// prepared a record's payload and is about to take the entry's payload
 	// lock to install it (prepareMerged).
-	testFirstUseInstall     func(*sharedResult)
+	testFirstUseInstall func(*sharedResult)
+	// testAfterOwnRunsRead runs in a merge's commit after it read its
+	// targets' own runs (readOwnRuns), before it takes egraphMu.
+	testAfterOwnRunsRead    func()
 	testAfterTransferCommit func()
 	testPartRouted          func(uint64)
 	testOwnerWalked         func(uint64)
@@ -3293,12 +3296,13 @@ type cacheUsageMayChange interface {
 // sharedResult holds cache-entry state and shared payload published to per-call Result values.
 type sharedResult struct {
 	inlineBorrow *PartHost
-	// apartCloud is a Cloud entry a merge kept apart from this entry, which
-	// the engine computed, for want of the content digest the record named
-	// (rememberApartLocked); shownEqualCloud is the Cloud entry whose copy
-	// this entry was last shown equal to by content. Guarded by egraphMu.
-	apartCloud      *apartCloudCopy
-	shownEqualCloud uint64
+	// apartCloud is a Cloud entry's record a merge kept apart from this
+	// entry, which the engine computed, for want of the content digest the
+	// record named (rememberApartLocked); shownEqual names the Cloud record
+	// and the value of this entry last shown equal by content. Guarded by
+	// egraphMu.
+	apartCloud *apartCloudCopy
+	shownEqual *cloudEquality
 	// Origin is immutable; slots and graph revisions are guarded by egraphMu.
 	imported bool
 	// persistDeclined records that the call that computed the entry's value
