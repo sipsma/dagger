@@ -35,6 +35,9 @@ type OfferDisposition struct {
 	// the outcome describes.
 	Replacements uint64
 	Deps         []uint64
+	// OwnRunBelow marks an offer refused because a run this cache made is
+	// below the row (anyRanHere).
+	OwnRunBelow bool
 }
 
 // noteReceiverLocked records the receiver's value state where the outcome is
@@ -258,6 +261,7 @@ func (c *Cache) offerPart(ctx context.Context, root *sharedResult, item CloudPar
 	key, _ := partAddressKey(address)
 	// A preparation hold protects references across the two E sections.
 	wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
+	ownBelow := c.ownEntriesBelowLocked(row)
 	var owner *offerOwner
 	old := row.partOfferLocked(key)
 	if old != nil && sameOfferMeaning(old.record, offer) {
@@ -294,6 +298,10 @@ func (c *Cache) offerPart(ctx context.Context, root *sharedResult, item CloudPar
 		out.Outcome, out.Err = OfferUnavailable, err
 		return out
 	}
+	// Read outside egraphMu (ranHere). A run that starts below after this
+	// read and before the decision is the same as one that starts after the
+	// offer attaches.
+	ownRunBelow := anyRanHere(ownBelow)
 	if c.testOfferBeforeDecision != nil {
 		c.testOfferBeforeDecision(root)
 	}
@@ -324,6 +332,14 @@ func (c *Cache) offerPart(ctx context.Context, root *sharedResult, item CloudPar
 	var queue collectionQueue
 	// accepted is the offer this call attached, for prefetching.
 	var accepted *partOffer
+	if out.Outcome == OfferAccepted && ownRunBelow {
+		// A run this cache made is below the row: a part of another cache's
+		// run would sit beside it in one value (anyRanHere). The row
+		// takes no part and no Cloud holding from the offer. A row whose own
+		// part has started or completed here is refused by its gate above.
+		out.Outcome, out.OwnRunBelow = OfferUnavailable, true
+		c.ownRunOffersRefused.Add(1)
+	}
 	if out.Outcome == OfferAccepted {
 		if _, image := row.imageHoldingLocked(); image != nil {
 			// The engine image ships the row and offers its parts from the
@@ -371,6 +387,7 @@ func (c *Cache) offerPart(ctx context.Context, root *sharedResult, item CloudPar
 	c.egraphMu.Unlock()
 	out.Err = errors.Join(out.Err, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), callbacks))
 	if accepted != nil && out.Outcome == OfferAccepted {
+		c.ownRunOffersLent.Add(1)
 		c.partOfferAccepted(ctx, row, key, accepted)
 	}
 	return out

@@ -38,7 +38,12 @@ type transferTestValue struct {
 	revisionHook func()
 	// unready makes the output revision read report a held persistence guard.
 	unready atomic.Bool
+	// lazy, when set, is the value's deferred computation: the value is
+	// lazy until something evaluates it.
+	lazy LazyEvalFunc
 }
+
+func (v *transferTestValue) LazyEvalFunc() LazyEvalFunc { return v.lazy }
 
 // transferTestField is one named field of a transferTestValue's body: a name,
 // a description, a type and its arguments.

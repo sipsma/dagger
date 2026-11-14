@@ -2634,6 +2634,15 @@ type Cache struct {
 	// the entries whose taught digests a drop took (dropValueLocked), and
 	// taughtContentRefilled those of them a record filled again
 	// (TaughtContentStats).
+	// ownRunOffersRefused counts the parts OfferParts refused for rows this
+	// cache computed itself (OwnRunStats).
+	ownRunOffersRefused atomic.Uint64
+	// ownRunOffersLent counts the parts OfferParts attached (OwnRunStats).
+	ownRunOffersLent atomic.Uint64
+	// ownRunRowsKeptApart, ownRunRowsSameContent and ownRunRowsNotRun count
+	// committed merge rows (OwnRunStats).
+	ownRunRowsKeptApart, ownRunRowsSameContent, ownRunRowsNotRun atomic.Uint64
+
 	taughtContentQueued         atomic.Uint64
 	taughtContentRewrites       atomic.Uint64
 	taughtContentCarried        atomic.Uint64
