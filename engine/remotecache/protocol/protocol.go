@@ -548,6 +548,12 @@ type Push struct {
 	// ExpiresAtUnix, as of that moment: the Cloud records it as the
 	// engine's telemetry would, so a later observation wins.
 	EngineTimeUnixNano int64 `json:"engineTimeUnixNano"`
+	// Settling says the engine's settle waits for this push: its sessions
+	// have ended, and it stops within its settle bound. The service commits
+	// such a push as it does a lookup, ahead of a read's whole hold; a push
+	// from an engine still running waits for the next step's boundary or
+	// the read's end.
+	Settling bool `json:"settling,omitempty"`
 }
 
 // Pushed answers Push. With no Stale, the Cloud has committed the bundle:
