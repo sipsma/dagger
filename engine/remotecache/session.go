@@ -58,6 +58,10 @@ type session struct {
 	// (protocol.Claims). Only hello and then settles use them.
 	opened  uint64
 	claimed map[string]bool
+	// settleBegan is when a settle began waiting for its pushes
+	// (waitPushes), in Unix nanoseconds, and 0 when none waits: every push
+	// sent meanwhile says so (protocol.Push.Settling).
+	settleBegan atomic.Int64
 
 	mu sync.Mutex
 	// pending are the engine's requests waiting for their replies, by ID.
