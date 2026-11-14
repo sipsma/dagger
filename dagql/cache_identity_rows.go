@@ -235,20 +235,29 @@ func (c *Cache) fetchIdentityRows(ctx context.Context, targets map[uint64]shared
 }
 
 // prefetchIdentityDeps asks the Cloud, in one fetch, for the records of every
-// identity-only dependency of res that no local entry of its class stands
-// for, before res's decode loads them one by one: each lands on its own
-// entry, which res owns as before, and the decode then finds it filled. One
-// the Cloud no longer holds, or a fetch that fails, leaves its entry to the
-// decode's own resolution, which fetches it alone or makes the hit a miss.
-func (c *Cache) prefetchIdentityDeps(ctx context.Context, res *sharedResult) {
+// row res's stored payload, rec, references that came as identity alone and
+// that no local entry of its class stands for, before res's decode loads
+// them one by one: each lands on its own entry, which res owns as before, and
+// the decode then finds it filled. Only the payload's references: its call
+// frame's inputs stay as they are until a frame walk needs one. One the Cloud
+// no longer holds, or a fetch that fails, leaves its entry to the decode's
+// own resolution, which fetches it alone or makes the hit a miss.
+func (c *Cache) prefetchIdentityDeps(ctx context.Context, res *sharedResult, rec PersistedRecord) {
 	if c.loadRowFetcher() == nil {
+		return
+	}
+	named, err := payloadRefs(rec)
+	if err != nil || len(named) == 0 {
 		return
 	}
 	now := time.Now().Unix()
 	targets := map[uint64]sharedResultID{}
 	c.egraphMu.RLock()
-	for id := range res.deps {
-		dep := c.resultsByID[id]
+	for id := range named {
+		if _, dep := res.deps[sharedResultID(id)]; !dep {
+			continue
+		}
+		dep := c.resultsByID[sharedResultID(id)]
 		if dep == nil || !dep.identityOnly || c.localStandInLocked(dep, now) != nil {
 			continue
 		}
@@ -359,30 +368,42 @@ func (c *Cache) decodedValueNames(ctx context.Context, res *sharedResult, call *
 		slog.Debug("settle stand-ins: encode decoded value", "entry", res.id, "error", err)
 		return nil
 	}
-	// The frame's references come last in the walk of the whole record,
-	// which the payload's visitors need.
+	named, err := payloadRefs(PersistedRecord{ResultID: uint64(res.id), Envelope: encoding.Envelope, Call: call, SnapshotLinks: encoding.SnapshotLinks})
+	if err != nil {
+		slog.Debug("settle stand-ins: visit decoded value", "entry", res.id, "error", err)
+		return nil
+	}
+	return named
+}
+
+// payloadRefs returns the rows a record's payload references: those of its
+// whole record, which the payload visitors need with its call frame and
+// snapshot links, but the frame's own, which come last in the walk.
+func payloadRefs(rec PersistedRecord) (map[uint64]bool, error) {
 	frameRefs := 0
-	if call != nil {
-		_ = visitResultCallReferences(call.clone(), func(*PersistedRef) error {
+	if rec.Call != nil {
+		_ = visitResultCallReferences(rec.Call.clone(), func(*PersistedRef) error {
 			frameRefs++
 			return nil
 		})
 	}
 	var refs []uint64
-	if _, err := VisitEncodedReferences(PersistedRecord{ResultID: uint64(res.id), Envelope: encoding.Envelope, Call: call, SnapshotLinks: encoding.SnapshotLinks}, func(ref *PersistedRef) error {
+	if _, err := VisitEncodedReferences(rec, func(ref *PersistedRef) error {
 		refs = append(refs, ref.ResultID)
 		return nil
-	}); err != nil || len(refs) < frameRefs {
-		slog.Debug("settle stand-ins: visit decoded value", "entry", res.id, "error", err)
-		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(refs) < frameRefs {
+		return nil, fmt.Errorf("record %d: %d references, fewer than its frame's %d", rec.ResultID, len(refs), frameRefs)
 	}
 	named := map[uint64]bool{}
 	for _, id := range refs[:len(refs)-frameRefs] {
-		if id != 0 {
+		if id != 0 && id != rec.ResultID {
 			named[id] = true
 		}
 	}
-	return named
+	return named, nil
 }
 
 // settleStandIns makes an entry whose decoded value is now installed depend

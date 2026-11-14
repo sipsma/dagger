@@ -566,7 +566,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 		decodeCtx := ContextWithCall(ctx, call)
 		decodeCtx = context.WithValue(decodeCtx, copiedDecodeRolesKey{}, &copiedDecodeRoles{ResultID: uint64(res.id), Links: cloneSnapshotRefLinks(state.snapshotOwnerLinks), Imported: state.imported, ArmRecipe: c.decodeArmsRecipe(res, state.imported), Host: c.partHostFor(res)})
-		c.prefetchIdentityDeps(ctx, res)
+		c.prefetchIdentityDeps(ctx, res, PersistedRecord{ResultID: uint64(res.id), Envelope: *state.persistedEnvelope, Call: call, SnapshotLinks: state.snapshotOwnerLinks})
 		if decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, nil, uint64(resultID), call, *state.persistedEnvelope); err == nil && decoded != nil {
 			named := c.decodedValueNames(ctx, res, call, decoded)
 			res.payloadMu.Lock()
@@ -1114,7 +1114,7 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			}
 			decodeCtx = context.WithValue(decodeCtx, copiedDecodeRolesKey{}, &copiedDecodeRoles{ResultID: uint64(res.id), Links: cloneSnapshotRefLinks(roles), Imported: state.imported, ArmRecipe: c.decodeArmsRecipe(res, state.imported), Host: c.partHostFor(res)})
 			// What the decode loads that came as identity alone, in one fetch.
-			c.prefetchIdentityDeps(ctx, res)
+			c.prefetchIdentityDeps(ctx, res, PersistedRecord{ResultID: uint64(res.id), Envelope: *state.persistedEnvelope, Call: call, SnapshotLinks: roles})
 			decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, dag, uint64(res.id), call, *state.persistedEnvelope)
 			if err != nil {
 				c.tracePersistedPayloadDecodeFailed(ctx, res, state.persistedEnvelope, err)

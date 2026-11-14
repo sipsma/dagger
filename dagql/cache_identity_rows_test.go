@@ -889,40 +889,40 @@ func (f *identityTestStoredRows) FetchRows(_ context.Context, numbers []uint64, 
 	return got.Bundle, missing, err
 }
 
-// A decode asks for every row it loads that came as identity alone in one
-// fetch: R names P as its receiver and Q as its child, and its decode fetches
-// both at once.
-func TestDecodeFetchesItsIdentityRowsInOneFetch(t *testing.T) {
-	t.Parallel()
-	actx, a, asrv := transferTestCache(t)
-	p := persistedListTestResult(t, actx, a, asrv, "batch-p", &transferTestValue{Text: "p"})
-	q := persistedListTestResult(t, actx, a, asrv, "batch-q", &transferTestValue{Text: "q"})
-	frame := &ResultCall{Kind: ResultCallKindField, Field: "batch-r", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(p.cacheSharedResult().id)}}
-	r, err := a.GetOrInitCall(actx, "test-session", asrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
-		return NewResultForCall(&transferTestValue{Text: "r", Child: uint64(q.cacheSharedResult().id)}, frame)
-	})
-	require.NoError(t, err)
-	transferTestDependency(a, actx, r, q)
-	ctx, cloud, numbers := identityTestCloudOf(t, actx, a, r)
-	rNumber := numbers[uint64(r.cacheSharedResult().id)]
-
-	got, err := cloud.StoredBundle(ctx, []uint64{rNumber}, time.Now().Unix())
+// identityTestEngineFor merges a Cloud's stored bundle of root into a new
+// engine, so the root's children land with their identity alone, and returns
+// the engine, the root's merged row, and the Cloud.
+func identityTestEngineFor(t *testing.T, ctx context.Context, cloud *Cache, rootNumber uint64) (context.Context, *Cache, *Server, MergedValue) {
+	t.Helper()
+	got, err := cloud.StoredBundle(ctx, []uint64{rootNumber}, time.Now().Unix())
 	require.NoError(t, err)
 	bctx, b, bsrv := transferTestCache(t)
 	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
 	require.NoError(t, err)
-	rEngine := heldTestMerged(t, reply, heldTestRow(t, got.Bundle, rNumber).Ordinal)
-	require.Len(t, rEngine.Deps, 2)
+	return bctx, b, bsrv, heldTestMerged(t, reply, heldTestRow(t, got.Bundle, rootNumber).Ordinal)
+}
+
+// A decode asks for every row its payload loads that came as identity alone
+// in one fetch: a list of two values fetches both at once.
+func TestDecodeFetchesItsIdentityRowsInOneFetch(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	q1 := persistedListTestResult(t, actx, a, asrv, "batch-q1", &transferTestValue{Text: "q1"})
+	q2 := persistedListTestResult(t, actx, a, asrv, "batch-q2", &transferTestValue{Text: "q2"})
+	list := persistedListTestResult(t, actx, a, asrv, "batch-list", DynamicResultArrayOutput{Elem: &transferTestValue{}, Values: []AnyResult{q1, q2}})
+	ctx, cloud, numbers := identityTestCloudOf(t, actx, a, list)
+	bctx, b, bsrv, listEngine := identityTestEngineFor(t, ctx, cloud, numbers[uint64(list.cacheSharedResult().id)])
+	require.Len(t, listEngine.Deps, 2)
 	fetcher := &identityTestStoredRows{ctx: ctx, cloud: cloud}
 	b.SetRowFetcher(fetcher)
 
-	_, err = b.LoadResultByResultID(bctx, "", bsrv, rEngine.Number)
+	_, err := b.LoadResultByResultID(bctx, "", bsrv, listEngine.Number)
 	require.NoError(t, err)
-	want := []uint64{numbers[uint64(p.cacheSharedResult().id)], numbers[uint64(q.cacheSharedResult().id)]}
+	want := []uint64{numbers[uint64(q1.cacheSharedResult().id)], numbers[uint64(q2.cacheSharedResult().id)]}
 	slices.Sort(want)
 	require.Equal(t, [][]uint64{want}, fetcher.asked, "one fetch, for both")
 	b.egraphMu.RLock()
-	for _, dep := range rEngine.Deps {
+	for _, dep := range listEngine.Deps {
 		require.False(t, b.resultsByID[sharedResultID(dep)].identityOnly, "entry %d filled", dep)
 	}
 	b.egraphMu.RUnlock()
@@ -930,6 +930,31 @@ func TestDecodeFetchesItsIdentityRowsInOneFetch(t *testing.T) {
 	require.Equal(t, int64(1), counts.Fetches)
 	require.Zero(t, counts.FetchFailed)
 	require.Zero(t, counts.FetchedRowsHad)
+}
+
+// A decode fetches nothing for its call's inputs: a value whose only
+// identity-only input is its call's receiver decodes from its own record.
+func TestDecodeFetchesNoCallInput(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	p := persistedListTestResult(t, actx, a, asrv, "frame-only-p", &transferTestValue{Text: "p"})
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "frame-only-r", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(p.cacheSharedResult().id)}}
+	r, err := a.GetOrInitCall(actx, "test-session", asrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "r"}, frame)
+	})
+	require.NoError(t, err)
+	ctx, cloud, numbers := identityTestCloudOf(t, actx, a, r)
+	bctx, b, bsrv, rEngine := identityTestEngineFor(t, ctx, cloud, numbers[uint64(r.cacheSharedResult().id)])
+	require.Len(t, rEngine.Deps, 1, "the receiver, by identity")
+	fetcher := &identityTestStoredRows{ctx: ctx, cloud: cloud}
+	b.SetRowFetcher(fetcher)
+
+	_, err = b.LoadResultByResultID(bctx, "", bsrv, rEngine.Number)
+	require.NoError(t, err)
+	require.Empty(t, fetcher.asked, "no fetch for the receiver")
+	b.egraphMu.RLock()
+	require.True(t, b.resultsByID[sharedResultID(rEngine.Deps[0])].identityOnly, "the receiver stays identity alone")
+	b.egraphMu.RUnlock()
 }
 
 // When a fetch's answer carries as identity alone a row the engine doesn't
