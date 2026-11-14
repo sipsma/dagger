@@ -685,3 +685,27 @@ func TestMergeValuesComparesNoStaleScalar(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, reply.OtherRun, 1, "true isn't compared with the false the entry now holds")
 }
+
+// A call the engine runs whose recipe a merge kept apart or dropped from a
+// run of the engine's own is counted: it ran because the stored run was
+// refused. A call no merge refused isn't.
+func TestOwnRunStatsCountsCallsRunAfterARefusal(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	sentBase := persistedListTestResult(t, actx, a, asrv, "reran-base", String("fill base"))
+	sentTop := persistedListTestResult(t, actx, a, asrv, "reran-top", &transferTestValue{Text: "fill top"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentTop, sentBase, "test"))
+	bundle := exportTestBundle(t, actx, a, sentTop)
+
+	ctx, c, srv := transferTestCache(t)
+	persistedListTestResult(t, ctx, c, srv, "reran-base", String("own base"))
+	reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Roots[0].OtherRun, "the top, over the engine's own base, isn't installed")
+	require.Zero(t, c.OwnRunStats().RanAfterApart)
+
+	persistedListTestResult(t, ctx, c, srv, "reran-top", &transferTestValue{Text: "own top"})
+	require.Equal(t, uint64(1), c.OwnRunStats().RanAfterApart, "the top ran because its stored run was refused")
+	persistedListTestResult(t, ctx, c, srv, "reran-other", String("other"))
+	require.Equal(t, uint64(1), c.OwnRunStats().RanAfterApart, "no merge refused this one")
+}
