@@ -443,20 +443,24 @@ func (c *Cache) partOfferRestored(ctx context.Context, row *sharedResult, key st
 	c.partOfferAccepted(ctx, row, key, offer)
 }
 
-// queueLaneLocked queues job in its lane, dropping the lane's oldest job
-// when the lane is full, and returns what it dropped, for the caller to log
-// outside the mutex. Requires p.mu.
+// queueLaneLocked queues job in its lane, or drops job when the lane is
+// full, and returns what it dropped, for the caller to log outside the
+// mutex. A full lane keeps the jobs it has: offers arrive in about the order
+// the engine's checks first use them, and the first are the ones installs
+// read. A dropped job is no longer registered, so nothing waits for its
+// downloads, and an install fetches what it needs itself. Requires p.mu.
 func (p *partPrefetcher) queueLaneLocked(job *partPrefetchJob) []*partPrefetchJob {
-	var dropped []*partPrefetchJob
-	if queue := p.queues[job.lane]; len(queue) >= p.cfg.queue {
-		dropped = append(dropped, queue[0])
-		p.queues[job.lane] = queue[1:]
-		delete(p.jobs, queue[0].jobKey())
+	if len(p.queues[job.lane]) >= p.cfg.queue {
+		if p.jobs[job.jobKey()] == job {
+			delete(p.jobs, job.jobKey())
+		}
+		// An import ahead waiting on the job's downloads looks again.
 		p.changedLocked()
+		return []*partPrefetchJob{job}
 	}
 	p.queues[job.lane] = append(p.queues[job.lane], job)
 	p.cond.Broadcast()
-	return dropped
+	return nil
 }
 
 // partOfferGone notes that the cache retired offer: the blobs held or

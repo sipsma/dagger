@@ -89,7 +89,7 @@ func TestPartPrefetchCountsDroppedJobs(t *testing.T) {
 		f.acceptOffer(t, persistedListTestResult(t, f.ctx, f.cache, f.srv, fmt.Sprintf("later-row-%d", i), &transferTestValue{Text: "pending"}), chain)
 	}
 	counts := f.cache.PartPrefetchCounts()
-	require.Equal(t, int64(2), counts.Jobs["skipped_queue"], "a lane of one keeps the last of three")
+	require.Equal(t, int64(2), counts.Jobs["skipped_queue"], "a lane of one keeps the first of three")
 	require.Zero(t, counts.Fetched)
 }
 
