@@ -776,3 +776,45 @@ func TestMergeValuesLandsAnEqualObjectOverLandedEntries(t *testing.T) {
 		})
 	}
 }
+
+// An object shown equal through the entries it names stays equal only while
+// those survive the merge: the engine's A has run since it took B over it;
+// the engine's own object O names B. A bundle brings D over O over B over
+// another run of A. O's value encodes as the engine's does, but B, over the
+// other A, is kept apart once A is, so O is kept apart with it and D isn't
+// installed over the engine's O.
+func TestMergeValuesKeepsApartAnObjectOverARowKeptApartLater(t *testing.T) {
+	t.Parallel()
+	source := func(t *testing.T, text string, withTop bool) ValueBundle {
+		actx, s, ssrv := transferTestCache(t)
+		a := persistedListTestResult(t, actx, s, ssrv, "late-a", &transferTestValue{Text: text + " a"})
+		b := persistedListTestResult(t, actx, s, ssrv, "late-b", &transferTestValue{Text: text + " b"})
+		require.NoError(t, s.AddExplicitDependency(actx, b, a, "test"))
+		if !withTop {
+			return exportTestBundle(t, actx, s, b)
+		}
+		o := persistedListTestResult(t, actx, s, ssrv, "late-o", &transferTestValue{Text: "o", Child: uint64(b.cacheSharedResult().id)})
+		require.NoError(t, s.AddExplicitDependency(actx, o, b, "test"))
+		d := persistedListTestResult(t, actx, s, ssrv, "late-d", &transferTestValue{Text: text + " d"})
+		require.NoError(t, s.AddExplicitDependency(actx, d, o, "test"))
+		return exportTestBundle(t, actx, s, d)
+	}
+	ctx, c, srv := transferTestCache(t)
+	ownA := persistedListTestResult(t, ctx, c, srv, "late-a", ownRunTestLazy("own a"))
+	firstBundle := source(t, "first", false)
+	first, err := c.MergeValues(ctx, cloudCacheID, firstBundle)
+	require.NoError(t, err)
+	require.Len(t, first.Imported(), 1, "B taken over A, which hadn't run")
+	takenB, err := c.LoadResultByResultID(ctx, "test-session", srv, first.Imported()[0].ResultID)
+	require.NoError(t, err)
+	require.NoError(t, c.Evaluate(ctx, ownA))
+	ownO := persistedListTestResult(t, ctx, c, srv, "late-o", &transferTestValue{Text: "o", Child: uint64(takenB.cacheSharedResult().id)})
+	require.NoError(t, c.AddExplicitDependency(ctx, ownO, takenB, "test"))
+
+	bundle := source(t, "second", true)
+	reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Roots[0].OtherRun, "D isn't installed over the engine's O")
+	require.Empty(t, reply.Imported())
+	require.Zero(t, reply.Rows.OwnSameContent, "O's equality didn't survive B's")
+}
