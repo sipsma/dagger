@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/config"
 	"github.com/dagger/dagger/engine/remotecache"
@@ -59,6 +60,32 @@ func newRemoteCacheIntegration(cfg *config.Config) *server.RemoteCacheIntegratio
 	return &server.RemoteCacheIntegrationConfig{Run: func(ctx context.Context, adapter *server.RemoteCacheAdapter) error {
 		// The engine's logger is set once its config is loaded, before Run.
 		settings.Logger = slog.Default()
+		judgeMergeGraphs(settings.Logger)
 		return remotecache.Run(ctx, adapter, settings)
 	}}
+}
+
+// judgeMergeGraphs has every merge's cycle check decided both by the
+// narrowed search and by the whole one it replaced, and logs each merge's two
+// decisions, what each visited and how long it took: a judging build for a
+// stack, never on a line.
+func judgeMergeGraphs(logger *slog.Logger) {
+	dagql.JudgeMergeGraphs(func(_ context.Context, j dagql.MergeGraphJudgement) {
+		level := slog.LevelInfo
+		if j.Disagrees() {
+			level = slog.LevelWarn
+		}
+		logger.Log(context.Background(), level, "merge graph judged",
+			"caller", "engine", "from", string(j.From), "disagrees", j.Disagrees(),
+			"narrow_err", errString(j.Narrow), "whole_err", errString(j.Whole),
+			"narrow_visits", j.NarrowVisits, "narrow_reach", j.NarrowReach, "whole_visits", j.WholeVisits,
+			"narrow_time", j.NarrowTime, "whole_time", j.WholeTime)
+	})
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
