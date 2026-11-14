@@ -461,7 +461,7 @@ func TestWriteBehindUpdatesALastUseAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.Positive(t, report.Held, "the write held the read lock to plan")
 	require.Positive(t, report.Applied, "the write's transaction took time")
-	report.Held, report.Encoded, report.Applied = 0, 0, 0
+	report.Held, report.Encoded, report.Applied, report.Committed = 0, 0, 0, 0
 	require.Equal(t, WriteBehindReport{Used: 1}, report)
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a last use")
 }

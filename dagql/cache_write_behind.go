@@ -130,12 +130,14 @@ type WriteBehindReport struct {
 	// Inserted is how many rows the write inserted.
 	Inserted int `json:"inserted,omitempty"`
 	// Held is how long the write held the cache's read lock to plan, Encoded
-	// how long it then took to encode and fingerprint the rows, and Applied
-	// how long its transaction took; a write that wrote nothing reports
-	// none.
-	Held    time.Duration `json:"held,omitempty"`
-	Encoded time.Duration `json:"encoded,omitempty"`
-	Applied time.Duration `json:"applied,omitempty"`
+	// how long it then took to encode and fingerprint the rows, Applied how
+	// long its transaction's statements took, and Committed how long its
+	// commit took, the sync to disk among it; a write that wrote nothing
+	// reports none.
+	Held      time.Duration `json:"held,omitempty"`
+	Encoded   time.Duration `json:"encoded,omitempty"`
+	Applied   time.Duration `json:"applied,omitempty"`
+	Committed time.Duration `json:"committed,omitempty"`
 }
 
 // WriteBehind writes to a blob-backed cache's store the rows of whatever
@@ -217,7 +219,7 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 		}
 	}
 	encoded := time.Now()
-	inserted, err := c.applyWriteBehindPlan(ctx, plan)
+	inserted, committed, err := c.applyWriteBehindPlan(ctx, plan)
 	if err != nil {
 		b.broken = true
 		return WriteBehindReport{}, err
@@ -249,15 +251,16 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 	c.persistedResults = len(b.outputs)
 	c.unlockGraphAs(step)
 	return WriteBehindReport{
-		Entries:  len(plan.entries),
-		Used:     len(plan.used),
-		Classes:  len(plan.classes),
-		Terms:    len(plan.terms),
-		Inserted: inserted,
-		More:     plan.more,
-		Held:     held,
-		Encoded:  encoded.Sub(unlocked),
-		Applied:  applied.Sub(encoded),
+		Entries:   len(plan.entries),
+		Used:      len(plan.used),
+		Classes:   len(plan.classes),
+		Terms:     len(plan.terms),
+		Inserted:  inserted,
+		More:      plan.more,
+		Held:      held,
+		Encoded:   encoded.Sub(unlocked),
+		Applied:   applied.Sub(encoded) - committed,
+		Committed: committed,
 	}, nil
 }
 
@@ -784,13 +787,13 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 // first, then every insert, but for an entry's dependencies, written by
 // difference with its inserts. Of an entry the store holds, it rewrites only
 // the tables whose rows changed, and of a term, only one whose rows changed.
-// It reports how many rows it inserted.
+// It reports how many rows it inserted, and how long its commit took.
 //
 //nolint:gocyclo // one statement per table, deletes then inserts; splitting hides the order of the tables
-func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan) (inserted int, rerr error) {
+func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan) (inserted int, committed time.Duration, rerr error) {
 	tx, err := c.sqlDB.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("write behind: begin: %w", err)
+		return 0, 0, fmt.Errorf("write behind: begin: %w", err)
 	}
 	defer func() {
 		if rerr != nil {
@@ -820,7 +823,7 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		}
 		if plan.entries[id] == nil {
 			if err := q.DeleteMirrorResultRows(ctx, int64(id)); err != nil {
-				return 0, fmt.Errorf("write behind: delete result %d: %w", id, err)
+				return 0, 0, fmt.Errorf("write behind: delete result %d: %w", id, err)
 			}
 			continue
 		}
@@ -829,13 +832,13 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 				continue
 			}
 			if err := q.DeleteMirrorResultTable(ctx, table, int64(id)); err != nil {
-				return 0, fmt.Errorf("write behind: delete result %d's rows of table %d: %w", id, table, err)
+				return 0, 0, fmt.Errorf("write behind: delete result %d's rows of table %d: %w", id, table, err)
 			}
 		}
 	}
 	for _, eqID := range slices.Sorted(maps.Keys(plan.classes)) {
 		if err := q.DeleteMirrorEqClassRows(ctx, int64(eqID)); err != nil {
-			return 0, fmt.Errorf("write behind: delete eq_class %d: %w", eqID, err)
+			return 0, 0, fmt.Errorf("write behind: delete eq_class %d: %w", eqID, err)
 		}
 	}
 	for _, termID := range slices.Sorted(maps.Keys(plan.terms)) {
@@ -843,7 +846,7 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 			continue
 		}
 		if err := q.DeleteMirrorTermRows(ctx, int64(termID)); err != nil {
-			return 0, fmt.Errorf("write behind: delete term %d: %w", termID, err)
+			return 0, 0, fmt.Errorf("write behind: delete term %d: %w", termID, err)
 		}
 	}
 	for _, eqID := range slices.Sorted(maps.Keys(plan.classes)) {
@@ -852,12 +855,12 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 			continue
 		}
 		if err := q.InsertMirrorEqClass(ctx, rows.class); err != nil {
-			return 0, fmt.Errorf("write behind: insert eq_class %d: %w", eqID, err)
+			return 0, 0, fmt.Errorf("write behind: insert eq_class %d: %w", eqID, err)
 		}
 		inserted++
 		for _, row := range rows.digests {
 			if err := q.InsertMirrorEqClassDigest(ctx, row); err != nil {
-				return 0, fmt.Errorf("write behind: insert eq_class_digest (%d,%s,%s): %w", row.EqClassID, row.Digest, row.Label, err)
+				return 0, 0, fmt.Errorf("write behind: insert eq_class_digest (%d,%s,%s): %w", row.EqClassID, row.Digest, row.Label, err)
 			}
 			inserted++
 		}
@@ -868,12 +871,12 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 			continue
 		}
 		if err := q.InsertMirrorTerm(ctx, term.term); err != nil {
-			return 0, fmt.Errorf("write behind: insert term %d: %w", term.term.ID, err)
+			return 0, 0, fmt.Errorf("write behind: insert term %d: %w", term.term.ID, err)
 		}
 		inserted++
 		for _, input := range term.inputs {
 			if err := q.InsertMirrorTermInput(ctx, input); err != nil {
-				return 0, fmt.Errorf("write behind: insert term_input (%d,%d): %w", input.TermID, input.Position, err)
+				return 0, 0, fmt.Errorf("write behind: insert term_input (%d,%d): %w", input.TermID, input.Position, err)
 			}
 			inserted++
 		}
@@ -885,21 +888,21 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		}
 		if changed(id, int(persistdb.MirrorResultsTable)) {
 			if err := q.InsertMirrorResult(ctx, rows.result.row); err != nil {
-				return 0, fmt.Errorf("write behind: insert result %d: %w", id, err)
+				return 0, 0, fmt.Errorf("write behind: insert result %d: %w", id, err)
 			}
 			inserted++
 		}
 		if changed(id, depsPrint) {
 			n, err := writeBehindDeps(ctx, q, id, rows.result.resultDeps, plan)
 			if err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			inserted += n
 		}
 		if changed(id, int(persistdb.MirrorResultOutputEqClassesTable)) {
 			for _, row := range rows.outputs {
 				if err := q.InsertMirrorResultOutputEqClass(ctx, row); err != nil {
-					return 0, fmt.Errorf("write behind: insert result_output_eq_class (%d,%d): %w", row.ResultID, row.EqClassID, err)
+					return 0, 0, fmt.Errorf("write behind: insert result_output_eq_class (%d,%d): %w", row.ResultID, row.EqClassID, err)
 				}
 				inserted++
 			}
@@ -907,7 +910,7 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		if changed(id, int(persistdb.MirrorResultCallsTable)) {
 			for _, row := range rows.calls {
 				if err := q.InsertMirrorResultCall(ctx, row); err != nil {
-					return 0, fmt.Errorf("write behind: insert result_call (%d,%s): %w", row.ResultID, row.RequestDigest, err)
+					return 0, 0, fmt.Errorf("write behind: insert result_call (%d,%s): %w", row.ResultID, row.RequestDigest, err)
 				}
 				inserted++
 			}
@@ -915,7 +918,7 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		if changed(id, int(persistdb.MirrorResultTaughtTable)) {
 			for _, row := range rows.taught {
 				if err := q.InsertMirrorResultTaught(ctx, row); err != nil {
-					return 0, fmt.Errorf("write behind: insert result_taught (%d,%d): %w", row.ResultID, row.Position, err)
+					return 0, 0, fmt.Errorf("write behind: insert result_taught (%d,%d): %w", row.ResultID, row.Position, err)
 				}
 				inserted++
 			}
@@ -923,32 +926,33 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		if changed(id, int(persistdb.MirrorResultSnapshotLinksTable)) {
 			for _, row := range rows.result.resultSnapshotLinks {
 				if err := q.InsertMirrorResultSnapshotLink(ctx, row); err != nil {
-					return 0, fmt.Errorf("write behind: insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
+					return 0, 0, fmt.Errorf("write behind: insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
 				}
 				inserted++
 			}
 		}
 		if edge, ok := plan.edges[id]; ok && changed(id, int(persistdb.MirrorPersistedEdgesTable)) {
 			if err := q.InsertMirrorPersistedEdge(ctx, edge); err != nil {
-				return 0, fmt.Errorf("write behind: insert persisted_edge (%d): %w", id, err)
+				return 0, 0, fmt.Errorf("write behind: insert persisted_edge (%d): %w", id, err)
 			}
 			inserted++
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(plan.used)) {
 		if err := q.UpdateMirrorResultLastUsed(ctx, int64(id), plan.used[id]); err != nil {
-			return 0, fmt.Errorf("write behind: update result %d last use: %w", id, err)
+			return 0, 0, fmt.Errorf("write behind: update result %d last use: %w", id, err)
 		}
 	}
 	if plan.nextChanged || len(plan.entries) > 0 {
 		if err := q.UpsertMeta(ctx, persistdb.MetaKeyNextResultID, strconv.FormatUint(uint64(plan.nextResultID), 10)); err != nil {
-			return 0, fmt.Errorf("write behind: save next result ID: %w", err)
+			return 0, 0, fmt.Errorf("write behind: save next result ID: %w", err)
 		}
 	}
+	committing := time.Now()
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("write behind: commit: %w", err)
+		return 0, 0, fmt.Errorf("write behind: commit: %w", err)
 	}
-	return inserted, nil
+	return inserted, time.Since(committing), nil
 }
 
 // writeBehindDeps writes the dependency rows of the entry numbered id: all
