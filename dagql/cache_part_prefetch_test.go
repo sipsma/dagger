@@ -311,7 +311,7 @@ func (h blockingHandler) Handle(context.Context, stdslog.Record) error {
 func (h blockingHandler) WithAttrs([]stdslog.Attr) stdslog.Handler { return h }
 func (h blockingHandler) WithGroup(string) stdslog.Handler         { return h }
 
-// A full queue drops its oldest job and logs it without holding the
+// A full queue drops the job that arrives and logs it without holding the
 // prefetcher's mutex, so a slow log writer can't stall a retirement, which
 // takes that mutex under egraphMu.
 func TestPartPrefetchQueueDropDoesNotBlockRetirement(t *testing.T) {
