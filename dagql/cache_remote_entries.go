@@ -947,19 +947,31 @@ func (c *Cache) ObserveRemoteRetention(ctx context.Context, key HolderKey, obs R
 // egraphMu for writing.
 func (c *Cache) observeRemoteRetentionLocked(key HolderKey, obs RetentionObservation) (change RemoteChange, _ error) {
 	defer c.takeChangesLocked(&change)
+	retained, err := c.observeHoldingRetentionLocked(key, obs)
+	if err != nil {
+		return change, err
+	}
+	if !retained {
+		change.Candidates = []HolderKey{key}
+	}
+	return change, nil
+}
+
+// observeHoldingRetentionLocked records obs on key's holding, ordered among
+// its other observations by the engine's clock, marks the holding when its
+// retention changed, and reports whether the holding is retained after.
+// Requires egraphMu for writing.
+func (c *Cache) observeHoldingRetentionLocked(key HolderKey, obs RetentionObservation) (bool, error) {
 	_, h := c.holdingLocked(key)
 	if h == nil {
-		return change, fmt.Errorf("observe remote retention: %w: %s/%d", ErrUnknownHolding, key.Cache, key.Number)
+		return false, fmt.Errorf("observe remote retention: %w: %s/%d", ErrUnknownHolding, key.Cache, key.Number)
 	}
 	before := h.retention
 	h.retention.observe(obs.Retained, obs.ExpiresAtUnix, obsTime{generation: obs.Generation, engineTime: obs.EngineTimeUnixNano})
 	if h.retention.retained != before.retained || h.retention.expiresAtUnix != before.expiresAtUnix {
 		c.markHoldingLocked(key)
 	}
-	if !h.retention.retained {
-		change.Candidates = []HolderKey{key}
-	}
-	return change, nil
+	return h.retention.retained, nil
 }
 
 // EndRemoteProcess ends the sessions of one process of an engine cache,

@@ -2961,3 +2961,75 @@ func TestMergeReplySaysWhichRecordsItStored(t *testing.T) {
 	require.Equal(t, 1, replaced.Rows.Replaced)
 	require.Equal(t, map[uint64]bool{number: true}, stored(replaced))
 }
+
+// A merge's commit records its roots' retention on the sender's holdings
+// inside its own hold of the graph lock (ObserveRetention): the observation
+// ObserveRemoteRetention records after a commit, the same one, ordered
+// among the holding's other observations by the sender's clock. Each case
+// runs on two Cloud caches, one committing with ObserveRetention and one
+// committing plainly and then calling ObserveRemoteRetention, and their
+// holdings agree: for a root the sender's holding hadn't retained before,
+// for one a later observation already retained, which stays, and for one
+// an earlier observation dropped, which the commit retains again.
+func TestCommitObservesItsRootsRetention(t *testing.T) {
+	t.Parallel()
+	const generation = 1
+	at := time.Now().UnixNano()
+	expires := time.Now().Add(time.Hour).Unix()
+	for _, tc := range []struct {
+		name         string
+		before       *RetentionObservation
+		retained     bool
+		expiresAtLeast int64
+	}{
+		{"not retained before", nil, true, expires},
+		{"retained later", retainedAt(generation, at+10, expires+600), true, expires + 600},
+		{"dropped earlier", func() *RetentionObservation { o := droppedAt(generation, at-10); return &o }(), true, expires},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actx, a, asrv := transferTestCache(t)
+			root := persistedListTestResult(t, actx, a, asrv, "root", &transferTestValue{Text: "root"})
+			dep := persistedListTestResult(t, actx, a, asrv, "dep", &transferTestValue{Text: "dep"})
+			transferTestDependency(a, actx, root, dep)
+			bundle := exportTestBundle(t, actx, a, root)
+			bundle.Roots[0].ExpiresAtUnix = expires
+			var sender uint64
+			for _, value := range bundle.Values {
+				if value.Ordinal == bundle.Roots[0].Ordinal {
+					sender = value.SenderNumber
+				}
+			}
+			key := HolderKey{Cache: "cache-a", Number: sender}
+			holding := func(observeInCommit bool) RemoteHoldingInfo {
+				ctx, cloud := storedPartTestCache(t, WithBlobStore())
+				if tc.before != nil {
+					// The holding exists, from an earlier merge, with the
+					// earlier observation on it.
+					_, err := cloud.MergeValues(ctx, "cache-a", bundle)
+					require.NoError(t, err)
+					_, err = cloud.ObserveRemoteRetention(ctx, key, *tc.before)
+					require.NoError(t, err)
+				}
+				prepared, err := cloud.PrepareValueMerge(ctx, "cache-a", bundle)
+				require.NoError(t, err)
+				if observeInCommit {
+					prepared.ObserveRetention(generation, at)
+				}
+				reply, err := cloud.CommitValueMerge(ctx, prepared)
+				require.NoError(t, err)
+				require.NoError(t, reply.RetentionErr)
+				if !observeInCommit {
+					_, err = cloud.ObserveRemoteRetention(ctx, key, RetentionObservation{Retained: true, ExpiresAtUnix: expires, Generation: generation, EngineTimeUnixNano: at})
+					require.NoError(t, err)
+				}
+				return mergeTestHolding(t, cloud, key)
+			}
+			inCommit, after := holding(true), holding(false)
+			require.Equal(t, tc.retained, inCommit.Retained, "the commit recorded the root's retention")
+			require.GreaterOrEqual(t, inCommit.RetentionExpiresAtUnix, tc.expiresAtLeast)
+			require.Equal(t, after.Retained, inCommit.Retained, "as the separate observation does")
+			require.Equal(t, after.RetentionExpiresAtUnix, inCommit.RetentionExpiresAtUnix, "with the same expiry, by the same clock order")
+		})
+	}
+}
