@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/wcprof"
 )
 
@@ -131,6 +132,20 @@ func (c *Cache) selectDemandPartSource(ctx context.Context, receiver AnyResult, 
 	if c.resultsByID[row.id] != row || parent == nil || parent == row || !direct {
 		c.egraphMu.Unlock()
 		return nil, nil, fmt.Errorf("part delegation: receiver %d has no distinct exact direct parent %d", row.id, mapping.ParentResultID)
+	}
+	if parent.identityOnly {
+		// The recorded parent came as identity alone. Delegation is to it
+		// exactly, so no stand-in serves: its record is fetched onto it and
+		// the source chosen again. Without it, the part has no delegated
+		// source, as if the route named none.
+		c.egraphMu.Unlock()
+		if err := c.fillIdentityEntry(ctx, parent); err != nil {
+			slog.Debug("part delegation: identity-only parent unfilled", "receiver", row.id, "parent", parent.id, "error", err)
+			chosen := ordinary
+			ordinary = nil
+			return chosen, nil, nil
+		}
+		return nil, nil, partRefused("delegation: parent filled")
 	}
 	if !c.sessionSatisfiesResourceRequirementsLocked(session, row) || !c.sessionSatisfiesResourceRequirementsLocked(session, parent) {
 		c.egraphMu.Unlock()

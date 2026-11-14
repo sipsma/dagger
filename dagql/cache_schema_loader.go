@@ -16,6 +16,19 @@ type SchemaModuleCandidate struct {
 }
 
 func (c *Cache) LoadResultByResultIDForSchema(ctx context.Context, sessionID string, dag *Server, recordedID uint64, installed []SchemaModuleCandidate) (AnyResult, error) {
+	c.egraphMu.RLock()
+	recorded := c.resultsByID[sharedResultID(recordedID)]
+	identity := recorded != nil && recorded.identityOnly
+	c.egraphMu.RUnlock()
+	if identity {
+		// A Module a merge carried as identity alone: an entry of its class
+		// with a value, or the Cloud's record of it, fetched.
+		resolved, err := c.resolveIdentityEntry(ctx, recorded, true, false, nil)
+		if err != nil {
+			return nil, fmt.Errorf("load schema module %d: %w", recordedID, err)
+		}
+		recordedID = uint64(resolved.id)
+	}
 	op, err := c.beginSessionOperation(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("load schema module %d: %w", recordedID, err)

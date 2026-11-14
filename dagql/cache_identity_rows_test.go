@@ -798,3 +798,34 @@ func TestFrameWalksResolveAnIdentityEntry(t *testing.T) {
 	_, _, err := b.moduleResultIDs(rEntry.loadResultCall(), newModuleIDsRebuild(bctx, 1))
 	require.NoError(t, err)
 }
+
+// A content-preferred digest that reaches an identity-only entry with no
+// content digest of its own derives it from the frame every walk reads for
+// it: the engine's own P's.
+func TestContentPreferredDigestResolvesAnIdentityEntry(t *testing.T) {
+	t.Parallel()
+	bctx, b, bsrv, _, pEntry, _, _, _ := identityTestEngine(t)
+	b.SetRowFetcher(&identityTestFetcher{fetch: func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
+		return ValueBundle{}, nil, errors.New("not expected")
+	}})
+	own := heldTestSessionValue(t, bctx, b, bsrv)
+	want, err := contentPreferredDigestForCachedResult(b, sharedResultID(own), map[sharedResultID]struct{}{})
+	require.NoError(t, err)
+	got, err := contentPreferredDigestForCachedResult(b, pEntry.id, map[sharedResultID]struct{}{})
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+// A schema load of a Module that came as identity alone loads an entry of
+// its class with a value, rather than refusing the entry for having none.
+func TestSchemaLoadResolvesAnIdentityEntry(t *testing.T) {
+	t.Parallel()
+	bctx, b, bsrv, _, pEntry, _, _, _ := identityTestEngine(t)
+	b.SetRowFetcher(&identityTestFetcher{fetch: func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
+		return ValueBundle{}, nil, errors.New("not expected")
+	}})
+	own := heldTestSessionValue(t, bctx, b, bsrv)
+	loaded, err := b.LoadResultByResultIDForSchema(bctx, "test-session", bsrv, uint64(pEntry.id), nil)
+	require.NoError(t, err)
+	require.Equal(t, sharedResultID(own), loaded.cacheSharedResult().id, "the engine's own P")
+}
