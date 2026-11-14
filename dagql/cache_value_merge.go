@@ -149,6 +149,9 @@ type PreparedValueMerge struct {
 	hold    bool
 	// source names where the bundle came from (Source).
 	source MergeSource
+	// retention is when the sender observed its roots retained, for the
+	// commit to record on its holdings (ObserveRetention), or nil.
+	retention *mergeRetention
 	// ended is set once, by the terminal action.
 	ended atomic.Bool
 }
@@ -179,6 +182,27 @@ func (p *PreparedValueMerge) Unretained(ordinals ...TransferOrdinal) {
 	for _, ordinal := range ordinals {
 		p.unretained[ordinal] = true
 	}
+}
+
+// ObserveRetention has the commit record, on the sender's holding of each
+// root it merges unexpired, that the sender retained the root until the
+// bundle's ExpiresAtUnix for it, as of generation and engineTimeUnixNano on
+// the sender's clock: the observation ObserveRemoteRetention records,
+// ordered among the holding's other observations by that clock, but made
+// inside the commit's own hold of egraphMu rather than in a hold of its own
+// after it. A holding it finds no longer retained is a candidate in the
+// reply's Change, and one it can't find is in the reply's RetentionErr; the
+// merge commits all the same. Only the Cloud records holdings. Call it
+// before CommitValueMerge.
+func (p *PreparedValueMerge) ObserveRetention(generation uint64, engineTimeUnixNano int64) {
+	p.retention = &mergeRetention{generation: generation, engineTime: engineTimeUnixNano}
+}
+
+// mergeRetention is when a merge's sender observed its roots retained
+// (ObserveRetention).
+type mergeRetention struct {
+	generation uint64
+	engineTime int64
 }
 
 // Stale returns, sorted, the held rows the preparation found stale as the
@@ -293,6 +317,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 		origin = &mergeOrigin{route: p.source.Route, number: p.source.Merge, file: p.source.File}
 	}
 	prep.origin = origin
+	prep.retention = p.retention
 	if len(prep.stale) > 0 {
 		return c.staleMergeReply(prep.stale), nil
 	}
@@ -342,6 +367,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 			prep.lockWaits.addAll(waited)
 			prep.unretained = p.unretained
 			prep.origin = origin
+			prep.retention = p.retention
 			if len(prep.stale) > 0 {
 				return c.staleMergeReply(prep.stale), nil
 			}
@@ -446,6 +472,9 @@ type MergeReply struct {
 	// whose release let each wait in, as LookupLockWaits names them.
 	PrepareLockWait  time.Duration
 	PrepareLockWaits map[string]time.Duration
+	// RetentionErr names the roots whose holdings the commit didn't find to
+	// record their retention on (ObserveRetention).
+	RetentionErr error
 }
 
 // MergeRowCounts counts a merge's records by what its commit did with each:
@@ -541,8 +570,10 @@ type valueMergePrep struct {
 	from   CacheID
 	bundle ValueBundle
 	// unretained are the bundle's roots the commit gives no retention edge
-	// (PreparedValueMerge.Unretained).
+	// (PreparedValueMerge.Unretained), and retention when the sender
+	// observed its roots retained (PreparedValueMerge.ObserveRetention).
 	unretained map[TransferOrdinal]bool
+	retention  *mergeRetention
 	order      []uint64
 	index      map[uint64]*TransferredValue
 	// rows are the bundle's ordinals by sender number, which its records'
@@ -2661,6 +2692,9 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 	errs = errors.Join(errs, collectErr)
 
 	reply := c.mergeReplyLocked(commit)
+	if r := commit.prep.retention; r != nil {
+		reply.RetentionErr = c.observeMergedRetentionLocked(commit, reply.Roots, *r, &change)
+	}
 	c.takeChangesLocked(&change)
 	reply.Change = change
 	if commit.hold {
@@ -2687,6 +2721,41 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 		return err
 	}
 	return reply, finish
+}
+
+// observeMergedRetentionLocked records, on the sender's holding of each root
+// the merge committed unexpired, the retention its sender observed
+// (ObserveRetention): retained until the bundle's ExpiresAtUnix for the
+// root, ordered by the sender's clock. A holding no longer retained after
+// is a candidate in change. It returns the roots whose holdings it didn't
+// find. Requires egraphMu for writing.
+func (c *Cache) observeMergedRetentionLocked(commit *valueMergeCommit, roots []MergedRoot, r mergeRetention, change *RemoteChange) error {
+	senders := make(map[TransferOrdinal]uint64, len(commit.prep.bundle.Values))
+	for _, value := range commit.prep.bundle.Values {
+		senders[value.Ordinal] = value.SenderNumber
+	}
+	expiries := make(map[TransferOrdinal]int64, len(commit.prep.bundle.Roots))
+	for _, root := range commit.prep.bundle.Roots {
+		expiries[root.Ordinal] = root.ExpiresAtUnix
+	}
+	var errs error
+	for _, root := range roots {
+		if root.Expired || root.Number == 0 {
+			continue
+		}
+		key := HolderKey{Cache: commit.from, Number: senders[root.Ordinal]}
+		retained, err := c.observeHoldingRetentionLocked(key, RetentionObservation{
+			Retained: true, ExpiresAtUnix: expiries[root.Ordinal], Generation: r.generation, EngineTimeUnixNano: r.engineTime,
+		})
+		if err != nil {
+			errs = errors.Join(errs, err)
+			continue
+		}
+		if !retained {
+			change.Candidates = append(change.Candidates, key)
+		}
+	}
+	return errs
 }
 
 // applyMergedIdentitiesLocked gives every row's entry the record's identity
