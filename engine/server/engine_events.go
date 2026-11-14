@@ -197,6 +197,7 @@ func (srv *Server) stopEngineEvents(ctx context.Context, clean bool) {
 		return
 	}
 	if srv.engineCache != nil {
+		own := srv.engineCache.OwnRunStats()
 		srv.engineEvents.Emit(telemetryattrs.EngineEventStop, srv.engineCache.Identity(), time.Now(), telemetryattrs.EngineStopEvent{
 			Clean:              clean,
 			SavedEntries:       srv.engineCache.PersistedResults(),
@@ -207,6 +208,13 @@ func (srv *Server) stopEngineEvents(ctx context.Context, clean bool) {
 			FirstUse:           engineFirstUse(srv.engineCache.FirstUse()),
 			LookupLockWaits:    engineLookupLockWaits(srv.engineCache.LookupLockWaits()),
 			Sharing:            engineSharing(srv.engineCache.Sharing().Kinds),
+			OwnRuns: telemetryattrs.EngineOwnRuns{
+				RowsKeptApart:   own.RowsKeptApart,
+				RowsSameContent: own.RowsSameContent,
+				RowsNotRun:      own.RowsNotRun,
+				OffersRefused:   own.OffersRefused,
+				OffersLent:      own.OffersLent,
+			},
 		})
 	}
 	shutdownCtx := context.WithoutCancel(ctx)

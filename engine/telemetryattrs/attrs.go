@@ -1219,6 +1219,9 @@ type EngineStopEvent struct {
 	// none of which held a part ready to give) and "donor"
 	// (dagql.Cache.Sharing).
 	Sharing map[string]EngineSharePasses `json:"sharing,omitempty"`
+	// OwnRuns counts what the engine's cache, keeping to its own runs, did
+	// with what the remote cache sent it over its life.
+	OwnRuns EngineOwnRuns `json:"ownRuns"`
 }
 
 // EngineLookupLockWaits are the calls' lookups' waits for the cache's graph
@@ -1423,4 +1426,20 @@ type EngineRestorePart struct {
 	PrepareLockWait  int64            `json:"prepareLockWait,omitempty"`
 	PrepareLockWaits map[string]int64 `json:"prepareLockWaits,omitempty"`
 	DecodeWait       int64            `json:"decodeWait,omitempty"`
+}
+
+// EngineOwnRuns counts, over an engine's life, the merge rows and offered
+// parts that met a value the engine computed itself (dagql.OwnRunStats).
+type EngineOwnRuns struct {
+	// RowsKeptApart are stored records kept apart from a run of the
+	// engine's own; RowsSameContent landed on one, shown equal by content;
+	// RowsNotRun landed on an entry the engine created with no run of its
+	// own at or below it yet.
+	RowsKeptApart   uint64 `json:"rowsKeptApart"`
+	RowsSameContent uint64 `json:"rowsSameContent"`
+	RowsNotRun      uint64 `json:"rowsNotRun"`
+	// OffersRefused are offered parts refused over a run of the engine's
+	// own; OffersLent the offered parts attached.
+	OffersRefused uint64 `json:"offersRefused"`
+	OffersLent    uint64 `json:"offersLent"`
 }

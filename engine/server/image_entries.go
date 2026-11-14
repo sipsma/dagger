@@ -87,6 +87,9 @@ func (srv *Server) mergeImageBundle(ctx context.Context, dir string) error {
 	}
 	unretained := 0
 	for _, r := range reply.Roots {
+		if r.Expired || r.OtherRun {
+			return fmt.Errorf("merge the engine image's entries: root %d did not merge (expired %t, other run %t)", r.Ordinal, r.Expired, r.OtherRun)
+		}
 		if !r.Retained {
 			unretained++
 		}

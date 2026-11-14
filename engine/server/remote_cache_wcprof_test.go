@@ -252,7 +252,8 @@ func TestRemoteCacheAdapterOfferProfiled(t *testing.T) {
 		got[ev.ResultID] = facts[ev.OpID]
 	}
 	require.Equal(t, map[uint64]string{
-		entryNumber(t, pending):  "offer." + string(protocol.OfferAccepted),
+		// Refused: the pending file is over a run of this engine's own.
+		entryNumber(t, pending):  "offer." + string(protocol.OfferUnavailable),
 		entryNumber(t, complete): "offer." + string(protocol.OfferAlreadyComplete),
 	}, got)
 }

@@ -515,7 +515,9 @@ func TestOfferDispositionCarriesTheReceiversValueState(t *testing.T) {
 		t.Parallel()
 		ctx, c, srv := transferTestCache(t)
 		first := persistedListTestResult(t, ctx, c, srv, "offered-state", &transferTestValue{Text: "old"})
-		dep := persistedListTestResult(t, ctx, c, srv, "offered-state-dep", String("dep"))
+		// Taken from another cache: an offer over a run of c's own is
+		// refused (anyRanHere).
+		dep := takenTestResult(t, ctx, c, srv, "offered-state-dep", String("dep"))
 		row := first.cacheSharedResult()
 		require.NoError(t, c.ReleaseSession(ctx, "test-session"))
 		mergeTestExpire(c, row)
@@ -564,7 +566,9 @@ func TestOfferDispositionCarriesTheReceiversValueState(t *testing.T) {
 		t.Parallel()
 		ctx, c, srv := transferTestCache(t)
 		res := persistedListTestResult(t, ctx, c, srv, "offered-late", &transferTestValue{Text: "pending"})
-		dep := persistedListTestResult(t, ctx, c, srv, "offered-late-dep", String("dep"))
+		// Taken from another cache: an offer over a run of c's own is
+		// refused (anyRanHere).
+		dep := takenTestResult(t, ctx, c, srv, "offered-late-dep", String("dep"))
 		c.testOfferBeforeDecision = func(*sharedResult) { transferTestDependency(c, ctx, res, dep) }
 		out, err := c.testOfferParts(ctx, res, []PersistedPartOffer{testLiveOffer()})
 		require.NoError(t, err)
