@@ -144,6 +144,9 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 // order: by term, then by request digest. An input the Cloud has no class for
 // stands for itself. Requires egraphMu.
 func (c *Cache) keptCallTermsLocked(res *sharedResult) [][]*keptCall {
+	if c.testCallTermsBuilt != nil {
+		c.testCallTermsBuilt()
+	}
 	byTerm := map[string][]*keptCall{}
 	for _, kept := range res.calls {
 		key := kept.id.self.String()
