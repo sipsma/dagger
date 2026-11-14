@@ -757,7 +757,7 @@ func TestStoredSizesGiveUpTheLockBetweenEntries(t *testing.T) {
 			late = true
 		}
 	}
-	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
+	got, err := cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix())
 	require.NoError(t, err)
 	require.Positive(t, yields, "the walk let the lock go")
 	w := <-written
@@ -768,40 +768,35 @@ func TestStoredSizesGiveUpTheLockBetweenEntries(t *testing.T) {
 	require.Greater(t, holds, yields, "a hold for each piece, and the measures' publish")
 }
 
-// A stored-size walk lets egraphMu go on the way back up a closure as well
-// as on the way down: an entry's own reading after its dependencies, its
-// outputs and its size, is a step too. A chain several pieces deep would
-// otherwise read every entry of it on the way back up in one hold, with a
-// writer waiting for all of it. Here a chain of twelve entries, with pieces
-// of four steps, lets the lock go for each four of the walk's steps down,
-// back up, and over the kept calls.
-func TestStoredSizesLetTheLockGoUpADeepChain(t *testing.T) {
+// A walk lets the lock go every readPieceSize entries it reaches. A bundle
+// stops one level below its roots, so a root with many direct dependencies
+// is the walk with the most entries.
+func TestStoredSizesLetTheLockGoOverAWideRoot(t *testing.T) {
 	t.Parallel()
 	actx, a, asrv := transferTestCache(t)
-	const depth = 12
-	prev := persistedListTestResult(t, actx, a, asrv, "chain-0", &transferTestValue{Text: "0"})
-	for i := 1; i < depth; i++ {
-		next := persistedListTestResult(t, actx, a, asrv, fmt.Sprintf("chain-%d", i), &transferTestValue{Text: fmt.Sprint(i)})
-		transferTestDependency(a, actx, next, prev)
-		prev = next
+	const width = 12
+	top := persistedListTestResult(t, actx, a, asrv, "wide-root", &transferTestValue{Text: "root"})
+	for i := 0; i < width; i++ {
+		dep := persistedListTestResult(t, actx, a, asrv, fmt.Sprintf("wide-%d", i), &transferTestValue{Text: fmt.Sprint(i)})
+		transferTestDependency(a, actx, top, dep)
 	}
-	bundle := exportTestBundle(t, actx, a, prev)
+	bundle := exportTestBundle(t, actx, a, top)
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
 	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
 	require.NoError(t, err)
-	var top uint64
+	var number uint64
 	for _, value := range reply.Values {
 		if value.Ordinal == bundle.Roots[0].Ordinal {
-			top = value.Number
+			number = value.Number
 		}
 	}
-	require.NotZero(t, top)
+	require.NotZero(t, number)
 
 	cloud.readPieceSize = 4
 	yields := 0
 	cloud.testReadPieceYielded = func() { yields++ }
-	got, err := cloud.StoredSizes(ctx, []uint64{top}, time.Now().Unix(), nil)
+	got, err := cloud.StoredSizes(ctx, []uint64{number}, time.Now().Unix())
 	require.NoError(t, err)
-	require.Equal(t, depth, got[0].Records)
-	require.GreaterOrEqual(t, yields, 3*depth/4, "a piece for each four steps down, back up, and over the kept calls")
+	require.Equal(t, width+1, got[0].Records, "the root and an identity row for each dependency")
+	require.GreaterOrEqual(t, yields, width/4, "a piece for each four entries reached")
 }
