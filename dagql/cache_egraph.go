@@ -1821,8 +1821,9 @@ func (c *Cache) addResultOutputEqClassLocked(resID sharedResultID, outputEqID eq
 	_, hadReverse := results[resID]
 	results[resID] = struct{}{}
 	if !hadForward || !hadReverse {
+		// The entry's output rows change; the class's own rows, its digests,
+		// don't. Whether the class is written turns with the entry's rows.
 		c.markEntryLocked(resID, markSave)
-		c.markSavedClassLocked(outputEqID)
 	}
 	if !hadForward || !hadReverse {
 		// New membership in an existing class, with no union of its own.
