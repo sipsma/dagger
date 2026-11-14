@@ -2,11 +2,16 @@ package dagql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/dagger/dagger/engine/wcprof"
 )
+
+// errSchemaModuleIdentity: the recorded Module came as identity alone and no
+// installed equivalent serves it.
+var errSchemaModuleIdentity = errors.New("recorded module has only its identity")
 
 // SchemaModuleCandidate keeps the installed operational Module separate from
 // its implementation-scoped comparison row. Only schema recovery uses it.
@@ -16,24 +21,27 @@ type SchemaModuleCandidate struct {
 }
 
 func (c *Cache) LoadResultByResultIDForSchema(ctx context.Context, sessionID string, dag *Server, recordedID uint64, installed []SchemaModuleCandidate) (AnyResult, error) {
-	c.egraphMu.RLock()
-	recorded := c.resultsByID[sharedResultID(recordedID)]
-	identity := recorded != nil && recorded.identityOnly
-	c.egraphMu.RUnlock()
-	if identity {
-		// A Module a merge carried as identity alone: an entry of its class
-		// with a value, or the Cloud's record of it, fetched.
-		resolved, err := c.resolveIdentityEntry(ctx, recorded, true, false, nil)
-		if err != nil {
-			return nil, fmt.Errorf("load schema module %d: %w", recordedID, err)
-		}
-		recordedID = uint64(resolved.id)
-	}
 	op, err := c.beginSessionOperation(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("load schema module %d: %w", recordedID, err)
 	}
 	lookup, err := c.schemaModuleLookup(ctx, sessionID, recordedID, installed)
+	if errors.Is(err, errSchemaModuleIdentity) {
+		// A Module a merge carried as identity alone, with no installed
+		// equivalent: an entry of its class with a value, or the Cloud's
+		// record of it, fetched.
+		c.egraphMu.RLock()
+		recorded := c.resultsByID[sharedResultID(recordedID)]
+		c.egraphMu.RUnlock()
+		var resolved *sharedResult
+		if resolved, err = c.resolveIdentityEntry(ctx, recorded, true, false, nil); err == nil {
+			recordedID = uint64(resolved.id)
+			lookup, err = c.schemaModuleLookup(ctx, sessionID, recordedID, installed)
+		}
+		if err != nil {
+			err = fmt.Errorf("load schema module %d: %w", recordedID, err)
+		}
+	}
 	var result AnyResult
 	if err == nil {
 		result, err = c.loadSelectedResultByResultID(ctx, sessionID, dag, recordedID, lookup)
@@ -57,7 +65,7 @@ func (c *Cache) schemaModuleLookup(ctx context.Context, sessionID string, record
 	if recorded == nil {
 		return sharedResultLookup{}, fmt.Errorf("resolve result %d: missing shared result", recordedID)
 	}
-	if recorded.noValueLocked() {
+	if recorded.noValueLocked() && !recorded.identityOnly {
 		return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", recordedID, errEntryHasNoValue)
 	}
 	classes := c.outputEqClassesForResultLocked(recorded.id)
@@ -83,6 +91,11 @@ func (c *Cache) schemaModuleLookup(ctx context.Context, sessionID string, record
 		if selected != nil {
 			break
 		}
+	}
+	if selected == nil && recorded.identityOnly {
+		// Only an installed equivalent serves it from here; otherwise the
+		// caller resolves it (errSchemaModuleIdentity).
+		return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", recordedID, errSchemaModuleIdentity)
 	}
 	if selected == nil {
 		now := time.Now().Unix()
