@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -937,4 +938,66 @@ func TestWriteBehindFollowsTaughtContentOnTheCloud(t *testing.T) {
 		return res != nil && len(res.taught) > 0 && res.taughtGiven == len(res.taught)
 	}, 10*time.Second, 5*time.Millisecond, "the body worker records the digest given")
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a taught content digest, given")
+}
+
+// A class's rows are its number and digests, so a write rewrites none the
+// store already holds when only the rows that name it moved: a second stored
+// root, whose term takes the same receiver's class as the first's, writes
+// only the classes new to the store.
+func TestWriteBehindWritesOnlyClassesThatChange(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	storedPruneTestRoot(t, ctx, cloud, "wb-classes-first")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a first stored root")
+	held := func() map[eqClassID]struct{} {
+		cloud.checkpointMu.Lock()
+		defer cloud.checkpointMu.Unlock()
+		return maps.Clone(cloud.behind.classes)
+	}
+	before := held()
+	storedPruneTestRoot(t, ctx, cloud, "wb-classes-second")
+	report, err := cloud.WriteBehind(ctx)
+	require.NoError(t, err)
+	var added int
+	for eqID := range held() {
+		if _, ok := before[eqID]; !ok {
+			added++
+		}
+	}
+	require.Positive(t, added)
+	require.Equal(t, added, report.Classes, "only the classes new to the store are written")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a second stored root")
+}
+
+// A rewritten entry's dependencies are written by difference: an entry that
+// gains one and loses another holds exactly its dependencies afterwards.
+func TestWriteBehindWritesDependenciesByDifference(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	actx, a, asrv := transferTestCache(t)
+	r := persistedListTestResult(t, actx, a, asrv, "wb-diff-root", &transferTestValue{Text: "root"})
+	p := persistedListTestResult(t, actx, a, asrv, "wb-diff-old", &transferTestValue{Text: "old"})
+	transferTestDependency(a, actx, r, p)
+	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0]
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a stored root with a dependency")
+
+	// Another engine has the root with another dependency; the root, now
+	// expired, takes it in place.
+	ectx, e, esrv := transferTestCache(t)
+	er := persistedListTestResult(t, ectx, e, esrv, "wb-diff-root", &transferTestValue{Text: "root"})
+	ep := persistedListTestResult(t, ectx, e, esrv, "wb-diff-new", &transferTestValue{Text: "new"})
+	transferTestDependency(e, ectx, er, ep)
+	cloud.egraphMu.Lock()
+	cloud.resultsByID[sharedResultID(root)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	cloud.egraphMu.Unlock()
+	_, err := cloud.MergeValues(ctx, "cache-a", exportTestBundle(t, ectx, e, er))
+	require.NoError(t, err)
+	deps := storedPartTestDeps(cloud, root)
+	require.Len(t, deps, 1)
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the root's dependency replaced")
+	stored, err := cloud.pdb.ListMirrorResultDepsOf(ctx, int64(root))
+	require.NoError(t, err)
+	require.Equal(t, []int64{int64(deps[0])}, stored)
 }

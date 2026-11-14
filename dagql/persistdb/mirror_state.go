@@ -1,6 +1,9 @@
 package persistdb
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 type MirrorResult struct {
 	ID              int64
@@ -158,6 +161,49 @@ var deleteMirrorResultRows = []string{
 	`DELETE FROM result_deps WHERE parent_result_id = ?`,
 	`DELETE FROM result_output_eq_classes WHERE result_id = ?`,
 	`DELETE FROM results WHERE id = ?`,
+}
+
+// DeleteMirrorResultRowsButDeps deletes the rows of the entry numbered id
+// but its dependencies, for a write that writes those by difference.
+func (q *Queries) DeleteMirrorResultRowsButDeps(ctx context.Context, id int64) error {
+	for _, stmt := range deleteMirrorResultRows {
+		if strings.Contains(stmt, "result_deps") {
+			continue
+		}
+		if _, err := q.exec(ctx, nil, stmt, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const listMirrorResultDepsOf = `SELECT dep_result_id FROM result_deps WHERE parent_result_id = ?`
+
+// ListMirrorResultDepsOf lists the dependencies the store holds for the
+// entry numbered parent.
+func (q *Queries) ListMirrorResultDepsOf(ctx context.Context, parent int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listMirrorResultDepsOf, parent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var dep int64
+		if err := rows.Scan(&dep); err != nil {
+			return nil, err
+		}
+		out = append(out, dep)
+	}
+	return out, rows.Err()
+}
+
+const deleteMirrorResultDep = `DELETE FROM result_deps WHERE parent_result_id = ? AND dep_result_id = ?`
+
+// DeleteMirrorResultDep deletes one dependency row.
+func (q *Queries) DeleteMirrorResultDep(ctx context.Context, arg MirrorResultDep) error {
+	_, err := q.exec(ctx, nil, deleteMirrorResultDep, arg.ParentResultID, arg.DepResultID)
+	return err
 }
 
 // DeleteMirrorResultRows deletes the rows of the entry numbered id: its
