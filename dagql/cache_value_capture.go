@@ -42,6 +42,9 @@ type capturedTransferRow struct {
 	// knows it, so the bundle carries no record for it and nothing below it.
 	held   bool
 	recipe digest.Digest
+	// uncopied is set on a held row whose record the copy didn't read: a
+	// row a selection of outputs' recipient knows (holdKnownUncopied).
+	uncopied bool
 }
 
 // HeldCapturedClosure protects every exact source row and offer while storage
@@ -68,6 +71,10 @@ type HeldCapturedClosure struct {
 	unheld map[sharedResultID][]sharedResultID
 	// outputs are the selection's outputs the closure holds.
 	outputs []SelectedValueOutput
+	// routes are a selection of outputs' selected outputs, whose rows,
+	// and the rows their parts are reached through, the copy reads though
+	// the recipient knows them (holdKnownUncopied, copyRoutes).
+	routes []SelectedValueOutput
 	// unwalked is set when a root was left out before its walk, its own
 	// evaluation in flight (holdTransferClosure): an output below it lies
 	// outside what the capture walked.
@@ -151,8 +158,9 @@ func (capture *HeldCapturedClosure) block(id sharedResultID, kind BusyKind, err 
 // isn't one (no roots, a nil, detached or repeated root) fails it. A
 // selection of no outputs holds each row its Known knows, unless carried
 // names it, as a held row, with nothing below it. A selection of outputs
-// walks and copies every row, since its parts and their owners are read
-// from the records below the rows it holds (holdKnownRows).
+// walks every row, since its outputs' owners are read from the rows below
+// the rows it holds, and copies only those its Known doesn't know, and the
+// rows its selected outputs are reached through (holdKnownUncopied).
 //
 //nolint:gocyclo // one classification per held result kind; splitting hides the order of the checks
 func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelection, carried map[sharedResultID]bool) (*HeldCapturedClosure, error) {
@@ -482,6 +490,9 @@ func (capture *HeldCapturedClosure) copy(ctx context.Context, retireStale bool) 
 			capture.block(row.shared.id, BusyStaleOffer, &staleOffersError{offers: rowStale})
 		}
 	}
+	if err := capture.copyRoutes(ctx, blockRow); err != nil {
+		return nil, err
+	}
 	// Release each row's copy guards before comparing the next row.
 	for i, row := range capture.order {
 		if !copied[i] || row.held {
@@ -507,6 +518,49 @@ func (capture *HeldCapturedClosure) copy(ctx context.Context, retireStale bool) 
 		}
 	}
 	return stale, context.Cause(ctx)
+}
+
+// copyRoutes copies the records a selected output's part is reached
+// through that the copy left unread: the part can sit on a row below the
+// selected one, reached through the references in their records
+// (resolveSelectedRecord), and a row on that way the recipient knows is
+// held uncopied (holdKnownUncopied). A row it can't copy is blocked, as the
+// copy blocks one; only the capture's own cancellation fails it.
+func (capture *HeldCapturedClosure) copyRoutes(ctx context.Context, blockRow func(*capturedTransferRow, error)) error {
+	for _, sel := range capture.routes {
+		if sel.Result == nil || sel.Result.cacheSharedResult() == nil {
+			continue
+		}
+		start := capture.rows[sel.Result.cacheSharedResult().id]
+		if start == nil {
+			continue
+		}
+		_, _, _ = resolveSelectedRecord(uint64(start.shared.id), sel.Address, func(id uint64) (PersistedRecord, bool) {
+			row := capture.rows[sharedResultID(id)]
+			if row == nil {
+				return PersistedRecord{}, false
+			}
+			if row.uncopied {
+				rec, err := capture.cache.captureHeldPersistedRecord(ctx, row.shared, row.imported, row.offers, &row.version)
+				if err == nil {
+					row.outputs, err = mapTransferredOutputs(rec)
+				}
+				if err != nil {
+					blockRow(row, err)
+					return PersistedRecord{}, false
+				}
+				row.record, row.held, row.uncopied = rec, false, false
+				if hook := capture.cache.testTransferCopied; hook != nil {
+					hook(uint64(row.shared.id))
+				}
+			}
+			return row.record, true
+		})
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // staleOffers are the row's offers on outputs its copied record completed.
@@ -1072,6 +1126,7 @@ func (c *Cache) captureCopied(ctx context.Context, selection ValueSelection, car
 	if err != nil {
 		return nil, err
 	}
+	capture.holdKnownUncopied(selection, carried)
 	copyStart := time.Now()
 	stale, err := capture.copy(ctx, true)
 	copied := time.Now()
@@ -1087,6 +1142,7 @@ func (c *Cache) captureCopied(ctx context.Context, selection ValueSelection, car
 		if err != nil {
 			return nil, err
 		}
+		capture.holdKnownUncopied(selection, carried)
 		phases.RetriedStale = 1
 		copyStart = time.Now()
 		_, err = capture.copy(ctx, false)
@@ -1145,6 +1201,48 @@ func (capture *HeldCapturedClosure) deriveHeldRecipes() ([]sharedResultID, error
 // row. It carries none of its offers, so it keeps only the children it
 // depends on: a row only its offers' owners reach leaves the bundle when it
 // settles. A blocked row isn't held: it stays blocked.
+// holdKnownUncopied makes the rows a selection of outputs' Known knows held
+// rows before the copy, but for the selected outputs' own rows, so that the
+// copy reads no record of theirs: a held row carries no record, and a part of
+// a row the recipient knows isn't the export's to send. A row a selected
+// output's part is reached through is copied all the same (copyRoutes). A
+// held row keeps its links to the rows below it, as holdKnownRows keeps them,
+// so the bundle carries the rows and links it carries when every row is
+// copied, without the parts of known rows below the selected ones.
+func (capture *HeldCapturedClosure) holdKnownUncopied(selection ValueSelection, carried map[sharedResultID]bool) {
+	known := selection.Known
+	if known == nil || len(selection.Outputs) == 0 {
+		return
+	}
+	capture.routes = selection.Outputs
+	selected := map[sharedResultID]bool{}
+	for _, output := range selection.Outputs {
+		if output.Result != nil {
+			if res := output.Result.cacheSharedResult(); res != nil {
+				selected[res.id] = true
+			}
+		}
+	}
+	for _, row := range capture.order {
+		id := row.shared.id
+		if row.held || carried[id] || selected[id] {
+			continue
+		}
+		if _, blocked := capture.blocked[id]; blocked {
+			continue
+		}
+		if !known.knows(uint64(id), RowRevision{Replacements: row.replacements, Transfer: row.transferRev, Dependencies: row.dependencyRev}) {
+			continue
+		}
+		row.held, row.uncopied = true, true
+		deps := make(map[sharedResultID]bool, len(row.deps))
+		for _, dep := range row.deps {
+			deps[sharedResultID(dep)] = true
+		}
+		row.children = slices.DeleteFunc(row.children, func(child sharedResultID) bool { return !deps[child] })
+	}
+}
+
 func (capture *HeldCapturedClosure) holdKnownRows(selection ValueSelection, carried map[sharedResultID]bool) {
 	known := selection.Known
 	if known == nil || len(selection.Outputs) == 0 {
