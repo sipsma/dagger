@@ -59,6 +59,10 @@ func (s *session) push(q PushQueue, roots []uint64, flushed bool) {
 		// The roots are retained as of the moment before the capture: a
 		// root whose retention ends after it is observed so later.
 		captured := time.Now().UnixNano()
+		// A push a settle waits for says so, and the service commits it
+		// ahead of a read's whole hold (protocol.Push.Settling).
+		var settling bool
+		var sent time.Time
 		err := s.adapter.Push(s.ctx, roots, s.known, rows, func(ctx context.Context, e Export) error {
 			exp = e
 			if e.Bundle == nil {
@@ -69,7 +73,8 @@ func (s *session) push(q PushQueue, roots []uint64, flushed bool) {
 			if rows.List {
 				typ, msg, answer = protocol.TypeCheckRows, protocol.CheckRows{Rows: e.Bundle.Values}, &checked
 			} else {
-				typ, msg, answer = protocol.TypePush, protocol.Push{Bundle: *e.Bundle, EngineTimeUnixNano: captured}, &pushed
+				settling, sent = flushed || s.settleBegan.Load() != 0, time.Now()
+				typ, msg, answer = protocol.TypePush, protocol.Push{Bundle: *e.Bundle, EngineTimeUnixNano: captured, Settling: settling}, &pushed
 			}
 			if data, err := json.Marshal(msg); err != nil {
 				return err
@@ -86,6 +91,7 @@ func (s *session) push(q PushQueue, roots []uint64, flushed bool) {
 			q.RequeueRemotePushes(roots)
 			return
 		}
+		logLatePush(s.cfg.Logger, settling, sent, s.settleBegan.Load())
 		if err != nil {
 			s.pushFailed(q, roots, flushed, err)
 			return
@@ -175,6 +181,8 @@ func (s *session) pushFailed(q PushQueue, roots []uint64, flushed bool, err erro
 // session is live to finish what keeps them busy. It reports false when ctx
 // ended first.
 func (s *session) waitPushes(ctx context.Context) bool {
+	s.settleBegan.Store(time.Now().UnixNano())
+	defer s.settleBegan.Store(0)
 	q := s.adapter.Pushes()
 	for {
 		// A push in flight as the settle began can find a root busy after
@@ -192,6 +200,17 @@ func (s *session) waitPushes(ctx context.Context) bool {
 			return false
 		}
 	}
+}
+
+// logLatePush records a push that was sent before its settle began, so not
+// marked as one the settle waits for, and answered after: how long the
+// settle waited for it, and how long it took in all. began is when the
+// settle began, in Unix nanoseconds, or 0.
+func logLatePush(logger *slog.Logger, settling bool, sent time.Time, began int64) {
+	if settling || sent.IsZero() || began == 0 || began < sent.UnixNano() {
+		return
+	}
+	logger.Info("remote cache: a push sent before its settle began was answered after", "after_settle", time.Since(time.Unix(0, began)).Truncate(time.Millisecond), "took", time.Since(sent).Truncate(time.Millisecond))
 }
 
 // logPushWait records a settle's wait for its pushes.

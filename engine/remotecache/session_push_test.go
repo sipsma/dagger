@@ -131,6 +131,43 @@ func TestSettleWaitsForThePushesBeforeIt(t *testing.T) {
 	require.Equal(t, protocol.TypeSettle, settle.Type, "the settle goes once the push is committed")
 }
 
+// A push sent while a settle waits for the pushes says so, and the service
+// commits it ahead of a read's whole hold: the engine stops within its
+// settle bound. One sent while the engine's sessions are live doesn't. Here
+// the settle begins while a push asks which rows the Cloud lacks: the push
+// that follows is marked, though its roots were queued before.
+func TestAPushASettleWaitsForIsMarked(t *testing.T) {
+	t.Parallel()
+	adapter := newFakeAdapter()
+	adapter.setSettle(SettleState{Period: 1, Live: true})
+	adapter.push = (&pushRecorder{}).push
+	s, conn, _ := servedSession(t, adapter)
+
+	adapter.pushes.add(7)
+	check := conn.next(t)
+	require.Equal(t, protocol.TypeCheckRows, check.Type)
+	s.dispatch(reply(check.ID, protocol.TypeCheckedRows, protocol.CheckedRows{}))
+	push := conn.next(t)
+	require.Equal(t, protocol.TypePush, push.Type)
+	require.False(t, decode[protocol.Push](t, push).Settling, "a push while sessions are live isn't marked")
+	s.dispatch(reply(push.ID, protocol.TypePushed, protocol.Pushed{}))
+	require.Eventually(t, func() bool { return pushesIdle(adapter.pushes) }, 5*time.Second, 10*time.Millisecond)
+
+	adapter.pushes.add(8)
+	check = conn.next(t)
+	require.Equal(t, protocol.TypeCheckRows, check.Type)
+	adapter.setSettle(SettleState{Period: 1, Sessions: []protocol.SettleSession{{ID: "sess-1"}}})
+	require.Eventually(t, func() bool { return s.settleBegan.Load() != 0 }, 5*time.Second, time.Millisecond, "the settle waits for the push")
+	s.dispatch(reply(check.ID, protocol.TypeCheckedRows, protocol.CheckedRows{}))
+	push = conn.next(t)
+	require.Equal(t, protocol.TypePush, push.Type)
+	require.True(t, decode[protocol.Push](t, push).Settling, "the push the settle waits for is marked")
+	s.dispatch(reply(push.ID, protocol.TypePushed, protocol.Pushed{}))
+	settle := conn.next(t)
+	require.Equal(t, protocol.TypeSettle, settle.Type)
+	require.Zero(t, s.settleBegan.Load(), "once the pushes are done, later pushes aren't marked")
+}
+
 // A result whose closure is busy waits for the next push, and a settle
 // pushes it once more, since no session is live to finish what keeps it
 // busy: one still busy then is dropped, and the settle goes.
