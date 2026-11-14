@@ -102,6 +102,11 @@ type TransferredValue struct {
 	// instead of decoding the record's payload. Nil on a value whose sender
 	// doesn't carry them, an engine's.
 	Parts *TransferredRecordParts `json:"parts,omitempty"`
+	// HeldContent is, on a held row the Cloud sends, the content digest of
+	// the Cloud entry's record, when the Cloud knows one: an engine whose
+	// own value of the recipe is its own run lets the held row stand for it
+	// only when that value's content digest is this one (keepOwnRunsLocked).
+	HeldContent digest.Digest `json:"heldContent,omitempty"`
 
 	// storedEnvelope is, in a bundle a blob-backed cache built, the record's
 	// envelope as the cache holds it, compressed (storedBody), in place of
@@ -158,6 +163,7 @@ func (v TransferredValue) storedJSON() (storedValueJSON, error) {
 		ExpiresAtUnix:      v.ExpiresAtUnix,
 		Held:               v.Held,
 		Parts:              v.Parts,
+		HeldContent:        v.HeldContent,
 	}, nil
 }
 
@@ -188,6 +194,7 @@ type storedValueJSON struct {
 	DependencyIDs      []uint64         `json:"dependencyIDs,omitempty"`
 	ExpiresAtUnix      int64            `json:"expiresAtUnix,omitempty"`
 	Held               digest.Digest    `json:"held,omitempty"`
+	HeldContent        digest.Digest    `json:"heldContent,omitempty"`
 
 	Parts *TransferredRecordParts `json:"parts,omitempty"`
 }

@@ -159,27 +159,37 @@ func sameContentLocked(commit *valueMergeCommit, row *mergeRow, res *sharedResul
 // has been evaluated. When the entry is taught that digest, the two are the
 // same result (admitApartCloudCopyLocked).
 type apartCloudCopy struct {
-	number             uint64
-	senderReplacements uint64
-	contentDigest      digest.Digest
-	expiresAtUnix      int64
+	number        uint64
+	contentDigest digest.Digest
+	expiresAtUnix int64
 }
 
-// cloudEquality names two values shown equal by content: a Cloud entry's
-// record, by its number and replacement count, and the value of the engine's
-// entry it was compared with, by the entry's replacement count. Either side
-// replaced, the equality no longer holds.
-type cloudEquality struct {
-	number, senderReplacements, ownReplacements uint64
+// sameHeldContentLocked reports whether a held row names its record's
+// content digest (TransferredValue.HeldContent) and res's own value has it.
+// Requires egraphMu.
+func sameHeldContentLocked(row *mergeRow, res *sharedResult) bool {
+	if row.value == nil || row.value.HeldContent == "" {
+		return false
+	}
+	frame := res.loadResultCall()
+	return frame != nil && frame.ContentDigest() == row.value.HeldContent
 }
 
-// shownEqualToLocked reports whether res's current value was shown equal by
-// content to the Cloud entry number's record at senderReplacements, and res
-// holds that copy. Requires egraphMu.
-func (res *sharedResult) shownEqualToLocked(number, senderReplacements uint64) bool {
-	e := res.shownEqual
-	return e != nil && e.number == number && e.senderReplacements == senderReplacements &&
-		e.ownReplacements == res.replacements && res.holdsCloudCopyLocked(number)
+// knownContentDigestLocked returns the content digest of res's frame when it
+// is known without decoding a stored body: the last decoded frame's, or the
+// frame's own. A frame a restored body holds that nothing has decoded yet
+// gives none. Requires egraphMu.
+func (res *sharedResult) knownContentDigestLocked() digest.Digest {
+	res.resultCallMu.RLock()
+	known, content, call := res.frameContentKnown, res.frameContent, res.resultCall
+	res.resultCallMu.RUnlock()
+	if known {
+		return content
+	}
+	if call != nil {
+		return call.ContentDigest()
+	}
+	return ""
 }
 
 // rememberApartLocked remembers row's Cloud entry on the entry it was kept
@@ -196,12 +206,14 @@ func (commit *valueMergeCommit) rememberApartLocked(row *mergeRow) {
 	if own := row.res.loadResultCall(); own != nil && own.ContentDigest() != "" {
 		return
 	}
-	row.res.apartCloud = &apartCloudCopy{number: row.value.SenderNumber, senderReplacements: row.value.SenderReplacements, contentDigest: call.ContentDigest(), expiresAtUnix: row.value.ExpiresAtUnix}
+	row.res.apartCloud = &apartCloudCopy{number: row.value.SenderNumber, contentDigest: call.ContentDigest(), expiresAtUnix: row.value.ExpiresAtUnix}
 }
 
 // admitApartCloudCopyLocked runs when res is taught contentDigest: a Cloud
 // entry a merge kept apart from res for want of its digest is shown the same
 // result now, and res learns it as its Cloud copy, as the merge would have.
+// Later rows of it are compared by content as they come: a full row by its
+// record, a held row by the content digest it names (sameHeldContentLocked).
 // Requires egraphMu for writing.
 func (res *sharedResult) admitApartCloudCopyLocked(contentDigest digest.Digest) {
 	apart := res.apartCloud
@@ -210,18 +222,8 @@ func (res *sharedResult) admitApartCloudCopyLocked(contentDigest digest.Digest) 
 	}
 	res.apartCloud = nil
 	if apart.contentDigest == contentDigest {
-		// The digest is taught for the entry's current value, which is the
-		// one compared now.
 		res.noteSenderCopyLocked(cloudCacheID, apart.number, true, apart.expiresAtUnix)
-		res.shownEqual = &cloudEquality{number: apart.number, senderReplacements: apart.senderReplacements, ownReplacements: res.replacements}
 	}
-}
-
-// holdsCloudCopyLocked reports whether res's Cloud copy is the Cloud's entry
-// number. Requires egraphMu.
-func (res *sharedResult) holdsCloudCopyLocked(number uint64) bool {
-	key, h := res.cloudHoldingLocked()
-	return h != nil && key.Number == number
 }
 
 // OwnRunApart names a row a merge kept apart directly from a run of the
@@ -479,14 +481,10 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 		switch run, read := commit.prep.ownRuns[row.res]; {
 		case !held && (sameContentLocked(commit, row, row.res) || samePlainValueLocked(commit, row, row.res)):
 			row.own = ownSameContent
-			if commit.from == cloudCacheID {
-				row.res.shownEqual = &cloudEquality{number: row.value.SenderNumber, senderReplacements: row.value.SenderReplacements, ownReplacements: row.res.replacements}
-			}
-		case held && commit.from == cloudCacheID && row.res.shownEqualToLocked(row.value.SenderNumber, row.value.SenderReplacements):
-			// The entry was shown this very Cloud entry's copy by content
-			// before, by an earlier merge or once its digest was taught
-			// (admitApartCloudCopyLocked): the held row stands for its own
-			// value.
+		case held && sameHeldContentLocked(row, row.res):
+			// The held row names the content digest of the record it stands
+			// for, and the entry's own value has that digest: the same
+			// result, compared on every merge.
 			row.own = ownSameContent
 		case read && !run:
 			row.own = ownNotRun
