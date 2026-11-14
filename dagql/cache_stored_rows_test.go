@@ -18,7 +18,7 @@ func TestStoredRowsCarriesTheRowsAskedAndTheirChildren(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p, q := storedBundleTestChain(t)
 
-	got, missing, err := cloud.StoredRows(ctx, []uint64{p, 12345}, time.Now().Unix(), false, false)
+	got, missing, err := cloud.StoredRows(ctx, "", []uint64{p, 12345}, time.Now().Unix(), false, false)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{12345}, missing)
 	rows := storedBundleTestRows(got.Bundle)
@@ -28,7 +28,7 @@ func TestStoredRowsCarriesTheRowsAskedAndTheirChildren(t *testing.T) {
 	require.NotContains(t, rows, r, "nothing above P")
 	require.Len(t, got.Bundle.Roots, 1)
 
-	got, missing, err = cloud.StoredRows(ctx, []uint64{r}, time.Now().Unix(), true, false)
+	got, missing, err = cloud.StoredRows(ctx, "", []uint64{r}, time.Now().Unix(), true, false)
 	require.NoError(t, err)
 	require.Empty(t, missing)
 	rows = storedBundleTestRows(got.Bundle)
@@ -44,7 +44,7 @@ func TestStoredRowsCarriesTheRowsAskedAndTheirChildren(t *testing.T) {
 func TestStoredRowsLeavesCallReferencesAsIdentityRows(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := heldTestChainedCloud(t)
-	got, _, err := cloud.StoredRows(ctx, []uint64{r}, time.Now().Unix(), true, false)
+	got, _, err := cloud.StoredRows(ctx, "", []uint64{r}, time.Now().Unix(), true, false)
 	require.NoError(t, err)
 	rows := storedBundleTestRows(got.Bundle)
 	require.Len(t, rows, 2)
@@ -98,13 +98,13 @@ func TestStoredRowsWithFramesCarriesTheCallClosureAsFrameRows(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p, q := storedRowsTestCallChain(t)
 
-	got, _, err := cloud.StoredRows(ctx, []uint64{r}, time.Now().Unix(), false, false)
+	got, _, err := cloud.StoredRows(ctx, "", []uint64{r}, time.Now().Unix(), false, false)
 	require.NoError(t, err)
 	rows := storedBundleTestRows(got.Bundle)
 	require.Len(t, rows, 2, "R and its receiver P")
 	require.Nil(t, rows[p].Record.Call, "P as a plain identity row")
 
-	got, missing, err := cloud.StoredRows(ctx, []uint64{r}, time.Now().Unix(), false, true)
+	got, missing, err := cloud.StoredRows(ctx, "", []uint64{r}, time.Now().Unix(), false, true)
 	require.NoError(t, err)
 	require.Empty(t, missing)
 	rows = storedBundleTestRows(got.Bundle)
@@ -166,10 +166,49 @@ func TestStoredRowsCarriesAChildItsCallAlsoTakes(t *testing.T) {
 	require.NotZero(t, rn)
 	require.NotZero(t, pn)
 
-	got, _, err := cloud.StoredRows(ctx, []uint64{rn}, time.Now().Unix(), true, false)
+	got, _, err := cloud.StoredRows(ctx, "", []uint64{rn}, time.Now().Unix(), true, false)
 	require.NoError(t, err)
 	rows := storedBundleTestRows(got.Bundle)
 	require.Len(t, rows, 2)
 	require.Empty(t, rows[rn].Held)
 	require.Empty(t, rows[pn].Held, "P, a child of R's value, travels as its record")
+}
+
+// A fetch's answer leaves out what the requesting engine already holds: a
+// child row it has an unexpired holding of goes as an identity row, and
+// nothing below it is walked. Another engine's holding changes nothing.
+func TestStoredRowsSkipsWhatTheRequesterHolds(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, p, q := storedBundleTestChain(t)
+	recipe := storedTestRecipe(t, cloud, storedBundleTestEntry(cloud, p))
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-b", Number: 1}, RemoteHolding{Recipe: recipe, Request: recipe, Field: "chain-mid"})
+	require.NoError(t, err)
+
+	got, _, err := cloud.StoredRows(ctx, "cache-b", []uint64{r}, time.Now().Unix(), true, false)
+	require.NoError(t, err)
+	rows := storedBundleTestRows(got.Bundle)
+	require.Len(t, rows, 2, "R, and P by identity alone")
+	require.Empty(t, rows[r].Held)
+	require.NotEmpty(t, rows[p].Held, "the requester holds P")
+	require.NotContains(t, rows, q, "nothing below P")
+
+	got, _, err = cloud.StoredRows(ctx, "cache-c", []uint64{r}, time.Now().Unix(), true, false)
+	require.NoError(t, err)
+	rows = storedBundleTestRows(got.Bundle)
+	require.Len(t, rows, 3)
+	for _, number := range []uint64{r, p, q} {
+		require.Empty(t, rows[number].Held, "another engine's holding leaves entry %d in full", number)
+	}
+
+	got, _, err = cloud.StoredRows(ctx, "cache-b", []uint64{p}, time.Now().Unix(), true, false)
+	require.NoError(t, err)
+	rows = storedBundleTestRows(got.Bundle)
+	require.Empty(t, rows[p].Held, "an entry asked goes in full though the requester holds it")
+
+	// Several entries asked in one fetch share their rows: each goes once.
+	got, missing, err := cloud.StoredRows(ctx, "cache-c", []uint64{r, p, r}, time.Now().Unix(), true, false)
+	require.NoError(t, err)
+	require.Empty(t, missing)
+	require.Len(t, got.Bundle.Values, 3, "R, P and Q, each once")
+	require.Len(t, got.Bundle.Roots, 2, "R and P, the entries asked")
 }
