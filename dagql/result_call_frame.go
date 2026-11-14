@@ -3,7 +3,6 @@ package dagql
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -13,6 +12,7 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/util/hashutil"
 )
 
@@ -1425,11 +1425,19 @@ func contentPreferredDigestForCachedResult(c *Cache, resultID sharedResultID, vi
 	if res == nil {
 		return "", fmt.Errorf("missing shared result %d", resultID)
 	}
+	var frame *ResultCall
 	if !held.ok() {
-		return "", fmt.Errorf("missing result call frame for shared result %d", resultID)
+		// A row a merge carried as identity alone: the frame every walk
+		// reads for it (resultCallForWalk).
+		if frame = c.resultCallByResultID(resultID); frame == nil {
+			return "", fmt.Errorf("missing result call frame for shared result %d", resultID)
+		}
 	}
 	// A frame held in a stored body is decoded for this one derivation.
-	frame, err := held.decode()
+	var err error
+	if frame == nil {
+		frame, err = held.decode()
+	}
 	if err != nil {
 		return "", fmt.Errorf("result call frame for shared result %d: %w", resultID, err)
 	}
