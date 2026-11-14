@@ -96,6 +96,11 @@ type TransferredValue struct {
 	// held rows to an engine (StoredBundle's HeldBy), with no dependencies
 	// and no outputs, and an engine sends them to the Cloud in an export.
 	Held digest.Digest `json:"held,omitempty"`
+	// HeldContent is, on a held row the Cloud sends, the content digest of
+	// the Cloud entry's record, when the Cloud knows one: an engine whose
+	// own value of the recipe is its own run lets the held row stand for it
+	// only when that value's content digest is this one (keepOwnRunsLocked).
+	HeldContent digest.Digest `json:"heldContent,omitempty"`
 
 	// storedEnvelope is, in a bundle a blob-backed cache built, the record's
 	// envelope as the cache holds it, compressed (storedBody), in place of
@@ -151,6 +156,7 @@ func (v TransferredValue) storedJSON() (storedValueJSON, error) {
 		DependencyIDs:      v.DependencyIDs,
 		ExpiresAtUnix:      v.ExpiresAtUnix,
 		Held:               v.Held,
+		HeldContent:        v.HeldContent,
 	}, nil
 }
 
@@ -164,6 +170,7 @@ type storedValueJSON struct {
 	DependencyIDs      []uint64         `json:"dependencyIDs,omitempty"`
 	ExpiresAtUnix      int64            `json:"expiresAtUnix,omitempty"`
 	Held               digest.Digest    `json:"held,omitempty"`
+	HeldContent        digest.Digest    `json:"heldContent,omitempty"`
 }
 
 // storedRecordJSON is a PersistedRecord with its envelope and call as
