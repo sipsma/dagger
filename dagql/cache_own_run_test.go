@@ -530,7 +530,9 @@ func TestMergeValuesComparesAgainWhenTheDigestIsTaught(t *testing.T) {
 	require.NotZero(t, cloudR)
 
 	bctx, b, bsrv := transferTestCache(t)
-	own := persistedListTestResult(t, bctx, b, bsrv, "bundle-dep", &transferTestValue{Text: "dep"})
+	// Encoded otherwise than the Cloud's, so only its content digest, once
+	// taught, shows the two the same.
+	own := persistedListTestResult(t, bctx, b, bsrv, "bundle-dep", &transferTestValue{Text: "own dep"})
 	alone, err := cloud.StoredBundle(ctx, []uint64{cloudP}, time.Now().Unix(), nil)
 	require.NoError(t, err)
 	reply, err := b.MergeValues(bctx, cloudCacheID, alone.Bundle)
@@ -728,4 +730,49 @@ func TestOwnRunStatsCountsOnlyCommittedRefusals(t *testing.T) {
 	p.Release()
 	persistedListTestResult(t, ctx, c, srv, "uncommitted-top", &transferTestValue{Text: "own top"})
 	require.Zero(t, c.OwnRunStats().RanAfterApart, "no merge committed a refusal")
+}
+
+// An object its call made whole, with no parts, that names other entries is
+// its record and the entries it names: a stored record of the engine's own
+// run of its recipe lands when every entry it names lands on the entry the
+// engine's own object names, and the two encode the same once those
+// references are read as the entries they land on. Otherwise, or when an
+// entry it names is kept apart, it is kept apart. (Module sources and type
+// defs are such objects; one was the root of the rule's one cost seen on ten
+// checks.)
+func TestMergeValuesLandsAnEqualObjectOverLandedEntries(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name               string
+		ownBase, ownObject string
+		lands              bool
+	}{
+		{"equal, over an equal entry", "base", "object", true},
+		{"another value", "base", "another object", false},
+		{"over an entry kept apart", "another base", "object", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actx, a, asrv := transferTestCache(t)
+			sentBase := persistedListTestResult(t, actx, a, asrv, "object-base", String("base"))
+			sentObject := persistedListTestResult(t, actx, a, asrv, "object-top", &transferTestValue{Text: "object", Child: uint64(sentBase.cacheSharedResult().id)})
+			require.NoError(t, a.AddExplicitDependency(actx, sentObject, sentBase, "test"))
+			bundle := exportTestBundle(t, actx, a, sentObject)
+
+			ctx, c, srv := transferTestCache(t)
+			base := persistedListTestResult(t, ctx, c, srv, "object-base", String(tc.ownBase))
+			object := persistedListTestResult(t, ctx, c, srv, "object-top", &transferTestValue{Text: tc.ownObject, Child: uint64(base.cacheSharedResult().id)})
+			require.NoError(t, c.AddExplicitDependency(ctx, object, base, "test"))
+			reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+			require.NoError(t, err)
+			if !tc.lands {
+				require.NotEmpty(t, reply.OtherRun, "the object is kept apart")
+				require.True(t, reply.Roots[0].OtherRun)
+				return
+			}
+			require.Empty(t, reply.OtherRun)
+			require.Equal(t, 2, reply.Rows.OwnSameContent, "the base and the object over it")
+			require.Equal(t, uint64(object.cacheSharedResult().id), reply.Imported()[0].ResultID)
+		})
+	}
 }
