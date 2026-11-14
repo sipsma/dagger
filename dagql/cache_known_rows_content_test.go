@@ -204,3 +204,47 @@ func TestContentExportCopiesNoKnownRowButTheSelected(t *testing.T) {
 	require.True(t, reply.Committed, "the Cloud merges the export")
 	require.Empty(t, reply.Stale)
 }
+
+// A known row a selected part is reached through is copied all the same, and
+// as any copied row: an obsolete offer on it is retired, and the closure
+// captured again. Here a list's item is a row of its own, known, with an
+// offer on a part that then completes without the offer being settled; the
+// content export selects that part through the list.
+func TestContentExportRetiresAnObsoleteOfferOnARouteRow(t *testing.T) {
+	ctx, c, srv := statePartCache(t, "")
+	t.Cleanup(func() { require.NoError(t, c.CloseDiscardingPersistence()) })
+	value := &statePartValue{}
+	leaf := persistedListTestResult(t, ctx, c, srv, "route-leaf", value)
+	list := persistedListTestResult(t, ctx, c, srv, "route-list", DynamicResultArrayOutput{Elem: &statePartValue{}, Values: []AnyResult{leaf}})
+	offer := testLiveOffer()
+	offer.Address.OutputPath = PersistedRefPath{}.Field("items").Index(0)
+	out, err := c.testOfferParts(ctx, list, []PersistedPartOffer{offer})
+	require.NoError(t, err)
+	require.Equal(t, OfferAccepted, out[0].Outcome)
+	require.Equal(t, uint64(leaf.cacheSharedResult().id), out[0].Target, "the offer sits on the item's own row")
+	known := NewKnownRows()
+	_, rows, _ := recordsOnlyCapture(t, ctx, c, known, list)
+	known.Merged(rows)
+	require.Equal(t, 2, known.Len(), "the list and its item are known")
+
+	// The part completes, and the gate never settles the offer.
+	value.done.Store(true)
+	value.rev.Add(1)
+
+	selection := ValueSelection{
+		Roots:   []AnyResult{list},
+		Outputs: []SelectedValueOutput{{Result: list, Address: PersistedPartAddress{OutputPath: PersistedRefPath{}.Field("items").Index(0), Part: offer.Address.Part}}},
+		Known:   known,
+	}
+	// The capture's copy, which retires obsolete offers and captures again,
+	// before any chain is opened.
+	var phases ExportPhases
+	capture, err := c.captureCopied(ctx, selection, nil, &phases)
+	require.NoError(t, err)
+	require.NoError(t, capture.Release(ctx))
+	require.Equal(t, 1, phases.RetriedStale, "the route row's obsolete offer was retired, and the closure captured again")
+	c.egraphMu.RLock()
+	offers := len(leaf.cacheSharedResult().testPartOffers())
+	c.egraphMu.RUnlock()
+	require.Zero(t, offers, "the obsolete offer is gone")
+}
