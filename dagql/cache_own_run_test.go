@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -550,4 +551,117 @@ func TestMergeValuesComparesAgainWhenTheDigestIsTaught(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, reply.OtherRun, "the held row stands for the entry's own value, shown the Cloud's copy")
 	require.Len(t, reply.Imported(), 1, "R lands over it")
+}
+
+// ownRunTestReplace gives the engine's entry of field a new value in place,
+// as a call does when the entry has expired and nothing uses it: same
+// number, its replacement count up by one.
+func ownRunTestReplace(t *testing.T, ctx context.Context, c *Cache, srv *Server, res AnyResult, field string, value Typed) {
+	t.Helper()
+	require.NoError(t, c.ReleaseSession(ctx, "test-session"))
+	currentEntryTestExpire(c, res)
+	frame := &ResultCall{Kind: ResultCallKindField, Field: field, Type: NewResultCallType(value.Type())}
+	again, err := c.GetOrInitCall(ctx, "replacing-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true, TTL: 3600}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(value, frame)
+	})
+	require.NoError(t, err)
+	require.Equal(t, res.cacheSharedResult().id, again.cacheSharedResult().id, "replaced in place")
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	require.NotZero(t, res.cacheSharedResult().replacements)
+}
+
+// ownRunTestHeldChain is a Cloud holding P and R over P, P with content, and
+// an engine whose own run of P was shown the Cloud's P equal by content: a
+// full row of P landed on it. It returns the Cloud, its numbers for P and R,
+// and the engine with its P.
+func ownRunTestHeldChain(t *testing.T, content digest.Digest) (context.Context, *Cache, uint64, uint64, context.Context, *Cache, *Server, AnyResult) {
+	t.Helper()
+	actx, a, asrv := transferTestCache(t)
+	p := persistedListTestResult(t, actx, a, asrv, "bundle-dep", &transferTestValue{Text: "dep"})
+	require.NoError(t, a.TeachContentDigest(actx, p, content))
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "held-chained", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(p.cacheSharedResult().id)}}
+	r, err := a.GetOrInitCall(actx, "test-session", asrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "chained"}, frame)
+	})
+	require.NoError(t, err)
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	creply, err := cloud.MergeValues(ctx, "cache-a", exportTestBundle(t, actx, a, r))
+	require.NoError(t, err)
+	var cloudP, cloudR uint64
+	for _, v := range creply.Values {
+		switch storedTestFrame(t, cloud, storedBundleTestEntry(cloud, v.Number)).Field {
+		case "bundle-dep":
+			cloudP = v.Number
+		case "held-chained":
+			cloudR = v.Number
+		}
+	}
+	bctx, b, bsrv := transferTestCache(t)
+	own := persistedListTestResult(t, bctx, b, bsrv, "bundle-dep", &transferTestValue{Text: "dep"})
+	require.NoError(t, b.TeachContentDigest(bctx, own, content))
+	alone, err := cloud.StoredBundle(ctx, []uint64{cloudP}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	reply, err := b.MergeValues(bctx, cloudCacheID, alone.Bundle)
+	require.NoError(t, err)
+	require.Empty(t, reply.OtherRun, "shown equal by content")
+	heldTestHold(t, ctx, cloud, "cache-b", uint64(own.cacheSharedResult().id), cloudP, 0)
+	return ctx, cloud, cloudP, cloudR, bctx, b, bsrv, own
+}
+
+// Equality names the two values compared, not only their entries: a held
+// row stands for the engine's own value only while that value, and the
+// Cloud's record it was shown equal to, are the ones compared. After the
+// engine replaces its value, or with the Cloud's record replaced, the held
+// row is kept apart again. (Without either change it stands:
+// TestMergeValuesComparesAgainWhenTheDigestIsTaught.)
+func TestMergeValuesHeldRowAfterAValueChanged(t *testing.T) {
+	t.Parallel()
+	content := digest.FromString("dep content")
+	t.Run("the engine's value replaced", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud, cloudP, cloudR, bctx, b, bsrv, own := ownRunTestHeldChain(t, content)
+		ownRunTestReplace(t, bctx, b, bsrv, own, "bundle-dep", &transferTestValue{Text: "another dep"})
+		held, err := cloud.StoredBundle(ctx, []uint64{cloudR}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+		require.NoError(t, err)
+		require.Equal(t, []uint64{cloudP}, held.Held)
+		reply, err := b.MergeValues(bctx, cloudCacheID, held.Bundle)
+		require.NoError(t, err)
+		require.Len(t, reply.OtherRun, 1, "the held row is kept apart from the new value")
+		require.Empty(t, reply.Imported())
+	})
+	t.Run("the Cloud's record replaced", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud, cloudP, cloudR, bctx, b, _, _ := ownRunTestHeldChain(t, content)
+		held, err := cloud.StoredBundle(ctx, []uint64{cloudR}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+		require.NoError(t, err)
+		for i := range held.Bundle.Values {
+			if held.Bundle.Values[i].SenderNumber == cloudP {
+				held.Bundle.Values[i].SenderReplacements++
+			}
+		}
+		reply, err := b.MergeValues(bctx, cloudCacheID, held.Bundle)
+		require.NoError(t, err)
+		require.Len(t, reply.OtherRun, 1, "a later record of the Cloud's entry isn't the one compared")
+		require.Empty(t, reply.Imported())
+	})
+}
+
+// A scalar captured for comparison before the commit that the engine
+// replaces before the commit decides isn't compared: the captured value is no
+// longer the entry's.
+func TestMergeValuesComparesNoStaleScalar(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	sent := persistedListTestResult(t, actx, a, asrv, "stale-exists", Boolean(true))
+	bundle := exportTestBundle(t, actx, a, sent)
+	ctx, c, srv := transferTestCache(t)
+	own := persistedListTestResult(t, ctx, c, srv, "stale-exists", Boolean(true))
+	var once sync.Once
+	c.testAfterOwnRunsRead = func() {
+		once.Do(func() { ownRunTestReplace(t, ctx, c, srv, own, "stale-exists", Boolean(false)) })
+	}
+	reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.Len(t, reply.OtherRun, 1, "true isn't compared with the false the entry now holds")
 }

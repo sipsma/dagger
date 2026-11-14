@@ -247,6 +247,9 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 		reading := time.Now()
 		c.readOwnRuns(ctx, prep)
 		ownRunsRead += time.Since(reading)
+		if c.testAfterOwnRunsRead != nil {
+			c.testAfterOwnRunsRead()
+		}
 		asked := time.Now()
 		wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 		locked := time.Now()
@@ -501,7 +504,7 @@ type valueMergePrep struct {
 	// ownPlain the plain values of those made whole by their call
 	// (readOwnPlainValues).
 	ownStates map[*sharedResult]ownRunState
-	ownPlain  map[*sharedResult][]byte
+	ownPlain  map[*sharedResult]capturedPlain
 	// plain are the scalar records' values, by ordinal (notePlainRecords).
 	plain map[uint64][]byte
 	order []uint64
