@@ -1241,6 +1241,9 @@ type mergeRow struct {
 	// entry, whose dependents' session requirements then change.
 	fetchTarget    *sharedResult
 	filledIdentity bool
+	// frameRow: a held row that carries its call frame (prep.records'
+	// relocated call), which the identity-only entry it lands on takes.
+	frameRow bool
 	// keptExpired marks a kept value that had expired.
 	keptExpired bool
 	// rec and deps are the record relocated to the final numbers, for an
@@ -1360,7 +1363,7 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 			continue
 		}
 		value := prep.index[id]
-		row := &mergeRow{ordinal: id, value: value, plan: prep.plans[id]}
+		row := &mergeRow{ordinal: id, value: value, plan: prep.plans[id], frameRow: prep.held[id] && prep.records[id].Call != nil}
 		row.expired = value.ExpiresAtUnix != 0 && value.ExpiresAtUnix <= now
 		commit.rows = append(commit.rows, row)
 		commit.byOrdinal[id] = row
@@ -1567,7 +1570,7 @@ func (c *Cache) decideMergeRowLocked(row *mergeRow, now int64, fresh sharedResul
 		// A held row lands on the engine's value of its recipe, or on the
 		// entry an earlier identity row made; otherwise it makes one.
 		switch {
-		case cur != nil && cur.identityOnly && cur.loadResultCall() == nil && row.value.Record.Call != nil:
+		case cur != nil && cur.identityOnly && cur.loadResultCall() == nil && row.frameRow:
 			// A frame row gives an identity-only entry its frame.
 			row.action, row.res = mergeIdentity, cur
 		case cur != nil && cur.noValueLocked():
