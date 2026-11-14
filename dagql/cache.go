@@ -3095,6 +3095,12 @@ type cacheUsageMayChange interface {
 // sharedResult holds cache-entry state and shared payload published to per-call Result values.
 type sharedResult struct {
 	inlineBorrow *PartHost
+	// apartCloud is a Cloud entry a merge kept apart from this entry, which
+	// the engine computed, for want of the content digest the record named
+	// (rememberApartLocked); shownEqualCloud is the Cloud entry whose copy
+	// this entry was last shown equal to by content. Guarded by egraphMu.
+	apartCloud      *apartCloudCopy
+	shownEqualCloud uint64
 	// Origin is immutable; slots and graph revisions are guarded by egraphMu.
 	imported bool
 	// persistDeclined records that the call that computed the entry's value
