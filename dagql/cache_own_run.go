@@ -98,9 +98,23 @@ func (c *Cache) readOwnRuns(prep *valueMergePrep) {
 	var targets []*sharedResult
 	isTarget := map[*sharedResult]bool{}
 	below := map[*sharedResult][]*sharedResult{}
-	c.egraphMu.RLock()
+	// The targets are the entries the bundle's records land on, and the
+	// entries a transferred call's inputs name, which the bundle can leave
+	// out when the recipient holds them (callOverOwnRunLocked).
+	recipes := make([]digest.Digest, 0, len(prep.plans))
 	for _, plan := range prep.plans {
-		res := c.currentEntryForRecipeLocked(plan.recipe)
+		recipes = append(recipes, plan.recipe)
+	}
+	for _, call := range prep.calls {
+		for i, input := range call.id.inputs {
+			if i >= len(call.id.witnesses) || !call.id.witnesses[i] {
+				recipes = append(recipes, input)
+			}
+		}
+	}
+	c.egraphMu.RLock()
+	for _, recipe := range recipes {
+		res := c.currentEntryForRecipeLocked(recipe)
 		if res == nil || isTarget[res] || !c.computedHereLocked(res) {
 			continue
 		}
