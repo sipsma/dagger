@@ -42,6 +42,9 @@ type capturedTransferRow struct {
 	// knows it, so the bundle carries no record for it and nothing below it.
 	held   bool
 	recipe digest.Digest
+	// identity marks a held row of an entry the engine has the identity of
+	// alone (HeldIdentity).
+	identity bool
 }
 
 // HeldCapturedClosure protects every exact source row and offer while storage
@@ -254,7 +257,7 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 				return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: identity-only row %d can be neither held nor carried in full: a row of its recipe is carried in full", res.id)})
 			}
 			c.incrementIncomingOwnershipLocked(ctx, res)
-			row := &capturedTransferRow{shared: res, held: true, imported: true, recipe: res.identityRecipe, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
+			row := &capturedTransferRow{shared: res, held: true, identity: true, imported: true, recipe: res.identityRecipe, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}
 			capture.rows[res.id] = row
 			seen[res.id] = 2
 			row.ordinal = TransferOrdinal(len(capture.order) + 1)
@@ -1329,7 +1332,7 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 	bundle := ValueBundle{Version: ValueBundleVersion, Roots: capture.roots}
 	for _, row := range capture.order {
 		if row.held {
-			value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: PersistedRecord{ResultID: uint64(row.shared.id)}, ExpiresAtUnix: row.expiry, Held: row.recipe}
+			value := TransferredValue{Ordinal: row.ordinal, SenderNumber: uint64(row.shared.id), SenderReplacements: row.replacements, Record: PersistedRecord{ResultID: uint64(row.shared.id)}, ExpiresAtUnix: row.expiry, Held: row.recipe, HeldIdentity: row.identity}
 			// A row held at the walk has no dependencies here: it stands for
 			// its closure. One held after its copy keeps its links to the
 			// rows below it.

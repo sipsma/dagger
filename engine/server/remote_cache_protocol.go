@@ -312,7 +312,8 @@ const maxLoggedSkippedRoots = 8
 // exportLogAttrs are an export's log attributes: its roots, its skipped roots
 // counted by reason and, when there are at most maxLoggedSkippedRoots of
 // them, named with their reasons, its busy rows (busyReport), then what the
-// bundle holds, with the rows it sent held, and how long the capture and the
+// bundle holds, with the rows it sent held and, of those, the ones it has the
+// identity of alone (held_identity), and how long the capture and the
 // chains took, and then the capture's phases and the chains' layers. With no
 // bundle, those of the capture and the chains are 0.
 // carriedContentPreferred counts an export's records whose frame carries
@@ -345,7 +346,7 @@ func countCarriedContentPreferred(values []dagql.TransferredValue) carriedConten
 }
 
 func exportLogAttrs(req protocol.Export, skipped []protocol.SkippedRoot, values *dagql.ExportedValues, capture time.Duration, local exportCapture, busy busyReport) []any {
-	var records, held, outputs int
+	var records, held, heldIdentity, outputs int
 	var chains time.Duration
 	var phases dagql.ExportPhases
 	var stats snapshots.ExportStats
@@ -353,6 +354,11 @@ func exportLogAttrs(req protocol.Export, skipped []protocol.SkippedRoot, values 
 	if values != nil {
 		records, held, outputs, chains = len(values.Bundle.Values), len(values.Rows.Held), len(values.Bundle.Outputs), values.ChainTime
 		carried = countCarriedContentPreferred(values.Bundle.Values)
+		for _, value := range values.Bundle.Values {
+			if value.HeldIdentity {
+				heldIdentity++
+			}
+		}
 		phases = values.Phases
 		if values.Chains != nil {
 			stats = values.Chains.Stats
@@ -380,6 +386,7 @@ func exportLogAttrs(req protocol.Export, skipped []protocol.SkippedRoot, values 
 	return append(attrs,
 		"records", records,
 		"held", held,
+		"held_identity", heldIdentity,
 		"outputs", outputs,
 		"capture", capture,
 		"chains", chains,

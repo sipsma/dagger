@@ -2293,7 +2293,9 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 				// content digest is what joins it to the engine's own.
 				row.res.noteSenderCopyLocked(commit.from, row.value.SenderNumber, true, row.value.ExpiresAtUnix)
 				c.teachHeldRowDigestsLocked(ctx, row.res, row.plan.recipe, row.value.Extra)
-			} else {
+			} else if !row.value.HeldIdentity {
+				// A sender with the row's identity alone holds nothing of
+				// it: its dependents' holdings name it as unknown.
 				c.mergeHeldSenderHoldingLocked(ctx, cloudState, commit, row, change)
 			}
 			continue

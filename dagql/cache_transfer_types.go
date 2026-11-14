@@ -102,6 +102,12 @@ type TransferredValue struct {
 	// and each of them are one class, so its own call over the same content,
 	// under another recipe, joins the row's.
 	Extra []call.ExtraDigest `json:"extra,omitempty"`
+	// HeldIdentity marks a held row whose sender has the row's identity
+	// alone, no value of it: an engine exporting an entry a Cloud merge
+	// carried as identity alone. The Cloud takes it into the bundle's closure
+	// as any held row, but records no holding of it: the sender holds
+	// nothing of the row.
+	HeldIdentity bool `json:"heldIdentity,omitempty"`
 
 	// storedEnvelope is, in a bundle a blob-backed cache built, the record's
 	// envelope as the cache holds it, compressed (storedBody), in place of

@@ -882,7 +882,7 @@ type identityTestStoredRows struct {
 
 func (f *identityTestStoredRows) FetchRows(_ context.Context, numbers []uint64, decode, frames bool) (ValueBundle, []uint64, error) {
 	f.asked = append(f.asked, slices.Clone(numbers))
-	got, missing, err := f.cloud.StoredRows(f.ctx, numbers, time.Now().Unix(), decode, frames)
+	got, missing, err := f.cloud.StoredRows(f.ctx, "engine-b", numbers, time.Now().Unix(), decode, frames)
 	if err == nil && f.reshape != nil {
 		f.reshape(numbers, &got.Bundle)
 	}
@@ -1011,4 +1011,57 @@ func TestAnIdentityRowTheEngineLacksCostsOneFetch(t *testing.T) {
 	require.Zero(t, counts.FetchFailed)
 	require.Zero(t, counts.HitsMissed)
 	require.Zero(t, counts.FetchedRowsHad, "nothing came twice")
+}
+
+// An engine that exports an entry it has the identity of alone sends it as a
+// held row marked so, and the Cloud records no holding of it for that
+// engine: a later fetch of a value whose walk reaches it carries it in full,
+// rather than naming it by identity to an engine that has nothing of it. R's
+// child is P, which reached the engine as identity alone.
+func TestAnExportedIdentityRowGivesTheCloudNoHolding(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	p := persistedListTestResult(t, actx, a, asrv, "exported-p", &transferTestValue{Text: "p"})
+	r := persistedListTestResult(t, actx, a, asrv, "exported-r", &transferTestValue{Text: "r", Child: uint64(p.cacheSharedResult().id)})
+	transferTestDependency(a, actx, r, p)
+	ctx, cloud, numbers := identityTestCloudOf(t, actx, a, r)
+	rNumber, pNumber := numbers[uint64(r.cacheSharedResult().id)], numbers[uint64(p.cacheSharedResult().id)]
+	got, err := cloud.StoredBundle(ctx, []uint64{rNumber}, time.Now().Unix())
+	require.NoError(t, err)
+	bctx, b, _ := transferTestCache(t)
+	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	require.NoError(t, err)
+	rMerged := heldTestMerged(t, reply, heldTestRow(t, got.Bundle, rNumber).Ordinal)
+	require.Len(t, rMerged.Deps, 1)
+	b.egraphMu.RLock()
+	rEntry := b.resultsByID[sharedResultID(rMerged.Number)]
+	pEntry := b.resultsByID[sharedResultID(rMerged.Deps[0])]
+	require.True(t, pEntry.identityOnly)
+	b.egraphMu.RUnlock()
+
+	bundle := exportTestBundle(t, bctx, b, Result[Typed]{shared: rEntry})
+	marked := 0
+	for _, value := range bundle.Values {
+		if value.SenderNumber == uint64(pEntry.id) {
+			require.True(t, value.HeldIdentity, "P goes as a held row of its identity alone")
+			marked++
+		}
+	}
+	require.Equal(t, 1, marked)
+	_, err = cloud.MergeValues(ctx, "cache-b", bundle)
+	require.NoError(t, err)
+	_, held := cloud.RemoteEntryInfo(HolderKey{Cache: "cache-b", Number: uint64(pEntry.id)})
+	require.False(t, held, "no holding of P for the engine")
+
+	answer, missing, err := cloud.StoredRows(ctx, "cache-b", []uint64{rNumber}, time.Now().Unix(), true, false)
+	require.NoError(t, err)
+	require.Empty(t, missing)
+	found := false
+	for _, value := range answer.Bundle.Values {
+		if value.SenderNumber == pNumber {
+			require.Empty(t, value.Held, "P comes in full")
+			found = true
+		}
+	}
+	require.True(t, found, "the decode's answer carries P")
 }
