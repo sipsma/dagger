@@ -547,6 +547,8 @@ func main() { //nolint:gocyclo
 		slog.SetDefault(slog.New(slog.NewTextHandler(engineLogWriter, &slog.HandlerOptions{
 			Level: slogLevel,
 		})))
+		// A judging build: before the server merges the image's entries.
+		judgeMergeGraphs(slog.Default().Logger)
 
 		extraDebugEnabled := slogLevel == slog.LevelExtraDebug || slogLevel == slog.LevelTrace
 		enabledEbpfPrgs := enabledEbpfPrograms(extraDebugEnabled)

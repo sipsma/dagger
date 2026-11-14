@@ -60,7 +60,6 @@ func newRemoteCacheIntegration(cfg *config.Config) *server.RemoteCacheIntegratio
 	return &server.RemoteCacheIntegrationConfig{Run: func(ctx context.Context, adapter *server.RemoteCacheAdapter) error {
 		// The engine's logger is set once its config is loaded, before Run.
 		settings.Logger = slog.Default()
-		judgeMergeGraphs(settings.Logger)
 		return remotecache.Run(ctx, adapter, settings)
 	}}
 }
