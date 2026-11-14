@@ -818,3 +818,45 @@ func TestMergeValuesKeepsApartAnObjectOverARowKeptApartLater(t *testing.T) {
 	require.Empty(t, reply.Imported())
 	require.Zero(t, reply.Rows.OwnSameContent, "O's equality didn't survive B's")
 }
+
+// A scalar's call names its receiver, but its value names nothing: an
+// identical scalar stays equal to the engine's own though its receiver is
+// kept apart later, and what is built over the scalar alone still lands.
+func TestMergeValuesKeepsAnEqualScalarWhoseReceiverIsKeptApart(t *testing.T) {
+	t.Parallel()
+	scalarOver := func(t *testing.T, ctx context.Context, c *Cache, srv *Server, receiver AnyResult) AnyResult {
+		t.Helper()
+		frame := &ResultCall{Kind: ResultCallKindField, Field: "late-flag", Type: NewResultCallType(Boolean(true).Type()), Receiver: &ResultCallRef{ResultID: uint64(receiver.cacheSharedResult().id)}}
+		res, err := c.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+			return NewResultForCall(Boolean(true), frame)
+		})
+		require.NoError(t, err)
+		return res
+	}
+	source := func(t *testing.T, text string, withTop bool) ValueBundle {
+		actx, s, ssrv := transferTestCache(t)
+		a := persistedListTestResult(t, actx, s, ssrv, "late-a", &transferTestValue{Text: text + " a"})
+		b := persistedListTestResult(t, actx, s, ssrv, "late-b", &transferTestValue{Text: text + " b"})
+		require.NoError(t, s.AddExplicitDependency(actx, b, a, "test"))
+		if !withTop {
+			return exportTestBundle(t, actx, s, b)
+		}
+		flag := scalarOver(t, actx, s, ssrv, b)
+		d := persistedListTestResult(t, actx, s, ssrv, "late-flag-d", &transferTestValue{Text: "d"})
+		require.NoError(t, s.AddExplicitDependency(actx, d, flag, "test"))
+		return exportTestBundle(t, actx, s, d)
+	}
+	ctx, c, srv := transferTestCache(t)
+	ownA := persistedListTestResult(t, ctx, c, srv, "late-a", ownRunTestLazy("own a"))
+	first, err := c.MergeValues(ctx, cloudCacheID, source(t, "first", false))
+	require.NoError(t, err)
+	require.Len(t, first.Imported(), 1)
+	takenB, err := c.LoadResultByResultID(ctx, "test-session", srv, first.Imported()[0].ResultID)
+	require.NoError(t, err)
+	require.NoError(t, c.Evaluate(ctx, ownA))
+	scalarOver(t, ctx, c, srv, takenB)
+
+	reply, err := c.MergeValues(ctx, cloudCacheID, source(t, "second", true))
+	require.NoError(t, err)
+	require.Len(t, reply.Imported(), 1, "D, over the equal scalar alone, lands")
+}
