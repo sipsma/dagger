@@ -383,7 +383,7 @@ func TestStoredSizesMeasureAgainAfterAPartAddsADependency(t *testing.T) {
 	q := reply.Imported()[0].ResultID
 	part := testLiveOffer()
 	part.Owner.DependencyIDs = []uint64{q}
-	stored, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), part, 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 
@@ -578,7 +578,7 @@ func TestStoredSizesKeepNoMeasureOfAnOlderState(t *testing.T) {
 		changed = true
 		part := testLiveOffer()
 		part.Owner.DependencyIDs = []uint64{q}
-		stored, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+		stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), part, 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		_, err = cloud.StoredSizes(ctx, []uint64{r}, time.Now().Unix(), nil)
@@ -610,7 +610,7 @@ func TestStoredSizesPriceOutputsAsTheWireCarriesThem(t *testing.T) {
 	for i, number := range []uint64{r, p} {
 		chain := append(slices.Clone(base), storedLayersTestLayer(fmt.Sprint("price-top-", i), "the part's own"))
 		packs := map[digest.Digest]digest.Digest{base[0].Descriptor.Digest: testDigest("price-pack")}
-		stored, _, err := cloud.SetStoredPart(ctx, number, storedLayersTestPart("snapshot", chain, packs), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, number, storedPartRunOf(t, cloud, number), storedLayersTestPart("snapshot", chain, packs), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -710,7 +710,7 @@ func TestStoredSizesAllowForEachAddressOfABlobInDifferentPacks(t *testing.T) {
 		if i == 0 {
 			packs[shared.Descriptor.Digest] = testDigest("packs-pack")
 		}
-		stored, _, err := cloud.SetStoredPart(ctx, number, storedLayersTestPart("snapshot", []snapshots.ExportLayer{shared}, packs), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, number, storedPartRunOf(t, cloud, number), storedLayersTestPart("snapshot", []snapshots.ExportLayer{shared}, packs), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -837,7 +837,7 @@ func TestStoredSizesGiveUpTheLockBetweenEntries(t *testing.T) {
 		go func() {
 			part := testLiveOffer()
 			part.Owner.DependencyIDs = []uint64{q}
-			ok, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+			ok, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), part, 0)
 			written <- stored{ok, err}
 		}()
 		select {

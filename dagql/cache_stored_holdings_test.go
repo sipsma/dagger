@@ -126,7 +126,7 @@ func TestBlobCacheUsageReadsTheKeptPool(t *testing.T) {
 		{r, storedPruneTestPart("snapshot", map[string]int64{"shared": 100, "r-top": 10})},
 		{p, storedPruneTestPart("snapshot", map[string]int64{"shared": 100})},
 	} {
-		ok, _, err := cloud.SetStoredPart(ctx, stored.number, stored.part, 0)
+		ok, _, err := cloud.SetStoredPart(ctx, stored.number, storedPartRunOf(t, cloud, stored.number), stored.part, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
@@ -170,7 +170,7 @@ func TestDropStoredParts(t *testing.T) {
 		{q, storedPruneTestPart("snapshot", map[string]int64{"gone-base": 10})},
 		{p, storedPruneTestPart("snapshot", map[string]int64{"p-layer": 3})},
 	} {
-		ok, _, err := cloud.SetStoredPart(ctx, stored.number, stored.part, 0)
+		ok, _, err := cloud.SetStoredPart(ctx, stored.number, storedPartRunOf(t, cloud, stored.number), stored.part, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
@@ -223,13 +223,13 @@ func TestDropStoredPack(t *testing.T) {
 		{q, packed(storedPruneTestPart("snapshot", map[string]int64{"q-top": 4}), "q-top", "gone-pack")},
 		{p, storedPruneTestPart("snapshot", map[string]int64{"gone-pack": 3})},
 	} {
-		ok, _, err := cloud.SetStoredPart(ctx, stored.number, stored.part, 0)
+		ok, _, err := cloud.SetStoredPart(ctx, stored.number, storedPartRunOf(t, cloud, stored.number), stored.part, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
 
 	// A layer two parts store in different packs maps to the lowest pack.
-	ok, _, err := cloud.SetStoredPart(ctx, r, packed(storedPruneTestPart("mount:/twice", map[string]int64{"kept-layer": 7}), "kept-layer", "other-pack"), 0)
+	ok, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), packed(storedPruneTestPart("mount:/twice", map[string]int64{"kept-layer": 7}), "kept-layer", "other-pack"), 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 	members, err := cloud.LivePackMembers()
@@ -276,7 +276,7 @@ func TestStoredQueries(t *testing.T) {
 		{p, storedPruneTestPart("snapshot", map[string]int64{"shared": 100})},
 		{service, packed(storedPruneTestPart("snapshot", map[string]int64{"outside-pool": 1000}), map[string]string{"outside-pool": "pack-outside"})},
 	} {
-		ok, _, err := cloud.SetStoredPart(ctx, stored.number, stored.part, 0)
+		ok, _, err := cloud.SetStoredPart(ctx, stored.number, storedPartRunOf(t, cloud, stored.number), stored.part, 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}

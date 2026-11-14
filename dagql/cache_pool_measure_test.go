@@ -46,7 +46,7 @@ func TestPoolMeasureIsKeptThroughEveryWrite(t *testing.T) {
 	// Their parts, sharing a base layer.
 	for i, root := range roots {
 		top := []string{"first-top", "second-top"}[i]
-		stored, _, err := cloud.SetStoredPart(ctx, root, storedPruneTestPart("snapshot", map[string]int64{"pool-base": 100, top: int64(10 * (i + 1))}), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, root, storedPartRunOf(t, cloud, root), storedPruneTestPart("snapshot", map[string]int64{"pool-base": 100, top: int64(10 * (i + 1))}), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}
@@ -101,7 +101,7 @@ func TestPoolMeasureIsKeptThroughEveryWrite(t *testing.T) {
 	// counts the pool once.
 	again := persistedListTestResult(t, actx, a, asrv, "pool-again", &transferTestValue{Text: "again"})
 	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, again))[0]
-	stored, _, err := cloud.SetStoredPart(ctx, root, storedPruneTestPart("snapshot", map[string]int64{"again-base": 7}), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, root, storedPartRunOf(t, cloud, root), storedPruneTestPart("snapshot", map[string]int64{"again-base": 7}), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	saved := usage()
@@ -130,7 +130,7 @@ func TestOneBlobAtTwoSizesIsOneBlob(t *testing.T) {
 	storedPruneTestUse(cloud, older, time.Now().Add(-2*time.Hour))
 	storedPruneTestUse(cloud, newer, time.Now().Add(-time.Hour))
 	for number, size := range map[uint64]int64{newer: 60_000_000, older: 61_000_000} {
-		stored, _, err := cloud.SetStoredPart(ctx, number, storedPruneTestPart("snapshot", map[string]int64{"the toolchain": size}), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, number, storedPartRunOf(t, cloud, number), storedPruneTestPart("snapshot", map[string]int64{"the toolchain": size}), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 	}

@@ -453,9 +453,16 @@ type MergeReply struct {
 // whose sender's holding the cache had before the commit, and KeptTaught
 // those of them whose identity taught the entry a class, a term or a digest
 // all the same: what a held row in their place wouldn't have taught it.
+//
+// On a blob-backed cache it also counts the records the merge installs that
+// were computed over another run of an input than the one the cache stores
+// (countOverOtherRunLocked), by whether the two runs of those inputs are
+// shown equal by content digest, shown different, or can't be compared
+// because one side names none.
 type MergeRowCounts struct {
-	Held, Kept, Created, Stored, Replaced, Retired int
-	KeptWithHolding, KeptTaught                    int
+	Held, Kept, Created, Stored, Replaced, Retired                int
+	KeptWithHolding, KeptTaught                                   int
+	OverOtherRunEqual, OverOtherRunDifferent, OverOtherRunUnknown int
 }
 
 // count counts one decided row.
@@ -503,6 +510,10 @@ type MergedValue struct {
 	// target: a new entry, one with no value, or one in place of an expired
 	// value (MergeRowCounts' created, stored, replaced and retired).
 	Stored bool
+	// Run is, on the Cloud, the run the merge named the record's
+	// (mergeRunLocked): the run a part its sender uploads for it is of.
+	// Zero on an engine.
+	Run RunName
 }
 
 // MergedRoot is one root of the bundle: its target and retention, or expired.
@@ -543,8 +554,13 @@ type valueMergePrep struct {
 	// whose numbers still hold.
 	prerelocated map[uint64]*prerelocatedRecord
 	// from is the cache the bundle is from.
-	from   CacheID
-	bundle ValueBundle
+	from CacheID
+	// senderImported are, on the Cloud, the rows whose record its sender
+	// marked imported, by ordinal: read as the rows are indexed, since the
+	// preparation drops the rows' records (dropRecordCopies) and marks every
+	// prepared record imported (mergeRunLocked).
+	senderImported map[uint64]bool
+	bundle         ValueBundle
 	// unretained are the bundle's roots the commit gives no retention edge
 	// (PreparedValueMerge.Unretained).
 	unretained map[TransferOrdinal]bool
@@ -698,6 +714,12 @@ func (c *Cache) prepareValueMerge(ctx context.Context, from CacheID, input Value
 	for i := range prep.bundle.Values {
 		row := &prep.bundle.Values[i]
 		prep.index[uint64(row.Ordinal)] = row
+		if c.blobBacked && row.Record.Envelope.Imported {
+			if prep.senderImported == nil {
+				prep.senderImported = map[uint64]bool{}
+			}
+			prep.senderImported[uint64(row.Ordinal)] = true
+		}
 		prep.rows[row.SenderNumber] = uint64(row.Ordinal)
 	}
 	ctx = withGraphLockWaits(ctx, prep.lockWaits)
@@ -1543,8 +1565,11 @@ func (a mergeAction) installs() bool {
 type mergeRow struct {
 	ordinal uint64
 	value   *TransferredValue
-	plan    transferIdentityPlan
-	action  mergeAction
+	// run is, on the Cloud, the run the row's value comes from
+	// (mergeRunLocked).
+	run    RunName
+	plan   transferIdentityPlan
+	action mergeAction
 	// target is the recipe's entry before the merge, if any.
 	target *sharedResult
 	// res is the entry that holds the record's value after the merge: the
@@ -1577,10 +1602,13 @@ type mergeRow struct {
 
 // valueMergeCommit is a merge decided and checked, ready to change the cache.
 type valueMergeCommit struct {
-	prep      *valueMergePrep
-	from      CacheID
-	rows      []*mergeRow
-	byOrdinal map[uint64]*mergeRow
+	// overOtherRun counts the records installed over another run of an
+	// input (countOverOtherRunLocked), for the reply.
+	overOtherRun MergeRowCounts
+	prep         *valueMergePrep
+	from         CacheID
+	rows         []*mergeRow
+	byOrdinal    map[uint64]*mergeRow
 	// byNumber maps each row's entry number to the entry it lands on, and
 	// installed each entry that takes a record to the row it takes.
 	byNumber  map[sharedResultID]*sharedResult
@@ -1705,6 +1733,12 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 		// the merge: the best record's, or the one the entry keeps.
 		row.action, row.target, row.res = mergeKeep, b.res, b.res
 		row.keptExpired = b.keptExpired || b.action.installs() && b.expired
+	}
+	if c.blobBacked {
+		for _, row := range commit.rows {
+			row.run = c.mergeRunLocked(prep.from, row.value, prep.senderImported[row.ordinal])
+		}
+		c.countOverOtherRunLocked(commit)
 	}
 }
 
@@ -2898,6 +2932,13 @@ type mergeReplacement struct {
 // replacement. Requires egraphMu for writing.
 func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, origin *mergeOrigin) {
 	rec := row.rec
+	// On the Cloud, the stored record names the row's run, which goes with
+	// it (RunName). An engine keeps no runs.
+	res.run = nil
+	if c.blobBacked {
+		run := row.run
+		res.run = &run
+	}
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil
 	res.merged = origin
@@ -3276,6 +3317,7 @@ func (c *Cache) bindMergedFrameLocked(res *sharedResult, published bool) error {
 // egraphMu.
 func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 	reply := MergeReply{Generation: c.identity.Generation, EngineTimeUnixNano: time.Now().UnixNano()}
+	reply.Rows = commit.overOtherRun
 	for _, row := range commit.rows {
 		reply.Rows.count(row)
 		res := row.res
@@ -3284,7 +3326,7 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 			// that nothing owns: there is no target to report.
 			continue
 		}
-		value := MergedValue{Ordinal: row.value.Ordinal, Number: uint64(res.id), Replacements: res.replacements, Revision: RowRevision{Replacements: res.replacements, Transfer: res.transferRevision, Dependencies: res.dependencyOwnershipRevision}, ExpiresAtUnix: res.expiresAtUnix}
+		value := MergedValue{Ordinal: row.value.Ordinal, Number: uint64(res.id), Replacements: res.replacements, Revision: RowRevision{Replacements: res.replacements, Transfer: res.transferRevision, Dependencies: res.dependencyOwnershipRevision}, ExpiresAtUnix: res.expiresAtUnix, Run: row.run}
 		value.Stored = row.value.Held == "" && (row.action == mergeCreate || row.action == mergeStore || row.action == mergeReplace || row.action == mergeRetire)
 		for dep := range res.deps {
 			value.Deps = append(value.Deps, uint64(dep))

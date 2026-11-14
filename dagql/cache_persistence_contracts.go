@@ -33,6 +33,7 @@ type persistResultSnapshot struct {
 	imported              bool
 	persistDeclined       bool
 	boundSession          SessionResourceHandle
+	run                   *RunName
 	pendingOffers         []PersistedPartOffer
 	storedParts           []storedPart
 	resultID              sharedResultID
