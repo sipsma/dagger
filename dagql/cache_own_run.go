@@ -465,6 +465,44 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 	}
 	dropped := commit.cascadeApart(apart)
 	commit.dropApartRows(dropped)
+	c.noteApartRecipes(commit.apartRecipes)
+}
+
+// apartRecipesLimit bounds the recipes a cache remembers as kept apart or
+// dropped (noteApartRecipes), for OwnRunStats.RanAfterApart: past it, newer
+// ones aren't counted.
+const apartRecipesLimit = 1 << 20
+
+// noteApartRecipes remembers recipes a merge kept apart or dropped from a
+// run of the cache's own, so a call of one the cache runs later is counted
+// (noteCallRun).
+func (c *Cache) noteApartRecipes(recipes map[digest.Digest]bool) {
+	if len(recipes) == 0 {
+		return
+	}
+	c.ownRunApartMu.Lock()
+	defer c.ownRunApartMu.Unlock()
+	if c.ownRunApartRecipes == nil {
+		c.ownRunApartRecipes = map[digest.Digest]struct{}{}
+	}
+	for recipe := range recipes {
+		if len(c.ownRunApartRecipes) >= apartRecipesLimit {
+			return
+		}
+		c.ownRunApartRecipes[recipe] = struct{}{}
+	}
+}
+
+// noteCallRun counts a call the cache runs whose recipe a merge kept apart
+// or dropped from a run of its own: it runs because a stored run was
+// refused (OwnRunStats.RanAfterApart).
+func (c *Cache) noteCallRun(recipe digest.Digest) {
+	c.ownRunApartMu.Lock()
+	_, apart := c.ownRunApartRecipes[recipe]
+	c.ownRunApartMu.Unlock()
+	if apart {
+		c.ownRunRanAfterApart.Add(1)
+	}
 }
 
 // decideOwnRowsLocked decides each row that lands on an entry the cache
@@ -777,6 +815,9 @@ type OwnRunStats struct {
 	// OffersRefused are the parts OfferParts refused for rows with a run of
 	// this cache's own below them, and OffersLent the parts it attached.
 	OffersRefused, OffersLent uint64
+	// RanAfterApart are the calls the cache ran whose recipe a merge had
+	// kept apart or dropped from a run of its own: the work the rule cost.
+	RanAfterApart uint64
 }
 
 // noteOwnRunRows adds a committed merge's rows to OwnRunStats.
@@ -803,5 +844,6 @@ func (c *Cache) OwnRunStats() OwnRunStats {
 		OverApartHeld:   c.ownRunOverApartHeld.Load(),
 		OffersRefused:   c.ownRunOffersRefused.Load(),
 		OffersLent:      c.ownRunOffersLent.Load(),
+		RanAfterApart:   c.ownRunRanAfterApart.Load(),
 	}
 }

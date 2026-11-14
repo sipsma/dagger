@@ -215,6 +215,7 @@ func (srv *Server) stopEngineEvents(ctx context.Context, clean bool) {
 				OverApartHeld:   own.OverApartHeld,
 				OffersRefused:   own.OffersRefused,
 				OffersLent:      own.OffersLent,
+				RanAfterApart:   own.RanAfterApart,
 			},
 		})
 	}

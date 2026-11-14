@@ -2652,6 +2652,13 @@ type Cache struct {
 	// ownRunApartFull, ownRunApartHeld, ownRunOverApartFull and
 	// ownRunOverApartHeld count committed merge rows by route (OwnRunStats).
 	ownRunApartFull, ownRunApartHeld, ownRunOverApartFull, ownRunOverApartHeld atomic.Uint64
+	// ownRunApartRecipes are the recipes merges kept apart or dropped from
+	// runs of the cache's own (noteApartRecipes), and ownRunRanAfterApart
+	// counts the calls of them the cache ran since (noteCallRun). Guarded by
+	// ownRunApartMu.
+	ownRunApartMu       sync.Mutex
+	ownRunApartRecipes  map[digest.Digest]struct{}
+	ownRunRanAfterApart atomic.Uint64
 
 	taughtContentQueued         atomic.Uint64
 	taughtContentRewrites       atomic.Uint64
@@ -7077,6 +7084,7 @@ func (c *Cache) getOrInitCallInner(
 		// carries that separately.
 		ev.Outcome = CacheOutcomeExecuted
 	}
+	c.noteCallRun(callDigest)
 	profOp.SetOutcomeHint(wcprof.OutcomeExecuted)
 	return c.wait(ctx, sessionID, resolver, oc, req, false)
 }

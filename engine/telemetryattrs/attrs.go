@@ -1224,4 +1224,7 @@ type EngineOwnRuns struct {
 	// own; OffersLent the offered parts attached.
 	OffersRefused uint64 `json:"offersRefused"`
 	OffersLent    uint64 `json:"offersLent"`
+	// RanAfterApart are the calls the engine ran whose recipe a merge had
+	// kept apart or dropped from a run of its own: the work the rule cost.
+	RanAfterApart uint64 `json:"ranAfterApart"`
 }
