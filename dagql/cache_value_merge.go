@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagger/dagger/dagql/call/callpbv1"
 	"github.com/dagger/dagger/engine/wcprof"
+	"github.com/opencontainers/go-digest"
 )
 
 // MergeValues merges a bundle of transferred values into the cache, and
@@ -1241,6 +1242,9 @@ type valueMergeCommit struct {
 	attached []mergeAttachedOffer
 	roots    []MergedRoot
 	now      int64
+	// apartRecipes are the recipes of the rows keepOwnRunsLocked kept apart
+	// or dropped.
+	apartRecipes map[digest.Digest]bool
 }
 
 // mergeAttachedOffer is an offer a merge attached: the entry, its part key
@@ -2069,7 +2073,7 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 	}
 	for _, merged := range commit.prep.calls {
 		row := commit.byOrdinal[merged.value]
-		if row == nil || row.res == nil || row.otherRun {
+		if row == nil || row.res == nil || row.otherRun || callOverApartRow(commit, merged.id) {
 			continue
 		}
 		// The row's expiry is the earliest of its calls', the Cloud's
@@ -2089,6 +2093,21 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 	if joined != nil {
 		joined(change)
 	}
+}
+
+// callOverApartRow reports whether an input of a transferred call is a row
+// the merge kept apart or dropped (keepOwnRunsLocked): its answer was made
+// over another run of that input than the one the cache holds.
+func callOverApartRow(commit *valueMergeCommit, id callIdentity) bool {
+	for i, input := range id.inputs {
+		if i < len(id.witnesses) && id.witnesses[i] {
+			continue
+		}
+		if commit.apartRecipes[input] {
+			return true
+		}
+	}
+	return false
 }
 
 // teachCallIdentityLocked teaches res a call that returned it, as
