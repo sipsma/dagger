@@ -85,7 +85,7 @@ func plainRecord(rec PersistedRecord) bool {
 // plainKey encodes a plain record's value for comparison, with its reference
 // to itself, which names the entry it is in, left out.
 func plainKey(rec PersistedRecord) ([]byte, bool) {
-	selfless, err := VisitEncodedReferences(rec, func(ref *PersistedRef) error {
+	selfless, err := visitValueReferences(rec, func(ref *PersistedRef) error {
 		if ref.RecipeID == nil && ref.Kind == PersistedRefSelf {
 			ref.ResultID = 1
 		}
@@ -103,6 +103,23 @@ func plainKey(rec PersistedRecord) ([]byte, bool) {
 		return nil, false
 	}
 	return key, true
+}
+
+// visitValueReferences rewrites the references in rec's value only, not in
+// the call that produced it: a scalar's call names its receiver, but its
+// value names nothing. rec's call is left as it is.
+func visitValueReferences(rec PersistedRecord, visit PersistedRefVisitor) (PersistedRecord, error) {
+	scopes, err := partitionSnapshotLinks(rec.Envelope, cloneSnapshotRefLinks(rec.SnapshotLinks))
+	if err != nil {
+		return PersistedRecord{}, err
+	}
+	env, err := visitPersistedEnvelope(rec.Envelope, rec.Call, scopes, nil, true, visit)
+	if err != nil {
+		return PersistedRecord{}, err
+	}
+	out := rec
+	out.Envelope = env
+	return out, nil
 }
 
 // incomingPlain is a plain record of the bundle as preparation read it: its
@@ -129,7 +146,7 @@ func (prep *valueMergePrep) notePlainRecords() {
 			continue
 		}
 		names := false
-		byOrdinal, err := VisitEncodedReferences(row.Record, func(ref *PersistedRef) error {
+		byOrdinal, err := visitValueReferences(row.Record, func(ref *PersistedRef) error {
 			if ref.RecipeID != nil || ref.Kind == PersistedRefSelf {
 				return nil
 			}
@@ -180,7 +197,7 @@ func samePlainValueLocked(commit *valueMergeCommit, row *mergeRow, res *sharedRe
 	}
 	key := incoming.key
 	if incoming.names {
-		final, err := VisitEncodedReferences(incoming.rec, func(ref *PersistedRef) error {
+		final, err := visitValueReferences(incoming.rec, func(ref *PersistedRef) error {
 			if ref.RecipeID != nil || ref.Kind == PersistedRefSelf {
 				return nil
 			}
