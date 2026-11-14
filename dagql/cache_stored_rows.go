@@ -18,15 +18,19 @@ import (
 // calls reference stay identity rows. With frames, those identity rows are
 // frame rows, and so are the rows their calls reference, followed down: the
 // entries' whole call closure, each row carrying its call frame and no
-// value, so one answer serves a recipe walk. Missing are the entries asked
-// that the cache has no entry for, or no value of.
+// value, so one answer serves a recipe walk. An entry the requesting engine
+// (cache) holds an unexpired holding of, which an engine's merged replies and
+// rows report, and isn't asked, goes as an identity row, with nothing below
+// it walked: the engine has its value. The answer records no holding of what
+// it carries. Missing are the entries asked that the cache has no entry for,
+// or no value of.
 //
 // The child rows and the call closure are found a level at a time
 // (storedChildClosure, storedFrameClosure), each level read under
 // egraphMu.RLock and its call frames decoded after the lock is released; the
 // answer is then built as a stored bundle, in one hold over the rows it
 // carries.
-func (c *Cache) StoredRows(ctx context.Context, entries []uint64, nowUnix int64, decode, frames bool) (StoredBundleResult, []uint64, error) {
+func (c *Cache) StoredRows(ctx context.Context, cache CacheID, entries []uint64, nowUnix int64, decode, frames bool) (StoredBundleResult, []uint64, error) {
 	var out StoredBundleResult
 	if !c.blobBacked {
 		return out, nil, fmt.Errorf("stored rows: the cache has no blob store")
@@ -37,14 +41,14 @@ func (c *Cache) StoredRows(ctx context.Context, entries []uint64, nowUnix int64,
 	var full map[sharedResultID]bool
 	if decode {
 		var err error
-		if full, err = c.storedChildClosure(ctx, entries); err != nil {
+		if full, err = c.storedChildClosure(ctx, cache, nowUnix, entries); err != nil {
 			return out, nil, err
 		}
 	}
 	var frameRows map[sharedResultID]frameRow
 	if frames {
 		var err error
-		if frameRows, err = c.storedFrameClosure(ctx, entries, full); err != nil {
+		if frameRows, err = c.storedFrameClosure(ctx, cache, nowUnix, entries, full); err != nil {
 			return out, nil, err
 		}
 	}
@@ -69,10 +73,12 @@ type frameRow struct {
 // with them (full), the frame rows of their call closure: each entry their
 // call frames reference, followed down through the frames of those, but the
 // entries themselves and the full rows, which carry their calls in their
-// records. It reads one level at a time under egraphMu.RLock, and decodes
-// the level's frames after releasing it. An entry whose frame can't be
-// decoded goes as a plain identity row, with nothing below it.
-func (c *Cache) storedFrameClosure(ctx context.Context, entries []uint64, full map[sharedResultID]bool) (map[sharedResultID]frameRow, error) {
+// records, and those the requester holds (requesterHoldsLocked), which have
+// their frames there. It reads one level at a time under egraphMu.RLock,
+// and decodes the level's frames after releasing it. An entry whose frame
+// can't be decoded, or the requester holds, goes as a plain identity row,
+// with nothing below it.
+func (c *Cache) storedFrameClosure(ctx context.Context, cache CacheID, nowUnix int64, entries []uint64, full map[sharedResultID]bool) (map[sharedResultID]frameRow, error) {
 	rows := map[sharedResultID]frameRow{}
 	carried := make(map[sharedResultID]bool, len(entries)+len(full))
 	seen := map[sharedResultID]bool{}
@@ -94,7 +100,9 @@ func (c *Cache) storedFrameClosure(ctx context.Context, entries []uint64, full m
 		level := make([]entryFrame, len(frontier))
 		c.egraphMu.RLock()
 		for i, id := range frontier {
-			if res := c.resultsByID[id]; res != nil {
+			// An entry the requester holds has its frame there: it goes as
+			// a plain identity row, with nothing below it.
+			if res := c.resultsByID[id]; res != nil && (carried[id] || !requesterHoldsLocked(res, cache, nowUnix)) {
 				level[i] = res.entryFrameLocked()
 			}
 		}
@@ -154,11 +162,12 @@ func (c *Cache) frameRowCarriedLocked(build *storedBundleBuild, row frameRow) bo
 // (storedClosureChildrenLocked) but the entries only its call frame
 // references. An entry its value names as a child (PersistedRefChild) is a
 // child though its call takes it too: a lazy container's parent is its
-// receiver and a child of its value. It reads one level at a time under
-// egraphMu.RLock, and decodes the level's frames and records after releasing
-// it. An entry whose frame or record can't be decoded counts every entry
-// below it as a child.
-func (c *Cache) storedChildClosure(ctx context.Context, entries []uint64) (map[sharedResultID]bool, error) {
+// receiver and a child of its value. A child the requester holds
+// (requesterHoldsLocked) isn't one, nor is anything only it reaches. It
+// reads one level at a time under egraphMu.RLock, and decodes the level's
+// frames and records after releasing it. An entry whose frame or record
+// can't be decoded counts every entry below it as a child.
+func (c *Cache) storedChildClosure(ctx context.Context, cache CacheID, nowUnix int64, entries []uint64) (map[sharedResultID]bool, error) {
 	type reached struct {
 		id       sharedResultID
 		children []sharedResultID
@@ -176,6 +185,7 @@ func (c *Cache) storedChildClosure(ctx context.Context, entries []uint64) (map[s
 			frontier = append(frontier, id)
 		}
 	}
+	asked := maps.Clone(seen)
 	for len(frontier) > 0 {
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
@@ -187,6 +197,11 @@ func (c *Cache) storedChildClosure(ctx context.Context, entries []uint64) (map[s
 			if res == nil || res.noValueLocked() || res.persistedEnvelope == nil {
 				// No record to carry: it goes as an identity row, if
 				// anything.
+				delete(full, id)
+				continue
+			}
+			if !asked[id] && requesterHoldsLocked(res, cache, nowUnix) {
+				// The requester has its value: an identity row names it.
 				delete(full, id)
 				continue
 			}
@@ -248,4 +263,20 @@ func storedValueChildren(id sharedResultID, call *ResultCall, envelope *Persiste
 		return nil
 	})
 	return children, err
+}
+
+// requesterHoldsLocked reports whether the engine whose cache is cache holds
+// an unexpired holding of res, as its merged replies and rows report: it has
+// res's value, and a fetch's answer names res by identity alone. An empty
+// cache holds nothing. Requires egraphMu.
+func requesterHoldsLocked(res *sharedResult, cache CacheID, nowUnix int64) bool {
+	if cache == "" {
+		return false
+	}
+	for _, ref := range res.cacheHolderRefsLocked(cache) {
+		if ref.h != nil && (ref.h.expiresAtUnix == 0 || ref.h.expiresAtUnix > nowUnix) {
+			return true
+		}
+	}
+	return false
 }
