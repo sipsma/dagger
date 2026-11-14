@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/dagger/dagger/engine/snapshots/config"
@@ -146,4 +147,60 @@ func TestContentExportLeavesOutWhatOnlyAHeldRowsOfferReaches(t *testing.T) {
 	require.Equal(t, map[uint64]bool{n(root): true, n(offered): true, n(out): true}, held, "the row only the held row's offer reaches isn't carried")
 	_, err := validateValueBundle(values.Bundle)
 	require.NoError(t, err)
+}
+
+// A content export copies no record of a row its recipient knows, but for
+// the selected outputs' rows: a held row carries no record, and a known
+// row's parts aren't the export's to send. The rows, held rows and links it
+// sends are those it sent when it copied every row, and the Cloud merges
+// them. Here root is new, out is known and selected, and core, below out,
+// and side, beside it, are known.
+func TestContentExportCopiesNoKnownRowButTheSelected(t *testing.T) {
+	t.Parallel()
+	ctx, c, srv := transferTestCache(t)
+	core := persistedListTestResult(t, ctx, c, srv, "copy-core", String("core"))
+	out := persistedListTestResult(t, ctx, c, srv, "copy-out", &transferTestValue{Text: "pending"})
+	side := persistedListTestResult(t, ctx, c, srv, "copy-side", String("side"))
+	transferTestDependency(c, ctx, out, core)
+	known := NewKnownRows()
+	first, rows, _ := recordsOnlyCapture(t, ctx, c, known, out)
+	known.Merged(rows)
+	sideFirst, sideRows, _ := recordsOnlyCapture(t, ctx, c, known, side)
+	known.Merged(sideRows)
+
+	root := persistedListTestResult(t, ctx, c, srv, "copy-root", String("root"))
+	transferTestDependency(c, ctx, root, out)
+	transferTestDependency(c, ctx, root, side)
+
+	var mu sync.Mutex
+	copied := map[uint64]bool{}
+	c.testTransferCopied = func(id uint64) {
+		mu.Lock()
+		copied[id] = true
+		mu.Unlock()
+	}
+	values := contentCapture(t, ctx, c, known, root, out)
+	c.testTransferCopied = nil
+	n := knownRowsTestNumber
+	require.Equal(t, map[uint64]bool{n(root): true, n(out): true}, copied, "the new row and the selected output's row")
+
+	held, full := heldNumbers(values.Bundle)
+	require.Equal(t, map[uint64]bool{n(root): true}, full)
+	require.Equal(t, map[uint64]bool{n(out): true, n(core): true, n(side): true}, held)
+	require.Equal(t, []uint64{uint64(bundleRow(t, values.Bundle, core).Ordinal)}, bundleRow(t, values.Bundle, out).DependencyIDs, "a held row keeps its links to the rows below it")
+	require.Len(t, values.Bundle.Outputs, 1, "the selected part")
+	require.Equal(t, ordinalOfNumber(t, values.Bundle, n(out)), values.Bundle.Outputs[0].Ordinal)
+	_, err := validateValueBundle(values.Bundle)
+	require.NoError(t, err)
+
+	cctx, cloud := storedPartTestCache(t, WithBlobStore())
+	for _, bundle := range []ValueBundle{first, sideFirst} {
+		reply, err := cloud.MergeValues(cctx, "engine", bundle)
+		require.NoError(t, err)
+		require.True(t, reply.Committed)
+	}
+	reply, err := cloud.MergeValues(cctx, "engine", values.Bundle)
+	require.NoError(t, err)
+	require.True(t, reply.Committed, "the Cloud merges the export")
+	require.Empty(t, reply.Stale)
 }
