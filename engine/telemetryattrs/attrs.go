@@ -1208,14 +1208,17 @@ type EngineRestorePart struct {
 }
 
 // IdentityRowCounts is dagql.IdentityRowCounts on the engine.stop row:
-// resolved to a local entry of the class, fetched (with the full rows the
-// fetches brought) or not, frame walks that reached one, hits turned into
+// resolved to a local entry of the class, fetched or not, the fetches asked
+// and the full rows they brought, with those that landed on an entry that
+// already had a value, frame walks that reached one, hits turned into
 // misses, and parts left unavailable, by an unavailable row.
 type IdentityRowCounts struct {
 	ResolvedLocally  int64 `json:"resolvedLocally"`
 	Fetched          int64 `json:"fetched"`
 	FetchFailed      int64 `json:"fetchFailed"`
+	Fetches          int64 `json:"fetches"`
 	FetchedRows      int64 `json:"fetchedRows"`
+	FetchedRowsHad   int64 `json:"fetchedRowsHad"`
 	RecipeWalks      int64 `json:"recipeWalks"`
 	HitsMissed       int64 `json:"hitsMissed"`
 	PartsUnavailable int64 `json:"partsUnavailable"`

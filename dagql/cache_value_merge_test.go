@@ -2516,7 +2516,7 @@ func TestMergeValuesCountsItsRowsByAction(t *testing.T) {
 	require.Equal(t, MergeRowCounts{Created: 1}, first.Rows)
 	again, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
-	require.Equal(t, MergeRowCounts{Kept: 1}, again.Rows)
+	require.Equal(t, MergeRowCounts{Kept: 1, Had: 1}, again.Rows, "the merged-again record lands on the value the engine has")
 
 	cctx, c, csrv := transferTestCache(t)
 	local := persistedListTestResult(t, cctx, c, csrv, "root", &transferTestValue{Text: "local"})
@@ -2562,7 +2562,7 @@ func TestMergeValuesTimesItsWarming(t *testing.T) {
 	b.egraphMu.RUnlock()
 	r := <-done
 	require.NoError(t, r.err)
-	require.Equal(t, MergeRowCounts{Kept: 1}, r.reply.Rows)
+	require.Equal(t, MergeRowCounts{Kept: 1, Had: 1}, r.reply.Rows)
 	require.GreaterOrEqual(t, r.reply.Warm, held, "the target's capture waited for the reader")
 }
 

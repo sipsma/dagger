@@ -247,8 +247,11 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 			// above it stay here.
 			// It can't be carried in full either: an export whose shared
 			// recipe asks for that (deriveHeldRecipes) stays here.
-			if refused.refusedLocked(res) || carried[res.id] {
-				return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: identity-only row %d can be neither held nor carried in full", res.id)})
+			if refused.refusedLocked(res) {
+				return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: identity-only row %d can be neither held nor carried in full: the Cloud answered it stale", res.id)})
+			}
+			if carried[res.id] {
+				return blocked(res.id, blockedRow{row: res.id, err: fmt.Errorf("transfer capture: identity-only row %d can be neither held nor carried in full: a row of its recipe is carried in full", res.id)})
 			}
 			c.incrementIncomingOwnershipLocked(ctx, res)
 			row := &capturedTransferRow{shared: res, held: true, imported: true, recipe: res.identityRecipe, expiry: res.expiresAtUnix, replacements: res.replacements, transferRev: res.transferRevision, dependencyRev: res.dependencyOwnershipRevision, requiredRev: res.requiredSessionResourcesGen.Load()}

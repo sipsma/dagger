@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -848,4 +849,166 @@ func TestSchemaLoadPrefersAnInstalledModuleToAnIdentityEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sharedResultID(own), loaded.cacheSharedResult().id, "the installed Module")
 	require.Zero(t, fetcher.calls)
+}
+
+// identityTestCloudOf merges into a new Cloud the closure of the root a
+// builds, and returns the Cloud and the Cloud number of each of a's results,
+// by a's number.
+func identityTestCloudOf(t *testing.T, actx context.Context, a *Cache, root AnyResult) (context.Context, *Cache, map[uint64]uint64) {
+	t.Helper()
+	bundle := exportTestBundle(t, actx, a, root)
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	require.NoError(t, err)
+	numbers := map[uint64]uint64{}
+	for _, value := range reply.Values {
+		for _, sent := range bundle.Values {
+			if sent.Ordinal == value.Ordinal {
+				numbers[sent.SenderNumber] = value.Number
+			}
+		}
+	}
+	return ctx, cloud, numbers
+}
+
+// identityTestStoredRows answers a fetch from the Cloud's stored rows, as the
+// service does, and counts the fetches and what each named.
+type identityTestStoredRows struct {
+	ctx     context.Context
+	cloud   *Cache
+	asked   [][]uint64
+	reshape func(asked []uint64, bundle *ValueBundle)
+}
+
+func (f *identityTestStoredRows) FetchRows(_ context.Context, numbers []uint64, decode, frames bool) (ValueBundle, []uint64, error) {
+	f.asked = append(f.asked, slices.Clone(numbers))
+	got, missing, err := f.cloud.StoredRows(f.ctx, numbers, time.Now().Unix(), decode, frames)
+	if err == nil && f.reshape != nil {
+		f.reshape(numbers, &got.Bundle)
+	}
+	return got.Bundle, missing, err
+}
+
+// A decode asks for every row it loads that came as identity alone in one
+// fetch: R names P as its receiver and Q as its child, and its decode fetches
+// both at once.
+func TestDecodeFetchesItsIdentityRowsInOneFetch(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	p := persistedListTestResult(t, actx, a, asrv, "batch-p", &transferTestValue{Text: "p"})
+	q := persistedListTestResult(t, actx, a, asrv, "batch-q", &transferTestValue{Text: "q"})
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "batch-r", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(p.cacheSharedResult().id)}}
+	r, err := a.GetOrInitCall(actx, "test-session", asrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "r", Child: uint64(q.cacheSharedResult().id)}, frame)
+	})
+	require.NoError(t, err)
+	transferTestDependency(a, actx, r, q)
+	ctx, cloud, numbers := identityTestCloudOf(t, actx, a, r)
+	rNumber := numbers[uint64(r.cacheSharedResult().id)]
+
+	got, err := cloud.StoredBundle(ctx, []uint64{rNumber}, time.Now().Unix())
+	require.NoError(t, err)
+	bctx, b, bsrv := transferTestCache(t)
+	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	require.NoError(t, err)
+	rEngine := heldTestMerged(t, reply, heldTestRow(t, got.Bundle, rNumber).Ordinal)
+	require.Len(t, rEngine.Deps, 2)
+	fetcher := &identityTestStoredRows{ctx: ctx, cloud: cloud}
+	b.SetRowFetcher(fetcher)
+
+	_, err = b.LoadResultByResultID(bctx, "", bsrv, rEngine.Number)
+	require.NoError(t, err)
+	want := []uint64{numbers[uint64(p.cacheSharedResult().id)], numbers[uint64(q.cacheSharedResult().id)]}
+	slices.Sort(want)
+	require.Equal(t, [][]uint64{want}, fetcher.asked, "one fetch, for both")
+	b.egraphMu.RLock()
+	for _, dep := range rEngine.Deps {
+		require.False(t, b.resultsByID[sharedResultID(dep)].identityOnly, "entry %d filled", dep)
+	}
+	b.egraphMu.RUnlock()
+	counts := b.IdentityRowCounts()
+	require.Equal(t, int64(1), counts.Fetches)
+	require.Zero(t, counts.FetchFailed)
+	require.Zero(t, counts.FetchedRowsHad)
+}
+
+// When a fetch's answer carries as identity alone a row the engine doesn't
+// have, as when the service counts as held what the engine never landed or
+// has since let go, that row costs the engine one fetch when something needs
+// it, and nothing else: no failure, no hit lost, no row sent again in full.
+// R's child is P, whose child is C; P's answer carries C as an identity row.
+func TestAnIdentityRowTheEngineLacksCostsOneFetch(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	c := persistedListTestResult(t, actx, a, asrv, "lack-c", &transferTestValue{Text: "c"})
+	p := persistedListTestResult(t, actx, a, asrv, "lack-p", &transferTestValue{Text: "p", Child: uint64(c.cacheSharedResult().id)})
+	transferTestDependency(a, actx, p, c)
+	r := persistedListTestResult(t, actx, a, asrv, "lack-r", &transferTestValue{Text: "r", Child: uint64(p.cacheSharedResult().id)})
+	transferTestDependency(a, actx, r, p)
+	ctx, cloud, numbers := identityTestCloudOf(t, actx, a, r)
+	rNumber, pNumber, cNumber := numbers[uint64(r.cacheSharedResult().id)], numbers[uint64(p.cacheSharedResult().id)], numbers[uint64(c.cacheSharedResult().id)]
+	cRecipe, err := c.cacheSharedResult().loadResultCall().deriveRecipeDigest(a)
+	require.NoError(t, err)
+
+	got, err := cloud.StoredBundle(ctx, []uint64{rNumber}, time.Now().Unix())
+	require.NoError(t, err)
+	bctx, b, bsrv := transferTestCache(t)
+	reply, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	require.NoError(t, err)
+	rEngine := heldTestMerged(t, reply, heldTestRow(t, got.Bundle, rNumber).Ordinal)
+	fetcher := &identityTestStoredRows{ctx: ctx, cloud: cloud, reshape: func(asked []uint64, bundle *ValueBundle) {
+		// The service believes the engine holds C: below another entry
+		// asked, it sends C as identity. C asked goes in full.
+		if slices.Contains(asked, cNumber) {
+			return
+		}
+		for i, v := range bundle.Values {
+			if v.SenderNumber == cNumber && v.Held == "" {
+				bundle.Values[i] = TransferredValue{Ordinal: v.Ordinal, SenderNumber: v.SenderNumber, Record: PersistedRecord{ResultID: v.SenderNumber}, Held: cRecipe, ExpiresAtUnix: v.ExpiresAtUnix}
+				bundle.Outputs = slices.DeleteFunc(bundle.Outputs, func(o TransferredOutput) bool { return o.Ordinal == v.Ordinal })
+			}
+		}
+	}}
+	b.SetRowFetcher(fetcher)
+
+	transferDecodeHooks.Store(rEngine.Number, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
+		child, err := dec.ResultRef(ctx, value.Child)
+		if err == nil {
+			value.Child = uint64(child.cacheSharedResult().id)
+		}
+		return err
+	})
+	t.Cleanup(func() { transferDecodeHooks.Delete(rEngine.Number) })
+	_, err = b.LoadResultByResultID(bctx, "", bsrv, rEngine.Number)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{pNumber}, fetcher.asked[0], "R's decode fetched P")
+
+	// P's own decode needs C, which came as identity alone: one fetch.
+	identityOnly := func(id sharedResultID) bool {
+		b.egraphMu.RLock()
+		defer b.egraphMu.RUnlock()
+		return b.resultsByID[id].identityOnly
+	}
+	b.egraphMu.RLock()
+	var pEngine uint64
+	for dep := range b.resultsByID[sharedResultID(rEngine.Number)].deps {
+		pEngine = uint64(dep)
+	}
+	var cEngine sharedResultID
+	for dep := range b.resultsByID[sharedResultID(pEngine)].deps {
+		cEngine = dep
+	}
+	b.egraphMu.RUnlock()
+	if len(fetcher.asked) == 1 {
+		require.True(t, identityOnly(cEngine), "C landed with its identity alone")
+		_, err = b.LoadResultByResultID(bctx, "", bsrv, pEngine)
+		require.NoError(t, err)
+	}
+	require.Equal(t, [][]uint64{{pNumber}, {cNumber}}, fetcher.asked, "C cost one fetch, whichever load decoded P")
+	require.False(t, identityOnly(cEngine), "C filled")
+	counts := b.IdentityRowCounts()
+	require.Equal(t, int64(2), counts.Fetches)
+	require.Zero(t, counts.FetchFailed)
+	require.Zero(t, counts.HitsMissed)
+	require.Zero(t, counts.FetchedRowsHad, "nothing came twice")
 }

@@ -371,9 +371,11 @@ type MergeReply struct {
 // or one another record of the bundle with the same recipe stores; one a new
 // entry stores (created), one an entry with no value takes (stored), one
 // that replaces an expired value in place (replaced), and one a new entry
-// stores while the expired value it supersedes stays in use (retired).
+// stores while the expired value it supersedes stays in use (retired). Had
+// counts, of the kept, those that landed on an entry the cache had before
+// the merge.
 type MergeRowCounts struct {
-	Held, Kept, Created, Stored, Replaced, Retired int
+	Held, Kept, Created, Stored, Replaced, Retired, Had int
 }
 
 // count counts one decided row.
@@ -383,6 +385,9 @@ func (n *MergeRowCounts) count(row *mergeRow) {
 		n.Held++
 	case row.action == mergeKeep:
 		n.Kept++
+		if row.had {
+			n.Had++
+		}
 	case row.action == mergeCreate:
 		n.Created++
 	case row.action == mergeStore:
@@ -1271,6 +1276,9 @@ type mergeRow struct {
 	// frameRow: a held row that carries its call frame (prep.records'
 	// relocated call), which the identity-only entry it lands on takes.
 	frameRow bool
+	// had marks a full record that lands on a value the cache had before
+	// the merge.
+	had bool
 	// keptExpired marks a kept value that had expired.
 	keptExpired bool
 	// rec and deps are the record relocated to the final numbers, for an
@@ -1416,6 +1424,7 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 		// the merge: the best record's, or the one the entry keeps.
 		row.action, row.target, row.res = mergeKeep, b.res, b.res
 		row.keptExpired = b.keptExpired || b.action.installs() && b.expired
+		row.had = b.had
 	}
 }
 
@@ -1615,9 +1624,9 @@ func (c *Cache) decideMergeRowLocked(row *mergeRow, now int64, fresh sharedResul
 	case cur.noValueLocked():
 		row.action, row.res, row.filledIdentity = mergeStore, cur, cur.identityOnly
 	case !c.resultExpiredAtLocked(cur, now):
-		row.action, row.res = mergeKeep, cur
+		row.action, row.res, row.had = mergeKeep, cur, true
 	case row.expired:
-		row.action, row.res, row.keptExpired = mergeKeep, cur, true
+		row.action, row.res, row.keptExpired, row.had = mergeKeep, cur, true, true
 	case c.blobBacked || !c.resultInUseLocked(cur):
 		// The Cloud always replaces: nothing of it uses an entry across an
 		// unlock.

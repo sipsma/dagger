@@ -49,8 +49,11 @@ type IdentityRowCounts struct {
 	ResolvedLocally int64
 	// Fetched are needs a fetch met, and FetchFailed those it didn't.
 	Fetched, FetchFailed int64
-	// FetchedRows are the full rows fetches brought.
-	FetchedRows int64
+	// Fetches are the fetches asked, each for one or more entries.
+	// FetchedRows are the full rows they brought, and FetchedRowsHad those
+	// that landed on an entry that already had a value: what an answer
+	// carried that the engine didn't need.
+	Fetches, FetchedRows, FetchedRowsHad int64
 	// RecipeWalks are frame walks that reached an identity-only entry.
 	RecipeWalks int64
 	// HitsMissed are hits turned into misses by an unavailable row, and
@@ -60,7 +63,7 @@ type IdentityRowCounts struct {
 }
 
 type identityRowCounters struct {
-	resolvedLocally, fetched, fetchFailed, fetchedRows, recipeWalks, hitsMissed, partsUnavailable atomic.Int64
+	resolvedLocally, fetched, fetchFailed, fetches, fetchedRows, fetchedRowsHad, recipeWalks, hitsMissed, partsUnavailable atomic.Int64
 }
 
 // SetRowFetcher sets the fetcher identity-only entries' rows come from; nil
@@ -83,7 +86,9 @@ func (c *Cache) IdentityRowCounts() IdentityRowCounts {
 		ResolvedLocally:  n.resolvedLocally.Load(),
 		Fetched:          n.fetched.Load(),
 		FetchFailed:      n.fetchFailed.Load(),
+		Fetches:          n.fetches.Load(),
 		FetchedRows:      n.fetchedRows.Load(),
+		FetchedRowsHad:   n.fetchedRowsHad.Load(),
 		RecipeWalks:      n.recipeWalks.Load(),
 		HitsMissed:       n.hitsMissed.Load(),
 		PartsUnavailable: n.partsUnavailable.Load(),
@@ -150,8 +155,7 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 	if h == nil {
 		return fail(errors.New("no Cloud entry"))
 	}
-	bundle, err := c.fetchIdentityRow(ctx, res, key.Number, decode, frames)
-	if err != nil {
+	if err := c.fetchIdentityRow(ctx, res, key.Number, decode, frames); err != nil {
 		return fail(err)
 	}
 	releases = nil
@@ -173,35 +177,95 @@ func (c *Cache) resolveIdentityEntry(ctx context.Context, res *sharedResult, dec
 		return fail(fmt.Errorf("the fetched record of Cloud entry %d didn't land", key.Number))
 	}
 	c.identityRows.fetched.Add(1)
-	for _, value := range bundle.Values {
-		if value.Held == "" {
-			c.identityRows.fetchedRows.Add(1)
-		}
-	}
 	return res, nil
 }
 
 // fetchIdentityRow asks the Cloud for its record of res, Cloud entry number,
-// and merges it onto res, bounded by rowFetchTimeout. It returns the fetched
-// bundle.
-func (c *Cache) fetchIdentityRow(ctx context.Context, res *sharedResult, number uint64, decode, frames bool) (ValueBundle, error) {
+// and merges it onto res (fetchIdentityRows).
+func (c *Cache) fetchIdentityRow(ctx context.Context, res *sharedResult, number uint64, decode, frames bool) error {
+	missing, err := c.fetchIdentityRows(ctx, map[uint64]sharedResultID{number: res.id}, decode, frames)
+	if err == nil && len(missing) > 0 {
+		err = fmt.Errorf("the Cloud no longer holds entry %d", number)
+	}
+	return err
+}
+
+// fetchIdentityRows asks the Cloud, in one fetch bounded by rowFetchTimeout,
+// for its records of the entries targets names by Cloud number, and merges
+// each onto the engine's entry targets gives it. It returns the numbers the
+// Cloud no longer holds, which land on nothing. Each fetch is logged with
+// what its answer carried, and counted for the engine's stop row: its full
+// rows, and of those the ones that landed on an entry that already had a
+// value.
+func (c *Cache) fetchIdentityRows(ctx context.Context, targets map[uint64]sharedResultID, decode, frames bool) ([]uint64, error) {
 	fetcher := c.loadRowFetcher()
 	if fetcher == nil {
-		return ValueBundle{}, errors.New("no fetcher")
+		return nil, errors.New("no fetcher")
 	}
+	numbers := slices.Sorted(maps.Keys(targets))
+	start := time.Now()
 	fetchCtx, cancel := context.WithTimeout(ctx, rowFetchTimeout)
 	defer cancel()
-	bundle, missing, err := fetcher.FetchRows(fetchCtx, []uint64{number}, decode, frames)
+	bundle, missing, err := fetcher.FetchRows(fetchCtx, numbers, decode, frames)
 	if err != nil {
-		return ValueBundle{}, err
+		return nil, err
 	}
-	if slices.Contains(missing, number) || len(bundle.Values) == 0 {
-		return ValueBundle{}, fmt.Errorf("the Cloud no longer holds entry %d", number)
+	c.identityRows.fetches.Add(1)
+	landing := maps.Clone(targets)
+	for _, number := range missing {
+		delete(landing, number)
 	}
-	if _, err := c.mergeFetchedRowsInto(ctx, bundle, map[uint64]sharedResultID{number: res.id}); err != nil {
-		return ValueBundle{}, err
+	var reply MergeReply
+	if len(landing) > 0 && len(bundle.Values) > 0 {
+		if reply, err = c.mergeFetchedRowsInto(ctx, bundle, landing); err != nil {
+			return nil, err
+		}
 	}
-	return bundle, nil
+	full := 0
+	for _, value := range bundle.Values {
+		if value.Held == "" {
+			full++
+		}
+	}
+	c.identityRows.fetchedRows.Add(int64(full))
+	c.identityRows.fetchedRowsHad.Add(int64(reply.Rows.Had))
+	slog.Info("remote cache fetched rows", "entries", len(numbers), "missing", len(missing), "decode", decode, "frames", frames,
+		"rows", len(bundle.Values), "full", full, "had", reply.Rows.Had, "took", time.Since(start))
+	return missing, nil
+}
+
+// prefetchIdentityDeps asks the Cloud, in one fetch, for the records of every
+// identity-only dependency of res that no local entry of its class stands
+// for, before res's decode loads them one by one: each lands on its own
+// entry, which res owns as before, and the decode then finds it filled. One
+// the Cloud no longer holds, or a fetch that fails, leaves its entry to the
+// decode's own resolution, which fetches it alone or makes the hit a miss.
+func (c *Cache) prefetchIdentityDeps(ctx context.Context, res *sharedResult) {
+	if c.loadRowFetcher() == nil {
+		return
+	}
+	now := time.Now().Unix()
+	targets := map[uint64]sharedResultID{}
+	c.egraphMu.RLock()
+	for id := range res.deps {
+		dep := c.resultsByID[id]
+		if dep == nil || !dep.identityOnly || c.localStandInLocked(dep, now) != nil {
+			continue
+		}
+		if key, h := dep.cloudHoldingLocked(); h != nil {
+			targets[key.Number] = dep.id
+		}
+	}
+	c.egraphMu.RUnlock()
+	if len(targets) == 0 {
+		return
+	}
+	missing, err := c.fetchIdentityRows(ctx, targets, true, false)
+	if err != nil {
+		slog.Debug("remote cache prefetch of a decode's rows", "entry", res.id, "entries", len(targets), "error", err)
+		return
+	}
+	c.identityRows.fetched.Add(int64(len(targets) - len(missing)))
 }
 
 // fillIdentityEntry lands the Cloud's record on res itself, an identity-only
@@ -217,7 +281,7 @@ func (c *Cache) fillIdentityEntry(ctx context.Context, res *sharedResult) error 
 	}
 	err := errors.New("no Cloud entry")
 	if h != nil {
-		_, err = c.fetchIdentityRow(ctx, res, key.Number, false, false)
+		err = c.fetchIdentityRow(ctx, res, key.Number, false, false)
 	}
 	if err == nil {
 		c.egraphMu.RLock()

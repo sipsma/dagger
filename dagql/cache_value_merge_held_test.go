@@ -398,5 +398,5 @@ func TestMergeHeldRowCountsAsHeld(t *testing.T) {
 
 	again, err := b.MergeValues(bctx, cloudCacheID, got.Bundle)
 	require.NoError(t, err)
-	require.Equal(t, MergeRowCounts{Held: 1, Kept: 1}, again.Rows)
+	require.Equal(t, MergeRowCounts{Held: 1, Kept: 1, Had: 1}, again.Rows)
 }
