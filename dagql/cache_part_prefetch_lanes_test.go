@@ -490,3 +490,49 @@ func TestPartPrefetchAheadQueueRenewsExpiredAddresses(t *testing.T) {
 	require.NotEmpty(t, taken(), "the job renewed the addresses")
 	require.Positive(t, f.transport.count("https://renewed.invalid/big/0"))
 }
+
+// A full lane keeps the jobs it has and drops the one that arrives: offers
+// arrive in about the order an engine's checks first use them, and the first
+// are the ones installs read. With the lane's only worker held and room for
+// two, of four offers the first two are fetched and the last two dropped.
+func TestPartPrefetchFullLaneDropsTheArrivingJob(t *testing.T) {
+	held := newChainFixture(t, "held")
+	var arriving []chainFixture
+	for i := range 4 {
+		arriving = append(arriving, newChainFixture(t, fmt.Sprintf("arriving%d", i)))
+	}
+	f := newExhaustionFixture(t, append([]chainFixture{held}, arriving...)...)
+	f.cache.partPrefetchConfig = &partPrefetchConfig{largeBlob: 1, workers: 1, smallWorkers: 1, budget: 1 << 30, ttl: time.Hour, queue: 2}
+	t.Cleanup(f.cache.closePartPrefetch)
+	hold := make(chan struct{})
+	for i := range held.blobs {
+		f.transport.fault(fmt.Sprintf("https://fixed.invalid/held/%d", i), contentTestFault{stallAfter: -1, hold: hold})
+	}
+	f.acceptOffer(t, f.receiver, held)
+	require.Eventually(t, func() bool {
+		return f.transport.count("https://fixed.invalid/held/0") > 0
+	}, 10*time.Second, 10*time.Millisecond, "the held download takes the lane's only worker")
+	for i, chain := range arriving {
+		f.acceptOffer(t, persistedListTestResult(t, f.ctx, f.cache, f.srv, fmt.Sprintf("arriving-row-%d", i), &transferTestValue{Text: "pending"}), chain)
+	}
+	close(hold)
+
+	require.Eventually(t, func() bool {
+		return f.transport.count("https://fixed.invalid/arriving0/0") > 0 && f.transport.count("https://fixed.invalid/arriving1/0") > 0
+	}, 10*time.Second, 10*time.Millisecond, "the first two offers are fetched")
+	require.Eventually(t, func() bool {
+		p := f.cache.partPrefetcher.Load()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.queues[partPrefetchLarge]) == 0 && len(p.fetching) == 0
+	}, 10*time.Second, 10*time.Millisecond, "the lane is idle")
+	require.Zero(t, f.transport.count("https://fixed.invalid/arriving2/0"), "the third offer arrived at a full lane")
+	require.Zero(t, f.transport.count("https://fixed.invalid/arriving3/0"), "the fourth offer arrived at a full lane")
+	skipped := 0
+	for _, line := range f.logs.lines(t, "remote cache part prefetched") {
+		if line.fields["outcome"] == "skipped_queue" {
+			skipped++
+		}
+	}
+	require.Equal(t, 2, skipped, "each dropped job logs its line")
+}
