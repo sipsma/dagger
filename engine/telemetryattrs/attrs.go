@@ -1213,6 +1213,13 @@ type EngineOwnRuns struct {
 	RowsKeptApart   uint64 `json:"rowsKeptApart"`
 	RowsSameContent uint64 `json:"rowsSameContent"`
 	RowsNotRun      uint64 `json:"rowsNotRun"`
+	// ApartFull and ApartHeld are rows kept apart that came as full rows
+	// and as held rows; OverApartFull and OverApartHeld the rows kept apart
+	// or not installed because they were over one, by that row's route.
+	ApartFull     uint64 `json:"apartFull"`
+	ApartHeld     uint64 `json:"apartHeld"`
+	OverApartFull uint64 `json:"overApartFull"`
+	OverApartHeld uint64 `json:"overApartHeld"`
 	// OffersRefused are offered parts refused over a run of the engine's
 	// own; OffersLent the offered parts attached.
 	OffersRefused uint64 `json:"offersRefused"`
