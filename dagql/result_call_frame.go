@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -1753,16 +1754,34 @@ func (c *Cache) RecipeDigestForCall(frame *ResultCall) (digest.Digest, error) {
 // resultCallByResultID returns the cache-owned immutable result-call frame for
 // the given shared result. Callers must treat the returned frame as read-only.
 func (c *Cache) resultCallByResultID(resultID sharedResultID) *ResultCall {
+	frame, err := c.resultCallForWalk(context.Background(), resultID)
+	if err != nil {
+		slog.Debug("frame walk: identity-only entry unresolved", "entry", resultID, "error", err)
+	}
+	return frame
+}
+
+// resultCallForWalk returns the frame a walk of call frames reads for
+// resultID: the entry's own, or, for a row a merge carried as identity
+// alone, the frame of an entry of its class, or of the Cloud's record of it,
+// fetched (resolveIdentityFrame, bounded by rowFetchTimeout). Its error wraps
+// errRowUnavailable; nil and no error mean no such entry.
+func (c *Cache) resultCallForWalk(ctx context.Context, resultID sharedResultID) (*ResultCall, error) {
 	if resultID == 0 {
-		return nil
+		return nil, nil
 	}
 	c.egraphMu.RLock()
-	defer c.egraphMu.RUnlock()
 	res := c.resultsByID[resultID]
-	if res == nil {
-		return nil
+	var frame *ResultCall
+	if res != nil {
+		frame = res.loadResultCall()
 	}
-	return res.loadResultCall()
+	identity := frame == nil && res != nil && res.identityOnly
+	c.egraphMu.RUnlock()
+	if !identity {
+		return frame, nil
+	}
+	return c.resolveIdentityFrame(ctx, resultID)
 }
 
 func (frame *ResultCall) recipeIDWithVisiting(ctx context.Context, c *Cache, visiting map[sharedResultID]struct{}, memo *recipeIDMemo) (*call.ID, error) {
@@ -1857,16 +1876,10 @@ func (frame *ResultCall) resolveRefRecipeID(ctx context.Context, c *Cache, ref *
 	}
 	refFrame := ref.loadSharedCall()
 	if refFrame == nil {
-		refFrame = c.resultCallByResultID(refID)
-	}
-	if refFrame == nil {
-		// A row a merge carried as identity alone: the frame of an entry
-		// of its class, or of the Cloud's record of it, fetched.
-		identityFrame, err := c.resolveIdentityFrame(ctx, refID)
-		if err != nil {
+		var err error
+		if refFrame, err = c.resultCallForWalk(ctx, refID); err != nil {
 			return nil, err
 		}
-		refFrame = identityFrame
 	}
 	if refFrame == nil {
 		c.traceRecipeIDRebuildFailed(ctx, frame, ref, "missing_result_call_frame")

@@ -770,3 +770,31 @@ func TestDecodedParentKeepsItsRowsWhenItsValueCannotBeEncoded(t *testing.T) {
 	require.Contains(t, rEntry.deps, d.identity, "R keeps the identity-only entry")
 	require.Contains(t, rEntry.deps, sharedResultID(d.own), "and the stand-in")
 }
+
+// Every frame walk reads a referenced entry's frame the same way, so each
+// one that reaches an identity-only entry resolves it as a recipe walk does,
+// rather than failing for a frame the entry never had: a session's ID load
+// walking R's frame (WalkResultCall), and the module IDs of R's call.
+func TestFrameWalksResolveAnIdentityEntry(t *testing.T) {
+	t.Parallel()
+	bctx, b, bsrv, rEntry, pEntry, _, _, _ := identityTestEngine(t)
+	b.SetRowFetcher(&identityTestFetcher{fetch: func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
+		return ValueBundle{}, nil, errors.New("not expected")
+	}})
+	own := heldTestSessionValue(t, bctx, b, bsrv)
+	b.egraphMu.RLock()
+	ownFrame := b.resultsByID[sharedResultID(own)].loadResultCall()
+	b.egraphMu.RUnlock()
+
+	var reached *ResultCall
+	require.NoError(t, b.WalkResultCall(rEntry.loadResultCall(), func(ref *ResultCallRef, frame *ResultCall) error {
+		if ref.ResultID == uint64(pEntry.id) {
+			reached = frame
+		}
+		return nil
+	}))
+	require.NotNil(t, reached, "the walk reached P")
+	require.Equal(t, ownFrame.Field, reached.Field, "through the engine's own P")
+	_, _, err := b.moduleResultIDs(rEntry.loadResultCall(), newModuleIDsRebuild(bctx, 1))
+	require.NoError(t, err)
+}
