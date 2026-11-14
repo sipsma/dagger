@@ -634,8 +634,18 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 		// a run of the cache's own, it is kept apart as a full row is.
 		held := commit.prep.held[row.ordinal]
 		switch run, read := commit.prep.ownRuns[row.res]; {
-		case !held && (sameContentLocked(commit, row, row.res) || samePlainValueLocked(commit, row, row.res)):
+		case !held && sameContentLocked(commit, row, row.res):
 			row.own = ownSameContent
+		case !held && samePlainValueLocked(commit, row, row.res):
+			row.own = ownSameContent
+			if commit.prep.plain[row.ordinal].names {
+				// Shown equal through the entries it names: equal only while
+				// those survive the cascade (cascadeApart).
+				if commit.namedEqual == nil {
+					commit.namedEqual = map[uint64]bool{}
+				}
+				commit.namedEqual[row.ordinal] = true
+			}
 		case held && sameHeldContentLocked(row, row.res):
 			// The held row names the content digest of the record it stands
 			// for, and the entry's own value has that digest: the same
@@ -687,9 +697,11 @@ func (commit *valueMergeCommit) cascadeApart(apart map[uint64]ownRoute) map[uint
 	for changed := true; changed; {
 		changed = false
 		for _, row := range commit.rows {
-			if dropped[row.ordinal] || row.otherRun || row.own == ownSameContent {
+			if dropped[row.ordinal] || row.otherRun || row.own == ownSameContent && !commit.namedEqual[row.ordinal] {
 				// A row shown a copy of the entry's value by content lands
-				// as that value, whatever run its record was computed over.
+				// as that value, whatever run its record was computed over;
+				// an object shown equal through the entries it names, only
+				// while none of those is kept apart.
 				continue
 			}
 			route, isApart := overApartRow(row, apart)
