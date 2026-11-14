@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -531,6 +532,7 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 		// which targets had one.
 		"other_run_rows", reply.Rows.OtherRun,
 		"other_run_roots", otherRunRoots,
+		"apart_fields", apartFieldsAttr(reply.ApartFields),
 		// The same refusals by route: rows kept apart as full rows and as
 		// held rows, and rows over each, kept apart or not installed.
 		"apart_full_rows", reply.Rows.ApartFull,
@@ -550,6 +552,20 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 		"merge", id,
 		"lookup", req.Lookup,
 		"priority_wait", priorityWait)
+	for _, row := range reply.ApartSamples {
+		if a.apartNamed.Add(1) > apartNamedLimit {
+			break
+		}
+		slog.Info("remote cache merge kept apart",
+			"merge", id,
+			"field", row.Field,
+			"type", row.Type,
+			"route", row.Route,
+			"reason", row.Reason,
+			"own_digest", row.OwnDigest,
+			"stored_digest", row.StoredDigest,
+			"sender_number", row.SenderNumber)
+	}
 	if err == nil && len(reply.Stale) > 0 {
 		return protocol.Merged{Generation: reply.Generation, EngineTime: reply.EngineTimeUnixNano, Values: []protocol.MergedValue{}, Retained: []protocol.RetainedRoot{}, Stale: reply.Stale}, nil
 	}
@@ -670,6 +686,37 @@ func (a *RemoteCacheAdapter) restoreReports() []remotecache.RestoreReport {
 	a.restoresMu.Lock()
 	defer a.restoresMu.Unlock()
 	return slices.Clone(a.restores)
+}
+
+// apartNamedLimit bounds the rows kept apart from an engine's own runs that
+// its merges log by name over its life: its first ones. After them, each
+// merge's line counts them by field (apartFieldsAttr).
+const apartNamedLimit = 200
+
+// apartFieldsAttr is a merge's rows kept apart directly, counted by field:
+// its eight commonest fields, as field=count, most first.
+func apartFieldsAttr(fields map[string]int) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(fields))
+	for field := range fields {
+		names = append(names, field)
+	}
+	slices.SortFunc(names, func(a, b string) int {
+		if fields[a] != fields[b] {
+			return fields[b] - fields[a]
+		}
+		return strings.Compare(a, b)
+	})
+	if len(names) > 8 {
+		names = names[:8]
+	}
+	parts := make([]string, len(names))
+	for i, field := range names {
+		parts[i] = fmt.Sprintf("%s=%d", field, fields[field])
+	}
+	return strings.Join(parts, " ")
 }
 
 // mergedReply is the merged message for a committed merge's reply.
