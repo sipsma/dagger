@@ -244,7 +244,12 @@ type persistedEdge struct {
 // 26: a module object's content digest holds its type. Older stores took
 // objects of two types with equal fields as one result, and a load of one
 // could be served the other, so they are wiped on import.
-const cachePersistenceSchemaVersion = "26"
+//
+// 27: the Cloud's stored records name the run that made them (RunName), and
+// the Cloud stores a part only on a record of the part's run. Older Cloud
+// stores name none, so they would hold every record as no engine's run;
+// they are wiped on import.
+const cachePersistenceSchemaVersion = "27"
 
 // blobBackedStoreFormat names the format a blob-backed cache saves its stored
 // records in (encodeStoredRow), on top of the schema: it saves in a format of
@@ -3293,6 +3298,12 @@ type sharedResult struct {
 	// engine with no download address for any part, has been logged as run
 	// again (logRecordRunForWantOfOffers).
 	recipeRunLogged atomic.Bool
+	// run is, on the Cloud, the run its stored record comes from: the engine
+	// entry that ran it, set when a merge installs the record
+	// (mergeRunLocked). Nil on an engine, which keeps no runs, and on a Cloud
+	// entry with no stored record. It goes with the value. Guarded by
+	// egraphMu.
+	run *RunName
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in
