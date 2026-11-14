@@ -709,3 +709,23 @@ func TestOwnRunStatsCountsCallsRunAfterARefusal(t *testing.T) {
 	persistedListTestResult(t, ctx, c, srv, "reran-other", String("other"))
 	require.Equal(t, uint64(1), c.OwnRunStats().RanAfterApart, "no merge refused this one")
 }
+
+// Only a committed merge's refusals are remembered: a merge prepared and
+// released, which decides its rows before the commit reads the engine's
+// runs, leaves none, and a call run after it isn't counted.
+func TestOwnRunStatsCountsOnlyCommittedRefusals(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	sentBase := persistedListTestResult(t, actx, a, asrv, "uncommitted-base", String("fill base"))
+	sentTop := persistedListTestResult(t, actx, a, asrv, "uncommitted-top", &transferTestValue{Text: "fill top"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentTop, sentBase, "test"))
+	bundle := exportTestBundle(t, actx, a, sentTop)
+
+	ctx, c, srv := transferTestCache(t)
+	persistedListTestResult(t, ctx, c, srv, "uncommitted-base", String("own base"))
+	p, err := c.PrepareValueMerge(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	p.Release()
+	persistedListTestResult(t, ctx, c, srv, "uncommitted-top", &transferTestValue{Text: "own top"})
+	require.Zero(t, c.OwnRunStats().RanAfterApart, "no merge committed a refusal")
+}

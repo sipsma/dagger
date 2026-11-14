@@ -465,6 +465,18 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 	}
 	dropped := commit.cascadeApart(apart)
 	commit.dropApartRows(dropped)
+}
+
+// commitOwnRunsLocked records what a committed merge refused: the records
+// kept apart for want of the entry's digest, compared again when it is
+// taught (rememberApartLocked), and the recipes kept apart or dropped, for
+// OwnRunStats.RanAfterApart. A merge's preparation decides its rows too,
+// before the commit reads the cache's runs, and may never commit: only the
+// commit's decisions are recorded. Requires egraphMu for writing.
+func (c *Cache) commitOwnRunsLocked(commit *valueMergeCommit) {
+	for _, row := range commit.apartToRemember {
+		commit.rememberApartLocked(row)
+	}
 	c.noteApartRecipes(commit.apartRecipes)
 }
 
@@ -493,9 +505,8 @@ func (c *Cache) noteApartRecipes(recipes map[digest.Digest]bool) {
 	}
 }
 
-// noteCallRun counts a call the cache runs whose recipe a merge kept apart
-// or dropped from a run of its own: it runs because a stored run was
-// refused (OwnRunStats.RanAfterApart).
+// noteCallRun counts a call the cache runs whose recipe a committed merge
+// kept apart or dropped from a run of its own (OwnRunStats.RanAfterApart).
 func (c *Cache) noteCallRun(recipe digest.Digest) {
 	c.ownRunApartMu.Lock()
 	_, apart := c.ownRunApartRecipes[recipe]
@@ -548,7 +559,7 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 			apart[row.ordinal] = ownRouteFull
 			counts.ApartFull++
 			commit.noteApart(row, false, read)
-			commit.rememberApartLocked(row)
+			commit.apartToRemember = append(commit.apartToRemember, row)
 		}
 	}
 	return apart
@@ -815,8 +826,10 @@ type OwnRunStats struct {
 	// OffersRefused are the parts OfferParts refused for rows with a run of
 	// this cache's own below them, and OffersLent the parts it attached.
 	OffersRefused, OffersLent uint64
-	// RanAfterApart are the calls the cache ran whose recipe a merge had
-	// kept apart or dropped from a run of its own: the work the rule cost.
+	// RanAfterApart are the calls the cache ran after a committed merge had
+	// kept apart or dropped a stored run of their recipe from a run of its
+	// own: an upper bound on the work the rule cost. A call run again for
+	// another reason, such as its entry expiring, counts too.
 	RanAfterApart uint64
 }
 
