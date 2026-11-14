@@ -511,8 +511,8 @@ type valueMergePrep struct {
 	// (readOwnPlainValues).
 	ownStates map[*sharedResult]ownRunState
 	ownPlain  map[*sharedResult]capturedPlain
-	// plain are the scalar records' values, by ordinal (notePlainRecords).
-	plain map[uint64][]byte
+	// plain are the bundle's plain records, by ordinal (notePlainRecords).
+	plain map[uint64]incomingPlain
 	order []uint64
 	index map[uint64]*TransferredValue
 	// rows are the bundle's ordinals by sender number, which its records'

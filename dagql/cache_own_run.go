@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/opencontainers/go-digest"
 )
@@ -59,61 +60,151 @@ func (commit *valueMergeCommit) incomingCall(row *mergeRow) *ResultCall {
 	return nil
 }
 
-// plainValue returns the encoded value of a scalar record: a value its call
-// made whole that is entirely its record, with no snapshot links, no stored
-// or offered parts and no session binding, and that names no other entry.
-// Two such records of one recipe whose values encode the same are the same
-// result. An object or a list can name other entries, whose runs it then
-// depends on, so it isn't one.
-func plainValue(rec PersistedRecord) ([]byte, bool) {
+// A plain record is a value its call made whole that is entirely its record
+// and the entries it names: a scalar, or an object, with no list items, no
+// snapshot links, no stored or offered parts and no session binding. Two
+// such records of one recipe are the same result when their values encode
+// the same with each entry they name read as the entry it is in the
+// receiving cache, and every entry an incoming one names is itself the same
+// as the receiver's (samePlainValueLocked). Module sources and type defs are
+// such objects.
+
+// plainRecord reports whether rec is a plain record.
+func plainRecord(rec PersistedRecord) bool {
 	env := rec.Envelope
-	if env.Kind != persistedResultKindScalar || len(env.ScalarJSON) == 0 || len(env.ObjectJSON) > 0 || len(env.Items) > 0 ||
-		len(rec.SnapshotLinks) > 0 || len(env.StoredParts) > 0 || len(env.PendingOffers) > 0 ||
-		env.SessionResourceHandle != "" || env.BoundSession != "" {
+	switch {
+	case env.Kind == persistedResultKindScalar && len(env.ScalarJSON) > 0 && len(env.ObjectJSON) == 0:
+	case env.Kind == persistedResultKindObject && len(env.ObjectJSON) > 0:
+	default:
+		return false
+	}
+	return len(env.Items) == 0 && len(rec.SnapshotLinks) == 0 && len(env.StoredParts) == 0 && len(env.PendingOffers) == 0 &&
+		env.SessionResourceHandle == "" && env.BoundSession == ""
+}
+
+// plainKey encodes a plain record's value for comparison, with its reference
+// to itself, which names the entry it is in, left out.
+func plainKey(rec PersistedRecord) ([]byte, bool) {
+	selfless, err := VisitEncodedReferences(rec, func(ref *PersistedRef) error {
+		if ref.RecipeID == nil && ref.Kind == PersistedRefSelf {
+			ref.ResultID = 1
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, false
 	}
+	env := selfless.Envelope
 	key, err := json.Marshal(struct {
-		TypeName   string
-		ScalarJSON json.RawMessage
-	}{env.TypeName, env.ScalarJSON})
+		Kind, TypeName, ObjectCodec string
+		ObjectJSON, ScalarJSON      json.RawMessage
+	}{env.Kind, env.TypeName, env.ObjectCodec, env.ObjectJSON, env.ScalarJSON})
 	if err != nil {
 		return nil, false
 	}
 	return key, true
 }
 
-// notePlainRecords records, during preparation, the value of each scalar
-// record of the bundle (plainValue): a row its recipe's entry keeps is
-// prepared from its call alone (keptMergeRecords), so its value is read here,
-// from the bundle, while preparation still has it.
+// incomingPlain is a plain record of the bundle as preparation read it: its
+// entry references named by the rows' ordinals, and, when it names no other
+// entry, its key.
+type incomingPlain struct {
+	rec   PersistedRecord
+	names bool
+	key   []byte
+}
+
+// notePlainRecords records, during preparation, each plain record of the
+// bundle with the entries it names read as the bundle's rows: a row its
+// recipe's entry keeps is prepared from its call alone (keptMergeRecords), so
+// its value is read here, from the bundle, while preparation still has it. A
+// record naming an entry outside the bundle isn't recorded.
 func (prep *valueMergePrep) notePlainRecords() {
 	for _, id := range prep.order {
 		if prep.held[id] {
 			continue
 		}
 		row := prep.index[id]
-		if row == nil {
+		if row == nil || !plainRecord(row.Record) {
 			continue
 		}
-		if value, ok := plainValue(row.Record); ok {
-			if prep.plain == nil {
-				prep.plain = map[uint64][]byte{}
+		names := false
+		byOrdinal, err := VisitEncodedReferences(row.Record, func(ref *PersistedRef) error {
+			if ref.RecipeID != nil || ref.Kind == PersistedRefSelf {
+				return nil
 			}
-			prep.plain[id] = value
+			ordinal, ok := prep.rows[ref.ResultID]
+			if !ok {
+				return errNotPlain
+			}
+			names = true
+			ref.ResultID = ordinal
+			return nil
+		})
+		if err != nil {
+			continue
 		}
+		plain := incomingPlain{rec: byOrdinal, names: names}
+		if !names {
+			key, ok := plainKey(byOrdinal)
+			if !ok {
+				continue
+			}
+			plain.key = key
+		}
+		if prep.plain == nil {
+			prep.plain = map[uint64]incomingPlain{}
+		}
+		prep.plain[id] = plain
 	}
 }
 
+// errNotPlain stops reading a record that isn't plain.
+var errNotPlain = errors.New("not a plain record")
+
 // samePlainValueLocked reports whether row's record and res's own value are
-// both scalar values (plainValue) that encode the same: row's as preparation
-// read it, res's as readOwnPlainValues captured it. Requires egraphMu.
+// plain records (plainRecord) that encode the same: row's as preparation read
+// it, with each entry it names read as the entry that entry's row lands on,
+// and res's as readOwnPlainValues captured it. Each entry row's record names
+// must be the receiver's own already: its row shown a copy of the entry's
+// value, or landing on an entry the cache took from another. Requires
+// egraphMu.
 func samePlainValueLocked(commit *valueMergeCommit, row *mergeRow, res *sharedResult) bool {
 	own, ok := commit.prep.ownPlain[res]
 	if !ok || !own.current(res) {
 		return false
 	}
 	incoming, ok := commit.prep.plain[row.ordinal]
-	return ok && bytes.Equal(incoming, own.value)
+	if !ok {
+		return false
+	}
+	key := incoming.key
+	if incoming.names {
+		final, err := VisitEncodedReferences(incoming.rec, func(ref *PersistedRef) error {
+			if ref.RecipeID != nil || ref.Kind == PersistedRefSelf {
+				return nil
+			}
+			named := commit.byOrdinal[ref.ResultID]
+			if named == nil || named.otherRun || named.own != ownSameContent && (named.action.installs() || commitComputedHere(named)) {
+				return errNotPlain
+			}
+			ref.ResultID = uint64(named.res.id)
+			return nil
+		})
+		if err != nil {
+			return false
+		}
+		if key, ok = plainKey(final); !ok {
+			return false
+		}
+	}
+	return bytes.Equal(key, own.value)
+}
+
+// commitComputedHere reports whether row landed on an entry the cache
+// computed itself: decideOwnRowsLocked gave it a landing, or kept it apart.
+func commitComputedHere(row *mergeRow) bool {
+	return row.own != ownNone || row.otherRun
 }
 
 // capturedPlain is an entry's plain value as readOwnPlainValues captured it,
@@ -438,7 +529,10 @@ func (c *Cache) readOwnPlainValues(ctx context.Context, prep *valueMergePrep) {
 		if err != nil || version == nil {
 			continue
 		}
-		value, plain := plainValue(rec)
+		if !plainRecord(rec) {
+			continue
+		}
+		value, plain := plainKey(rec)
 		if !plain {
 			continue
 		}
