@@ -860,3 +860,48 @@ func TestMergeValuesKeepsAnEqualScalarWhoseReceiverIsKeptApart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, reply.Imported(), 1, "D, over the equal scalar alone, lands")
 }
+
+// An object compared equal through the entries its value names stays equal
+// while those do: its call's receiver, kept apart later, doesn't carry it
+// apart, and what is built over the object alone still lands.
+func TestMergeValuesKeepsAnEqualObjectWhoseReceiverIsKeptApart(t *testing.T) {
+	t.Parallel()
+	objectOver := func(t *testing.T, ctx context.Context, c *Cache, srv *Server, receiver, named AnyResult) AnyResult {
+		t.Helper()
+		frame := &ResultCall{Kind: ResultCallKindField, Field: "late-object", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(receiver.cacheSharedResult().id)}}
+		res, err := c.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+			return NewResultForCall(&transferTestValue{Text: "o", Child: uint64(named.cacheSharedResult().id)}, frame)
+		})
+		require.NoError(t, err)
+		require.NoError(t, c.AddExplicitDependency(ctx, res, named, "test"))
+		return res
+	}
+	source := func(t *testing.T, text string, withTop bool) ValueBundle {
+		actx, s, ssrv := transferTestCache(t)
+		a := persistedListTestResult(t, actx, s, ssrv, "late-a", &transferTestValue{Text: text + " a"})
+		b := persistedListTestResult(t, actx, s, ssrv, "late-b", &transferTestValue{Text: text + " b"})
+		require.NoError(t, s.AddExplicitDependency(actx, b, a, "test"))
+		if !withTop {
+			return exportTestBundle(t, actx, s, b)
+		}
+		x := persistedListTestResult(t, actx, s, ssrv, "late-x", String("x"))
+		o := objectOver(t, actx, s, ssrv, b, x)
+		d := persistedListTestResult(t, actx, s, ssrv, "late-object-d", &transferTestValue{Text: "d"})
+		require.NoError(t, s.AddExplicitDependency(actx, d, o, "test"))
+		return exportTestBundle(t, actx, s, d)
+	}
+	ctx, c, srv := transferTestCache(t)
+	ownA := persistedListTestResult(t, ctx, c, srv, "late-a", ownRunTestLazy("own a"))
+	first, err := c.MergeValues(ctx, cloudCacheID, source(t, "first", false))
+	require.NoError(t, err)
+	require.Len(t, first.Imported(), 1)
+	takenB, err := c.LoadResultByResultID(ctx, "test-session", srv, first.Imported()[0].ResultID)
+	require.NoError(t, err)
+	require.NoError(t, c.Evaluate(ctx, ownA))
+	ownX := persistedListTestResult(t, ctx, c, srv, "late-x", String("x"))
+	objectOver(t, ctx, c, srv, takenB, ownX)
+
+	reply, err := c.MergeValues(ctx, cloudCacheID, source(t, "second", true))
+	require.NoError(t, err)
+	require.Len(t, reply.Imported(), 1, "D, over the equal object alone, lands")
+}

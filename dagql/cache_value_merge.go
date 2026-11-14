@@ -1341,7 +1341,7 @@ type valueMergeCommit struct {
 	// namedEqual are the rows shown equal to the cache's own values through
 	// the entries their objects name (samePlainValueLocked): the cascade
 	// keeps them apart when one of those is.
-	namedEqual map[uint64]bool
+	namedEqual map[uint64][]uint64
 	// apartToRemember are the rows keepOwnRunsLocked kept apart for want of
 	// the entry's digest, which the commit records (commitOwnRunsLocked).
 	apartToRemember []*mergeRow

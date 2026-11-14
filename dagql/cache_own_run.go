@@ -129,6 +129,8 @@ type incomingPlain struct {
 	rec   PersistedRecord
 	names bool
 	key   []byte
+	// named are the ordinals of the rows its value names.
+	named []uint64
 }
 
 // notePlainRecords records, during preparation, each plain record of the
@@ -145,7 +147,7 @@ func (prep *valueMergePrep) notePlainRecords() {
 		if row == nil || !plainRecord(row.Record) {
 			continue
 		}
-		names := false
+		var named []uint64
 		byOrdinal, err := visitValueReferences(row.Record, func(ref *PersistedRef) error {
 			if ref.RecipeID != nil || ref.Kind == PersistedRefSelf {
 				return nil
@@ -154,14 +156,15 @@ func (prep *valueMergePrep) notePlainRecords() {
 			if !ok {
 				return errNotPlain
 			}
-			names = true
+			named = append(named, ordinal)
 			ref.ResultID = ordinal
 			return nil
 		})
 		if err != nil {
 			continue
 		}
-		plain := incomingPlain{rec: byOrdinal, names: names}
+		names := len(named) > 0
+		plain := incomingPlain{rec: byOrdinal, names: names, named: named}
 		if !names {
 			key, ok := plainKey(byOrdinal)
 			if !ok {
@@ -655,13 +658,13 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 			row.own = ownSameContent
 		case !held && samePlainValueLocked(commit, row, row.res):
 			row.own = ownSameContent
-			if commit.prep.plain[row.ordinal].names {
-				// Shown equal through the entries it names: equal only while
-				// those survive the cascade (cascadeApart).
+			if plain := commit.prep.plain[row.ordinal]; plain.names {
+				// Shown equal through the entries its value names: equal only
+				// while those survive the cascade (cascadeApart).
 				if commit.namedEqual == nil {
-					commit.namedEqual = map[uint64]bool{}
+					commit.namedEqual = map[uint64][]uint64{}
 				}
-				commit.namedEqual[row.ordinal] = true
+				commit.namedEqual[row.ordinal] = plain.named
 			}
 		case held && sameHeldContentLocked(row, row.res):
 			// The held row names the content digest of the record it stands
@@ -714,14 +717,22 @@ func (commit *valueMergeCommit) cascadeApart(apart map[uint64]ownRoute) map[uint
 	for changed := true; changed; {
 		changed = false
 		for _, row := range commit.rows {
-			if dropped[row.ordinal] || row.otherRun || row.own == ownSameContent && !commit.namedEqual[row.ordinal] {
+			named, conditional := commit.namedEqual[row.ordinal]
+			if dropped[row.ordinal] || row.otherRun || row.own == ownSameContent && !conditional {
 				// A row shown a copy of the entry's value by content lands
-				// as that value, whatever run its record was computed over;
-				// an object shown equal through the entries it names, only
-				// while none of those is kept apart.
+				// as that value, whatever run its record was computed over.
 				continue
 			}
-			route, isApart := overApartRow(row, apart)
+			var route ownRoute
+			var isApart bool
+			if conditional {
+				// An object shown equal through the entries its value names
+				// stays so while none of those is kept apart: its call's
+				// other inputs, such as its receiver, aren't in its value.
+				route, isApart = namesApartRow(named, apart)
+			} else {
+				route, isApart = overApartRow(row, apart)
+			}
 			if !isApart {
 				continue
 			}
@@ -771,6 +782,17 @@ func overApartRow(row *mergeRow, apart map[uint64]ownRoute) (ownRoute, bool) {
 			if route, ok := apart[dep]; ok {
 				return route, true
 			}
+		}
+	}
+	return 0, false
+}
+
+// namesApartRow reports whether one of the rows named is in apart, and that
+// row's route.
+func namesApartRow(named []uint64, apart map[uint64]ownRoute) (ownRoute, bool) {
+	for _, ordinal := range named {
+		if route, ok := apart[ordinal]; ok {
+			return route, true
 		}
 	}
 	return 0, false
