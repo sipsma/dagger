@@ -462,3 +462,92 @@ func TestMergeValuesNamesTheRowsItKeepsApart(t *testing.T) {
 	require.Equal(t, OwnRunApart{Field: "named-file", Type: "TransferTestValue", Route: "full", Reason: "a run of its own below", SenderNumber: uint64(sentFile.cacheSharedResult().id)}, samples["named-file"])
 	require.Equal(t, map[string]int{"named-ca": 1, "named-file": 1}, reply.ApartFields)
 }
+
+// A value its call made whole, with no parts and nothing it names, is
+// entirely its record: a stored record of the engine's own run of its
+// recipe whose value encodes the same is the same result, and lands. One
+// whose value differs is another run, and is kept apart.
+func TestMergeValuesLandsAnEqualPlainValueOnAnOwnRun(t *testing.T) {
+	t.Parallel()
+	for _, equal := range []bool{true, false} {
+		t.Run(map[bool]string{true: "equal", false: "different"}[equal], func(t *testing.T) {
+			t.Parallel()
+			actx, a, asrv := transferTestCache(t)
+			sent := persistedListTestResult(t, actx, a, asrv, "plain-exists", Boolean(true))
+			bundle := exportTestBundle(t, actx, a, sent)
+			ctx, c, srv := transferTestCache(t)
+			own := persistedListTestResult(t, ctx, c, srv, "plain-exists", Boolean(equal))
+			require.True(t, own.cacheSharedResult().ranHere())
+			reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+			require.NoError(t, err)
+			c.egraphMu.RLock()
+			key, _ := own.cacheSharedResult().cloudHoldingLocked()
+			c.egraphMu.RUnlock()
+			if !equal {
+				require.Len(t, reply.OtherRun, 1, "another run's value")
+				require.Zero(t, key)
+				return
+			}
+			require.Empty(t, reply.OtherRun)
+			require.Equal(t, 1, reply.Rows.OwnSameContent)
+			require.Equal(t, uint64(own.cacheSharedResult().id), reply.Imported()[0].ResultID)
+			require.Equal(t, HolderKey{Cache: cloudCacheID, Number: bundle.Values[0].SenderNumber}, key, "the entry learns the Cloud's copy")
+		})
+	}
+}
+
+// A stored record whose content digest the engine's own run of its recipe
+// lacks when the merge decides is kept apart: a git tree's digest, for one,
+// is taught only once the tree has been evaluated. When the entry's digest is
+// taught and is the record's, the two are the same result after all: the
+// entry learns the Cloud's copy then, and a held row of that copy, which
+// stands for the entry's own value, lands from then on.
+func TestMergeValuesComparesAgainWhenTheDigestIsTaught(t *testing.T) {
+	t.Parallel()
+	content := digest.FromString("tree content")
+	actx, a, asrv := transferTestCache(t)
+	p := persistedListTestResult(t, actx, a, asrv, "bundle-dep", &transferTestValue{Text: "dep"})
+	require.NoError(t, a.TeachContentDigest(actx, p, content))
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "held-chained", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(p.cacheSharedResult().id)}}
+	r, err := a.GetOrInitCall(actx, "test-session", asrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "chained"}, frame)
+	})
+	require.NoError(t, err)
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	creply, err := cloud.MergeValues(ctx, "cache-a", exportTestBundle(t, actx, a, r))
+	require.NoError(t, err)
+	var cloudP, cloudR uint64
+	for _, v := range creply.Values {
+		switch storedTestFrame(t, cloud, storedBundleTestEntry(cloud, v.Number)).Field {
+		case "bundle-dep":
+			cloudP = v.Number
+		case "held-chained":
+			cloudR = v.Number
+		}
+	}
+	require.NotZero(t, cloudP)
+	require.NotZero(t, cloudR)
+
+	bctx, b, bsrv := transferTestCache(t)
+	own := persistedListTestResult(t, bctx, b, bsrv, "bundle-dep", &transferTestValue{Text: "dep"})
+	alone, err := cloud.StoredBundle(ctx, []uint64{cloudP}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	reply, err := b.MergeValues(bctx, cloudCacheID, alone.Bundle)
+	require.NoError(t, err)
+	require.Len(t, reply.OtherRun, 1, "no digest on the engine's side yet")
+
+	require.NoError(t, b.TeachContentDigest(bctx, own, content))
+	b.egraphMu.RLock()
+	key, _ := own.cacheSharedResult().cloudHoldingLocked()
+	b.egraphMu.RUnlock()
+	require.Equal(t, HolderKey{Cache: cloudCacheID, Number: cloudP}, key, "taught the record's digest, the entry learns the Cloud's copy")
+
+	heldTestHold(t, ctx, cloud, "cache-b", uint64(own.cacheSharedResult().id), cloudP, 0)
+	held, err := cloud.StoredBundle(ctx, []uint64{cloudR}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{cloudP}, held.Held)
+	reply, err = b.MergeValues(bctx, cloudCacheID, held.Bundle)
+	require.NoError(t, err)
+	require.Empty(t, reply.OtherRun, "the held row stands for the entry's own value, shown the Cloud's copy")
+	require.Len(t, reply.Imported(), 1, "R lands over it")
+}

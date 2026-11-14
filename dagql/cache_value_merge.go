@@ -380,7 +380,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 	var ownRunsRead time.Duration
 	for {
 		reading := time.Now()
-		c.readOwnRuns(prep)
+		c.readOwnRuns(ctx, prep)
 		ownRunsRead += time.Since(reading)
 		asked := time.Now()
 		c.lockGraphFor(ctx, work)
@@ -675,10 +675,15 @@ type valueMergePrep struct {
 	// computed itself, whether a run of the cache's own is at or below it,
 	// read before the commit's lock (readOwnRuns).
 	ownRuns map[*sharedResult]bool
-	// ownStates are how far each of those entries has itself run.
+	// ownStates are how far each of those entries has itself run, and
+	// ownPlain the plain values of those made whole by their call
+	// (readOwnPlainValues).
 	ownStates map[*sharedResult]ownRunState
-	order     []uint64
-	index     map[uint64]*TransferredValue
+	ownPlain  map[*sharedResult][]byte
+	// plain are the scalar records' values, by ordinal (notePlainRecords).
+	plain map[uint64][]byte
+	order []uint64
+	index map[uint64]*TransferredValue
 	// rows are the bundle's ordinals by sender number, which its records'
 	// own references name rows by, and senders the reverse
 	// (transferSenderNumbers).
@@ -919,6 +924,9 @@ func (c *Cache) prepareCheckedValueMerge(ctx context.Context, prep *valueMergePr
 	// (recordBytes).
 	if !c.blobBacked && !c.testNoPrerelocation {
 		prep.early = c.earlyMergeRows(ctx, prep)
+	}
+	if !c.blobBacked {
+		prep.notePlainRecords()
 	}
 	// Every other record is prepared with its payload.
 	if err := prep.prepareRecordPayloads(ctx, relocateRecord, relocate); err != nil {
