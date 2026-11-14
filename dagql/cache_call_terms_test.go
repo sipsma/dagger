@@ -17,12 +17,12 @@ func TestKeptCallTermsAreGroupedOnce(t *testing.T) {
 	var built atomic.Int32
 	test.cloud.testCallTermsBuilt = func() { built.Add(1) }
 	now := time.Now().Unix()
-	_, err := test.cloud.StoredSizes(test.ctx, []uint64{test.number}, now, nil)
+	_, err := test.cloud.StoredSizes(test.ctx, []uint64{test.number}, now)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, built.Load())
-	_, err = test.cloud.StoredSizes(test.ctx, []uint64{test.number}, now, nil)
+	_, err = test.cloud.StoredSizes(test.ctx, []uint64{test.number}, now)
 	require.NoError(t, err)
-	built1, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, now, nil)
+	built1, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, now)
 	require.NoError(t, err)
 	require.Len(t, built1.Bundle.Calls, 1)
 	require.EqualValues(t, 1, built.Load(), "nothing changed since the first grouping")
