@@ -1,6 +1,9 @@
 package dagql
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"slices"
 
 	"github.com/opencontainers/go-digest"
@@ -41,14 +44,88 @@ func (c *Cache) computedHereLocked(res *sharedResult) bool {
 	return !imported
 }
 
+// incomingCall is the call of row's record as the merge prepared it: after
+// preparation a row's record is read from prep.records, never the bundle's
+// row. A held row has none.
+func (commit *valueMergeCommit) incomingCall(row *mergeRow) *ResultCall {
+	if commit.prep.held[row.ordinal] {
+		return nil
+	}
+	if rec, ok := commit.prep.records[row.ordinal]; ok && rec.Call != nil {
+		return rec.Call
+	}
+	if row.value != nil {
+		return row.value.Record.Call
+	}
+	return nil
+}
+
+// plainValue returns the encoded value of a scalar record: a value its call
+// made whole that is entirely its record, with no snapshot links, no stored
+// or offered parts and no session binding, and that names no other entry.
+// Two such records of one recipe whose values encode the same are the same
+// result. An object or a list can name other entries, whose runs it then
+// depends on, so it isn't one.
+func plainValue(rec PersistedRecord) ([]byte, bool) {
+	env := rec.Envelope
+	if env.Kind != persistedResultKindScalar || len(env.ScalarJSON) == 0 || len(env.ObjectJSON) > 0 || len(env.Items) > 0 ||
+		len(rec.SnapshotLinks) > 0 || len(env.StoredParts) > 0 || len(env.PendingOffers) > 0 ||
+		env.SessionResourceHandle != "" || env.BoundSession != "" {
+		return nil, false
+	}
+	key, err := json.Marshal(struct {
+		TypeName   string
+		ScalarJSON json.RawMessage
+	}{env.TypeName, env.ScalarJSON})
+	if err != nil {
+		return nil, false
+	}
+	return key, true
+}
+
+// notePlainRecords records, during preparation, the value of each scalar
+// record of the bundle (plainValue): a row its recipe's entry keeps is
+// prepared from its call alone (keptMergeRecords), so its value is read here,
+// from the bundle, while preparation still has it.
+func (prep *valueMergePrep) notePlainRecords() {
+	for _, id := range prep.order {
+		if prep.held[id] {
+			continue
+		}
+		row := prep.index[id]
+		if row == nil {
+			continue
+		}
+		if value, ok := plainValue(row.Record); ok {
+			if prep.plain == nil {
+				prep.plain = map[uint64][]byte{}
+			}
+			prep.plain[id] = value
+		}
+	}
+}
+
+// samePlainValueLocked reports whether row's record and res's own value are
+// both scalar values (plainValue) that encode the same: row's as preparation
+// read it, res's as readOwnPlainValues captured it. Requires egraphMu.
+func samePlainValueLocked(commit *valueMergeCommit, row *mergeRow, res *sharedResult) bool {
+	own, ok := commit.prep.ownPlain[res]
+	if !ok {
+		return false
+	}
+	incoming, ok := commit.prep.plain[row.ordinal]
+	return ok && bytes.Equal(incoming, own)
+}
+
 // sameContentLocked reports whether row's record is shown a copy of res's
 // value by content: both name a content digest, and it is the same.
 // Requires egraphMu.
-func sameContentLocked(row *mergeRow, res *sharedResult) bool {
-	if row.value == nil || row.value.Record.Call == nil {
+func sameContentLocked(commit *valueMergeCommit, row *mergeRow, res *sharedResult) bool {
+	call := commit.incomingCall(row)
+	if call == nil {
 		return false
 	}
-	incoming := row.value.Record.Call.ContentDigest()
+	incoming := call.ContentDigest()
 	if incoming == "" {
 		return false
 	}
@@ -57,6 +134,57 @@ func sameContentLocked(row *mergeRow, res *sharedResult) bool {
 		return false
 	}
 	return frame.ContentDigest() == incoming
+}
+
+// apartCloudCopy is a Cloud entry whose record a merge kept apart from an
+// entry the engine computed while the entry had no content digest yet and
+// the record had one: a git tree, for one, is given its digest only once it
+// has been evaluated. When the entry is taught that digest, the two are the
+// same result (admitApartCloudCopyLocked).
+type apartCloudCopy struct {
+	number        uint64
+	contentDigest digest.Digest
+	expiresAtUnix int64
+}
+
+// rememberApartLocked remembers row's Cloud entry on the entry it was kept
+// apart from, when the record names a content digest the entry doesn't have
+// yet. Requires egraphMu.
+func (commit *valueMergeCommit) rememberApartLocked(row *mergeRow) {
+	if commit.from != cloudCacheID {
+		return
+	}
+	call := commit.incomingCall(row)
+	if call == nil || call.ContentDigest() == "" {
+		return
+	}
+	if own := row.res.loadResultCall(); own != nil && own.ContentDigest() != "" {
+		return
+	}
+	row.res.apartCloud = &apartCloudCopy{number: row.value.SenderNumber, contentDigest: call.ContentDigest(), expiresAtUnix: row.value.ExpiresAtUnix}
+}
+
+// admitApartCloudCopyLocked runs when res is taught contentDigest: a Cloud
+// entry a merge kept apart from res for want of its digest is shown the same
+// result now, and res learns it as its Cloud copy, as the merge would have.
+// Requires egraphMu for writing.
+func (res *sharedResult) admitApartCloudCopyLocked(contentDigest digest.Digest) {
+	apart := res.apartCloud
+	if apart == nil {
+		return
+	}
+	res.apartCloud = nil
+	if apart.contentDigest == contentDigest {
+		res.noteSenderCopyLocked(cloudCacheID, apart.number, true, apart.expiresAtUnix)
+		res.shownEqualCloud = apart.number
+	}
+}
+
+// holdsCloudCopyLocked reports whether res's Cloud copy is the Cloud's entry
+// number. Requires egraphMu.
+func (res *sharedResult) holdsCloudCopyLocked(number uint64) bool {
+	key, h := res.cloudHoldingLocked()
+	return h != nil && key.Number == number
 }
 
 // OwnRunApart names a row a merge kept apart directly from a run of the
@@ -86,8 +214,8 @@ const apartSamplesPerMerge = 16
 func (commit *valueMergeCommit) noteApart(row *mergeRow, held, read bool) {
 	own := row.res.loadResultCall()
 	frame := own
-	if !held && row.value.Record.Call != nil {
-		frame = row.value.Record.Call
+	if incoming := commit.incomingCall(row); incoming != nil {
+		frame = incoming
 	}
 	sample := OwnRunApart{Route: "full", SenderNumber: row.value.SenderNumber}
 	if held {
@@ -108,7 +236,7 @@ func (commit *valueMergeCommit) noteApart(row *mergeRow, held, read bool) {
 		sample.Reason = "a run of its own below"
 	}
 	sample.OwnDigest = own != nil && own.ContentDigest() != ""
-	sample.StoredDigest = !held && row.value.Record.Call != nil && row.value.Record.Call.ContentDigest() != ""
+	sample.StoredDigest = commit.incomingCall(row) != nil && commit.incomingCall(row).ContentDigest() != ""
 	if commit.apartFields == nil {
 		commit.apartFields = map[string]int{}
 	}
@@ -149,8 +277,8 @@ const (
 // (ranHere never runs under egraphMu). An entry that becomes a target only
 // after this read is taken as run. Its cost is one recipe lookup per record
 // and the region of entries the cache computed below its targets.
-func (c *Cache) readOwnRuns(prep *valueMergePrep) {
-	prep.ownRuns, prep.ownStates = nil, nil
+func (c *Cache) readOwnRuns(ctx context.Context, prep *valueMergePrep) {
+	prep.ownRuns, prep.ownStates, prep.ownPlain = nil, nil, nil
 	if c.blobBacked {
 		return
 	}
@@ -228,6 +356,56 @@ func (c *Cache) readOwnRuns(prep *valueMergePrep) {
 		prep.ownRuns[res] = runAtOrBelow(res)
 		prep.ownStates[res] = states[res]
 	}
+	c.readOwnPlainValues(ctx, prep)
+}
+
+// readOwnPlainValues captures, for each target made whole by its call that a
+// plain record of the bundle lands on (plainValue), the target's own record,
+// so the commit can compare the two values (samePlainValueLocked). It
+// captures as warming does, each target held, outside egraphMu: encoding a
+// value can resolve results through egraphMu. Requires no lock.
+func (c *Cache) readOwnPlainValues(ctx context.Context, prep *valueMergePrep) {
+	var candidates []*sharedResult
+	seen := map[*sharedResult]bool{}
+	c.egraphMu.RLock()
+	for ordinal, plan := range prep.plans {
+		res := c.currentEntryForRecipeLocked(plan.recipe)
+		if res == nil || seen[res] || prep.ownStates[res] != ownRunWhole {
+			continue
+		}
+		if _, plain := prep.plain[ordinal]; !plain {
+			continue
+		}
+		seen[res] = true
+		candidates = append(candidates, res)
+	}
+	c.egraphMu.RUnlock()
+	if len(candidates) == 0 {
+		return
+	}
+	op, err := c.beginCacheOperation()
+	if err != nil {
+		return
+	}
+	defer op.finish(false)
+	held, release := c.holdRowsForCapture(ctx, candidates)
+	prep.ownPlain = make(map[*sharedResult][]byte, len(candidates))
+	for _, h := range held {
+		var rec PersistedRecord
+		_, err := h.run(func(imported bool, offers []PersistedPartOffer, version *capturedRowRevision) error {
+			var err error
+			rec, err = c.captureHeldPersistedRecord(ctx, h.row, imported, offers, version)
+			return err
+		})
+		if err != nil {
+			continue
+		}
+		if value, plain := plainValue(rec); plain {
+			prep.ownPlain[h.row] = value
+		}
+	}
+	// A failure to let a target go costs nothing here, as in warming.
+	_ = release()
 }
 
 // keepOwnRunsLocked keeps a merge from putting another run beside a value
@@ -257,7 +435,16 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 		// is kept apart as a full row is.
 		held := commit.prep.held[row.ordinal]
 		switch run, read := commit.prep.ownRuns[row.res]; {
-		case !held && sameContentLocked(row, row.res):
+		case !held && (sameContentLocked(commit, row, row.res) || samePlainValueLocked(commit, row, row.res)):
+			row.own = ownSameContent
+			if commit.from == cloudCacheID {
+				row.res.shownEqualCloud = row.value.SenderNumber
+			}
+		case held && commit.from == cloudCacheID && row.res.shownEqualCloud == row.value.SenderNumber && row.res.holdsCloudCopyLocked(row.value.SenderNumber):
+			// The entry was shown this very Cloud entry's copy by content
+			// before, by an earlier merge or once its digest was taught
+			// (admitApartCloudCopyLocked): the held row stands for its own
+			// value.
 			row.own = ownSameContent
 		case read && !run:
 			row.own = ownNotRun
@@ -271,6 +458,7 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 			apart[row.ordinal] = ownRouteFull
 			counts.ApartFull++
 			commit.noteApart(row, false, read)
+			commit.rememberApartLocked(row)
 		}
 	}
 	if len(apart) == 0 {

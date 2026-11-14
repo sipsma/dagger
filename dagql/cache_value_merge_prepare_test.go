@@ -355,6 +355,9 @@ func TestMergeReplyTimesItsWaitForTheLock(t *testing.T) {
 	reply, err := b.MergeValues(ctx, cloudCacheID, bundle)
 	require.NoError(t, err)
 	require.True(t, reply.Committed)
-	require.GreaterOrEqual(t, reply.LockWait, held)
+	// The commit first reads its targets' own runs under the lock for
+	// reading (readOwnRuns), so the wait falls in that read or in the wait
+	// for the write lock: never in the hold.
+	require.GreaterOrEqual(t, reply.LockWait+reply.OwnRunsRead, held)
 	require.Less(t, reply.CommitHold, held, "the wait isn't counted as the hold")
 }

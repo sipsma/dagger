@@ -1568,6 +1568,9 @@ func (c *Cache) teachContentDigest(ctx context.Context, shared *sharedResult, co
 			return false, err
 		}
 		shared.storeResultCall(frame)
+		// A Cloud entry a merge kept apart for want of this digest is the
+		// same result now.
+		shared.admitApartCloudCopyLocked(contentDigest)
 		if body != nil {
 			// The new frame goes into a new body, as the old one was held.
 			c.setStoredBodyLocked(shared, shared.persistedEnvelope, body)

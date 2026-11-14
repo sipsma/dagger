@@ -205,7 +205,7 @@ func (srv *Server) stopEngineEvents(ctx context.Context, clean bool) {
 			Restores:           srv.restoreEvents(),
 			PartsWithoutSource: srv.engineCache.PartsWithoutSource(),
 			UncountedMisses:    srv.uncountedMisses(),
-			OwnRuns:            telemetryattrs.EngineOwnRuns{
+			OwnRuns: telemetryattrs.EngineOwnRuns{
 				RowsKeptApart:   own.RowsKeptApart,
 				RowsSameContent: own.RowsSameContent,
 				RowsNotRun:      own.RowsNotRun,
