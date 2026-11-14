@@ -490,9 +490,11 @@ func (capture *HeldCapturedClosure) copy(ctx context.Context, retireStale bool) 
 			capture.block(row.shared.id, BusyStaleOffer, &staleOffersError{offers: rowStale})
 		}
 	}
-	if err := capture.copyRoutes(ctx, blockRow); err != nil {
+	routeStale, err := capture.copyRoutes(ctx, retireStale, blockRow)
+	if err != nil {
 		return nil, err
 	}
+	stale = append(stale, routeStale...)
 	// Release each row's copy guards before comparing the next row.
 	for i, row := range capture.order {
 		if !copied[i] || row.held {
@@ -524,9 +526,12 @@ func (capture *HeldCapturedClosure) copy(ctx context.Context, retireStale bool) 
 // through that the copy left unread: the part can sit on a row below the
 // selected one, reached through the references in their records
 // (resolveSelectedRecord), and a row on that way the recipient knows is
-// held uncopied (holdKnownUncopied). A row it can't copy is blocked, as the
-// copy blocks one; only the capture's own cancellation fails it.
-func (capture *HeldCapturedClosure) copyRoutes(ctx context.Context, blockRow func(*capturedTransferRow, error)) error {
+// held uncopied (holdKnownUncopied). Each is copied as copy copies a row: a
+// row it can't copy is blocked, and the obsolete offers it finds on one are
+// returned for retiring, with retireStale, or block it, without. Only the
+// capture's own cancellation fails it.
+func (capture *HeldCapturedClosure) copyRoutes(ctx context.Context, retireStale bool, blockRow func(*capturedTransferRow, error)) ([]staleOffer, error) {
+	var stale []staleOffer
 	for _, sel := range capture.routes {
 		if sel.Result == nil || sel.Result.cacheSharedResult() == nil {
 			continue
@@ -553,14 +558,22 @@ func (capture *HeldCapturedClosure) copyRoutes(ctx context.Context, blockRow fun
 				if hook := capture.cache.testTransferCopied; hook != nil {
 					hook(uint64(row.shared.id))
 				}
+				rowStale, err := row.staleOffers()
+				if err != nil {
+					blockRow(row, err)
+				}
+				stale = append(stale, rowStale...)
+				if !retireStale && len(rowStale) > 0 {
+					capture.block(row.shared.id, BusyStaleOffer, &staleOffersError{offers: rowStale})
+				}
 			}
 			return row.record, true
 		})
 		if err := context.Cause(ctx); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return stale, nil
 }
 
 // staleOffers are the row's offers on outputs its copied record completed.
