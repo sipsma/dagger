@@ -396,3 +396,39 @@ func TestMergeValuesLeavesAnOfferOwnedByADroppedRow(t *testing.T) {
 		})
 	}
 }
+
+// The Cloud leaves out a call's input that the recipient holds, so the call
+// arrives with no row for it. Where the engine ran that input itself, the
+// call's answer was made over another run of it: it isn't taught, and the
+// engine's own call over its input runs.
+// (TestCallRecordPrefersAnInputTheRecipientHolds shows the omission.)
+func TestCallRecordOverAHeldOwnInputIsNotTaught(t *testing.T) {
+	t.Parallel()
+	test := newReceiverCallTest(t)
+	ctx, fresh, srv := transferTestCache(t)
+	own, err := fresh.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: receiverTestFrame("a"), IsPersistable: true},
+		func(context.Context) (AnyResult, error) {
+			return NewResultForCall(&transferTestValue{Text: "own receiver"}, receiverTestFrame("a"))
+		})
+	require.NoError(t, err)
+	require.True(t, own.cacheSharedResult().ranHere())
+	recipe, err := receiverTestFrame("a").deriveRecipeDigest(nil)
+	require.NoError(t, err)
+	_, err = test.cloud.AttachRemoteHolding(test.ctx, HolderKey{Cache: "cache-fresh", Number: uint64(own.cacheSharedResult().id)}, RemoteHolding{Recipe: recipe, Request: recipe, Field: "receiver"})
+	require.NoError(t, err)
+	built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix(), &HeldBy{Cache: "cache-fresh"})
+	require.NoError(t, err)
+	require.Len(t, built.Bundle.Calls, 1)
+	require.Empty(t, built.CallInputs, "the input isn't carried")
+
+	_, err = fresh.MergeValues(ctx, CloudCacheID, built.Bundle)
+	require.NoError(t, err)
+	ran := false
+	_, err = fresh.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: receiverTestCall("a"), IsPersistable: true},
+		func(context.Context) (AnyResult, error) {
+			ran = true
+			return NewResultForCall(&transferTestValue{Text: "own outer"}, receiverTestCall("a"))
+		})
+	require.NoError(t, err)
+	require.True(t, ran, "the call over the engine's own receiver runs")
+}
