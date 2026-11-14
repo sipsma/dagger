@@ -42,6 +42,10 @@ func TestPartSessionlessRestoredDirectory(t *testing.T) {
 		baseRef, err := store.Manager.GetBySnapshotID(ctx, ref.SnapshotID())
 		require.NoError(t, err)
 		base := attach(&dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "directory", Type: dagql.NewResultCallType((&core.Directory{}).Type())}, newDir(baseRef))
+		// Each cache computes the base itself, and a cache keeps its own run
+		// unless another's is shown the same by content: both know the
+		// base's content, as two engines that digested it would.
+		require.NoError(t, c.TeachContentDigest(ctx, base, digest.FromString("sessionless restored base content")))
 		id, err := c.PersistedResultID(base)
 		require.NoError(t, err)
 		return attach(&dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: field, Receiver: &dagql.ResultCallRef{ResultID: id}, Type: dagql.NewResultCallType((&core.Directory{}).Type())}, newDir(ref))

@@ -273,6 +273,10 @@ const (
 	SkipRefused SkipReason = "refused"
 	// SkipExpired: a merged root had expired when the merge decided.
 	SkipExpired SkipReason = "expired"
+	// SkipOtherRun: a merged root landed on a value the engine computed
+	// itself, or was computed over one, and the merge kept it apart
+	// (dagql.MergedRoot.OtherRun).
+	SkipOtherRun SkipReason = "other_run"
 )
 
 // Exported answers Export. Bundle is nil when no root survived. The engine
@@ -380,6 +384,10 @@ type Merged struct {
 	Values     []MergedValue  `json:"values"`
 	Retained   []RetainedRoot `json:"retained"`
 	Skipped    []SkippedValue `json:"skipped,omitempty"`
+	// OtherRun are the bundle's records that landed on an entry holding a
+	// value the engine computed itself, another run of their recipe, which
+	// the merge kept apart (dagql.MergeReply.OtherRun): none is in Values.
+	OtherRun []dagql.TransferOrdinal `json:"otherRun,omitempty"`
 	// Stale are the bundle's held rows the engine didn't hold when the
 	// merge decided: no current entry for the recipe, one with no value of
 	// its own, or an expired one the row hasn't outlived. A reply with Stale

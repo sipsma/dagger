@@ -442,6 +442,8 @@ func offerLogAttrs(number uint64, offer dagql.PersistedPartOffer, disposition da
 		"output", address.OutputPath.String(),
 		"part", string(address.Part),
 		"outcome", string(outcome),
+		// Refused because a run of this engine's own is below the entry.
+		"own_run_below", disposition.OwnRunBelow,
 		"replaced", disposition.Replaced,
 		"layers", len(offer.Chain.Layers),
 		"bytes", size,
@@ -511,10 +513,27 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 			held++
 		}
 	}
+	otherRunRoots := 0
+	for _, root := range reply.Roots {
+		if root.OtherRun {
+			otherRunRoots++
+		}
+	}
 	slog.Info("remote cache merge",
 		"records", len(req.Bundle.Values),
 		"held", held,
 		"roots", len(req.Bundle.Roots),
+		// Rows and roots kept apart from values this engine computed itself
+		// (dagql's keepOwnRunsLocked): the rule's refusals, by count. Beside
+		// them, the rows that landed on such values all the same: shown
+		// equal by content, or on entries with no run of the engine's own
+		// at or below them yet. own_runs_read is the time taken to read
+		// which targets had one.
+		"other_run_rows", reply.Rows.OtherRun,
+		"other_run_roots", otherRunRoots,
+		"same_content_rows", reply.Rows.OwnSameContent,
+		"own_unrun_rows", reply.Rows.OwnNotRun,
+		"own_runs_read", reply.OwnRunsRead,
 		"committed", reply.Committed,
 		"stale", len(reply.Stale),
 		"commitHold", reply.CommitHold,
@@ -654,6 +673,7 @@ func mergedReply(reply dagql.MergeReply) protocol.Merged {
 		EngineTime: reply.EngineTimeUnixNano,
 		Values:     make([]protocol.MergedValue, 0, len(reply.Values)),
 		Retained:   []protocol.RetainedRoot{},
+		OtherRun:   reply.OtherRun,
 	}
 	for _, value := range reply.Values {
 		merged.Values = append(merged.Values, protocol.MergedValue{
@@ -670,6 +690,8 @@ func mergedReply(reply dagql.MergeReply) protocol.Merged {
 		switch {
 		case root.Expired:
 			merged.Skipped = append(merged.Skipped, protocol.SkippedValue{Ordinal: root.Ordinal, Reason: protocol.SkipExpired})
+		case root.OtherRun:
+			merged.Skipped = append(merged.Skipped, protocol.SkippedValue{Ordinal: root.Ordinal, Reason: protocol.SkipOtherRun})
 		case root.Retained:
 			merged.Retained = append(merged.Retained, protocol.RetainedRoot{Ordinal: root.Ordinal, ExpiresAtUnix: root.RetentionExpiresAtUnix})
 		}

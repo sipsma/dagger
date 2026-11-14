@@ -55,8 +55,8 @@ func (srv *Server) mergeImageEntries(ctx context.Context, dir string) error {
 		return fmt.Errorf("merge the engine image's entries: %d held rows are stale", len(reply.Stale))
 	}
 	for _, r := range reply.Roots {
-		if r.Expired || !r.Retained {
-			return fmt.Errorf("merge the engine image's entries: root %d did not merge (expired %t, retained %t)", r.Ordinal, r.Expired, r.Retained)
+		if r.Expired || r.OtherRun || !r.Retained {
+			return fmt.Errorf("merge the engine image's entries: root %d did not merge (expired %t, other run %t, retained %t)", r.Ordinal, r.Expired, r.OtherRun, r.Retained)
 		}
 	}
 	slog.Info("merged the engine image's entries",

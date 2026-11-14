@@ -200,7 +200,9 @@ func TestOfferPartsResourcesAndSettlement(t *testing.T) {
 func TestOfferPartsInlineAndReferencedRows(t *testing.T) {
 	for _, separate := range []bool{false, true} {
 		ctx, c, srv := transferTestCache(t)
-		leaf := persistedListTestResult(t, ctx, c, srv, "leaf", &transferTestValue{Text: "pending"})
+		// The cache took the leaf from another: a part offered over a run of
+		// its own is refused (anyRanHere).
+		leaf := takenTestResult(t, ctx, c, srv, "leaf", &transferTestValue{Text: "pending"})
 		list := persistedListTestResult(t, ctx, c, srv, "list", DynamicResultArrayOutput{Elem: &transferTestValue{}, Values: []AnyResult{leaf}})
 		if !separate {
 			// Attachment gives result handles separate rows. Construct the other

@@ -78,7 +78,13 @@ func TestFreshEngineGivesAServiceTheContentPreferredDigestItsProducerUsed(t *tes
 	require.NoError(t, err)
 
 	bctx, b, bsrv := transferTestCache(t)
-	own := contentPreferredTestBinary(t, bctx, b, bsrv, "binary")
+	// b took a's file before and digested it since: a record over another
+	// run of a file b computed itself would be kept apart
+	// (keepOwnRunsLocked).
+	took, err := b.MergeValues(bctx, cloudCacheID, exportTestBundle(t, actx, a, file))
+	require.NoError(t, err)
+	own, err := b.LoadResultByResultID(bctx, "test-session", bsrv, took.Imported()[0].ResultID)
+	require.NoError(t, err)
 	require.NoError(t, b.TeachContentDigest(bctx, own, digest.FromString("binary content")))
 	_, err = b.MergeValues(bctx, cloudCacheID, sent.Bundle)
 	require.NoError(t, err)

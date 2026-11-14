@@ -246,7 +246,11 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 	if c.testBeforeTransferCommit != nil {
 		c.testBeforeTransferCommit()
 	}
+	var ownRunsRead time.Duration
 	for {
+		reading := time.Now()
+		c.readOwnRuns(prep)
+		ownRunsRead += time.Since(reading)
 		asked := time.Now()
 		wcprof.WriteLock(ctx, &c.egraphMu, egraphLockIdent)
 		locked := time.Now()
@@ -288,8 +292,9 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 		}
 		commit.restore, commit.hold = restore, hold
 		reply, finish := c.commitValueMergeLocked(ctx, commit)
-		reply.Committed, reply.CommitHold, reply.Warm = true, time.Since(locked), warmed
+		reply.Committed, reply.CommitHold, reply.Warm, reply.OwnRunsRead = true, time.Since(locked), warmed, ownRunsRead
 		reply.LockWait = locked.Sub(asked)
+		c.noteOwnRunRows(reply.Rows)
 		var stored []*sharedResult
 		if c.blobBacked {
 			for _, row := range commit.rows {
@@ -342,6 +347,11 @@ type MergeReply struct {
 	// can still return an error, from releasing a replaced value after the
 	// lock; the reply then describes what the cache holds all the same.
 	Committed bool
+	// OtherRun are the rows whose entry holds a value this cache computed
+	// itself, of another run than theirs, which the merge kept apart
+	// (keepOwnRunsLocked): they have no value in Values, and nothing the
+	// sender holds of them can land on the entry.
+	OtherRun []TransferOrdinal
 	// Stale are the held rows the cache didn't hold when the merge decided.
 	// A merge with stale rows commits nothing: the reply has only them, and
 	// the generation and clock.
@@ -360,6 +370,10 @@ type MergeReply struct {
 	// parts before it decided (warmMergeTargetParts). Each capture takes
 	// egraphMu for writing, briefly, so it waits for egraphMu's readers.
 	Warm time.Duration
+	// OwnRunsRead is how long the commit took to read, before it decided,
+	// which of its targets the cache computed itself have a run of its own
+	// at or below them (readOwnRuns).
+	OwnRunsRead time.Duration
 }
 
 // MergeRowCounts counts a merge's records by what its commit did with each:
@@ -367,15 +381,31 @@ type MergeReply struct {
 // lands on an entry that keeps its value (kept): one the cache already had,
 // or one another record of the bundle with the same recipe stores; one a new
 // entry stores (created), one an entry with no value takes (stored), one
-// that replaces an expired value in place (replaced), and one a new entry
-// stores while the expired value it supersedes stays in use (retired).
+// that replaces an expired value in place (replaced), one a new entry
+// stores while the expired value it supersedes stays in use (retired), and
+// one kept apart from a value the cache computed itself (otherRun,
+// keepOwnRunsLocked).
+//
+// Beside those, it counts the rows that landed on an entry the cache
+// computed itself and weren't kept apart: shown a copy of a run of the
+// cache's own by content (OwnSameContent), or on an entry with no run of the
+// cache's own at or below it yet (OwnNotRun).
 type MergeRowCounts struct {
-	Held, Kept, Created, Stored, Replaced, Retired int
+	Held, Kept, Created, Stored, Replaced, Retired, OtherRun int
+	OwnSameContent, OwnNotRun                                int
 }
 
 // count counts one decided row.
 func (n *MergeRowCounts) count(row *mergeRow) {
+	switch row.own {
+	case ownSameContent:
+		n.OwnSameContent++
+	case ownNotRun:
+		n.OwnNotRun++
+	}
 	switch {
+	case row.otherRun:
+		n.OtherRun++
 	case row.value.Held != "":
 		n.Held++
 	case row.action == mergeKeep:
@@ -419,7 +449,10 @@ type MergedRoot struct {
 	Ordinal TransferOrdinal
 	// Expired marks a root that had expired when the merge decided: it was
 	// skipped, with whatever only it needed.
-	Expired                bool
+	Expired bool
+	// OtherRun marks a root kept apart from a value this cache computed
+	// itself, or computed over one: it was skipped (keepOwnRunsLocked).
+	OtherRun               bool
 	Number                 uint64
 	Retained               bool
 	RetentionExpiresAtUnix int64
@@ -429,7 +462,7 @@ type MergedRoot struct {
 func (r MergeReply) Imported() []ImportedValue {
 	out := make([]ImportedValue, 0, len(r.Roots))
 	for _, root := range r.Roots {
-		if !root.Expired {
+		if !root.Expired && !root.OtherRun {
 			out = append(out, ImportedValue{Ordinal: root.Ordinal, ResultID: root.Number})
 		}
 	}
@@ -453,8 +486,12 @@ type valueMergePrep struct {
 	// unretained are the bundle's roots the commit gives no retention edge
 	// (PreparedValueMerge.Unretained).
 	unretained map[TransferOrdinal]bool
-	order      []uint64
-	index      map[uint64]*TransferredValue
+	// ownRuns are, for each current entry of a bundle recipe that the cache
+	// computed itself, whether a run of the cache's own is at or below it,
+	// read before the commit's lock (readOwnRuns).
+	ownRuns map[*sharedResult]bool
+	order   []uint64
+	index   map[uint64]*TransferredValue
 	// rows are the bundle's ordinals by sender number, which its records'
 	// own references name rows by, and senders the reverse
 	// (transferSenderNumbers).
@@ -1219,6 +1256,14 @@ type mergeRow struct {
 	value   *TransferredValue
 	plan    transferIdentityPlan
 	action  mergeAction
+	// otherRun marks a row whose entry holds a value this cache computed
+	// itself, which the row is not shown a copy of (keepOwnRunsLocked): it
+	// teaches its entry nothing, gives it no part, and the reply leaves it
+	// out.
+	otherRun bool
+	// own is how the row landed on an entry the cache computed itself
+	// without being kept apart.
+	own ownLanding
 	// target is the recipe's entry before the merge, if any.
 	target *sharedResult
 	// res is the entry that holds the record's value after the merge: the
@@ -1369,6 +1414,7 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 		row.action, row.target, row.res = mergeKeep, b.res, b.res
 		row.keptExpired = b.keptExpired || b.action.installs() && b.expired
 	}
+	c.keepOwnRunsLocked(commit)
 }
 
 // liveClosure returns the rows the bundle's unexpired roots need, judged at
@@ -1662,7 +1708,7 @@ func (c *Cache) relocateMergeRowsLocked(commit *valueMergeCommit) error {
 	for _, row := range commit.rows {
 		source := prep.records[row.ordinal]
 		if !row.action.installs() {
-			if !c.blobBacked {
+			if !c.blobBacked && !row.otherRun {
 				offers, err := clonePartOffers(source.Envelope.PendingOffers)
 				if err != nil {
 					return err
@@ -1989,7 +2035,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 	// Retention: an engine's retention edge, or the Cloud's stored root,
 	// but for a root the caller left unretained (Unretained).
 	for i, root := range commit.prep.bundle.Roots {
-		if commit.roots[i].Expired || commit.prep.unretained[root.Ordinal] {
+		if commit.roots[i].Expired || commit.roots[i].OtherRun || commit.prep.unretained[root.Ordinal] {
 			continue
 		}
 		row := commit.byOrdinal[uint64(root.Ordinal)]
@@ -2086,6 +2132,11 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 		joined = c.trackJoinsLocked()
 	}
 	for _, row := range commit.rows {
+		if row.otherRun {
+			// The entry holds a value this cache computed: the row is not a
+			// copy of it.
+			continue
+		}
 		if commit.prep.held[row.ordinal] {
 			// A held row teaches its entry nothing: it is the entry's own
 			// value. On the Cloud, it teaches the sender's holding of it
@@ -2112,7 +2163,7 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 	}
 	for _, merged := range commit.prep.calls {
 		row := commit.byOrdinal[merged.value]
-		if row == nil || row.res == nil {
+		if row == nil || row.res == nil || row.otherRun {
 			continue
 		}
 		// The row's expiry is the earliest of its calls', the Cloud's
@@ -2288,7 +2339,7 @@ func (c *Cache) selectMergedOffersLocked(commit *valueMergeCommit) error {
 	}
 	for _, row := range commit.rows {
 		row.admitted = nil
-		if len(row.offers) == 0 || !row.action.installs() && row.expired && !row.keptExpired {
+		if row.otherRun || len(row.offers) == 0 || !row.action.installs() && row.expired && !row.keptExpired {
 			continue
 		}
 		complete := map[string]bool{}
@@ -2525,6 +2576,10 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 	for _, row := range commit.rows {
 		reply.Rows.count(row)
 		res := row.res
+		if row.otherRun {
+			reply.OtherRun = append(reply.OtherRun, row.value.Ordinal)
+			continue
+		}
 		if c.resultsByID[res.id] != res {
 			// The commit's collection removed an entry the merge created
 			// that nothing owns: there is no target to report.
@@ -2555,7 +2610,7 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 		reply.Values = append(reply.Values, value)
 	}
 	for _, root := range commit.roots {
-		if !root.Expired {
+		if !root.Expired && !root.OtherRun {
 			res := commit.byOrdinal[uint64(root.Ordinal)].res
 			root.Number = uint64(res.id)
 			if edge, ok := c.persistedEdgesByResult[res.id]; ok {
