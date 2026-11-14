@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"slices"
 
 	"github.com/opencontainers/go-digest"
 )
@@ -222,7 +221,7 @@ func (res *sharedResult) admitApartCloudCopyLocked(contentDigest digest.Digest) 
 	}
 	res.apartCloud = nil
 	if apart.contentDigest == contentDigest {
-		res.noteSenderCopyLocked(cloudCacheID, apart.number, true, apart.expiresAtUnix)
+		res.noteCloudCopyLocked(apart.number, true, apart.expiresAtUnix)
 	}
 }
 
@@ -460,6 +459,19 @@ func (c *Cache) readOwnPlainValues(ctx context.Context, prep *valueMergePrep) {
 // cache: the Cloud computes nothing, so on it no row is kept apart. Requires
 // egraphMu.
 func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
+	apart := c.decideOwnRowsLocked(commit)
+	if len(apart) == 0 {
+		return
+	}
+	dropped := commit.cascadeApart(apart)
+	commit.dropApartRows(dropped)
+}
+
+// decideOwnRowsLocked decides each row that lands on an entry the cache
+// computed: it lands as a copy shown equal by content, lands on an entry
+// with no run of the cache's own yet, or is kept apart. It returns the rows
+// kept apart, each with its route. Requires egraphMu.
+func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRoute {
 	// apart maps each row kept apart, or dropped, to the route of the row it
 	// was first kept apart for: a full row or a held one.
 	apart := map[uint64]ownRoute{}
@@ -474,9 +486,9 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 			continue
 		}
 		// A held row stands for the entry's own value but carries nothing
-		// the cache could compare with it: the sender's run of the recipe
-		// may be another. Where the entry has a run of the cache's own, it
-		// is kept apart as a full row is.
+		// the cache could compare with it but the content digest it names:
+		// the sender's run of the recipe may be another. Where the entry has
+		// a run of the cache's own, it is kept apart as a full row is.
 		held := commit.prep.held[row.ordinal]
 		switch run, read := commit.prep.ownRuns[row.res]; {
 		case !held && (sameContentLocked(commit, row, row.res) || samePlainValueLocked(commit, row, row.res)):
@@ -501,9 +513,16 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 			commit.rememberApartLocked(row)
 		}
 	}
-	if len(apart) == 0 {
-		return
-	}
+	return apart
+}
+
+// cascadeApart carries apart, the rows kept apart, to the rows over them:
+// an installing row over one is dropped, with its recipe's other rows, and a
+// row landing on a kept value over one is kept apart too, as are the rows
+// over those. It adds each to apart under the route of the row at the
+// bottom, and returns the rows dropped.
+func (commit *valueMergeCommit) cascadeApart(apart map[uint64]ownRoute) map[uint64]bool {
+	counts := &commit.ownRoutes
 	over := func(route ownRoute) {
 		if route == ownRouteHeld {
 			counts.OverApartHeld++
@@ -530,31 +549,22 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 				// as that value, whatever run its record was computed over.
 				continue
 			}
-			// A row's dependencies, and its offers' owners', are named by
-			// ordinal.
-			deps := slices.Clone(row.value.DependencyIDs)
-			for _, offer := range row.value.Record.Envelope.PendingOffers {
-				deps = append(deps, offer.Owner.DependencyIDs...)
+			route, isApart := overApartRow(row, apart)
+			if !isApart {
+				continue
 			}
-			for _, dep := range deps {
-				route, isApart := apart[dep]
-				if !isApart {
-					continue
-				}
-				apart[row.ordinal] = route
-				over(route)
-				if row.action.installs() {
-					dropped[row.ordinal] = true
-				} else {
-					// A record landing on an entry that keeps its value
-					// installs nothing, but its offers would give the entry
-					// parts made over another run: it gives none. A record
-					// over it is over another run too.
-					row.otherRun, row.own = true, ownNone
-				}
-				changed = true
-				break
+			apart[row.ordinal] = route
+			over(route)
+			if row.action.installs() {
+				dropped[row.ordinal] = true
+			} else {
+				// A record landing on an entry that keeps its value
+				// installs nothing, but its offers would give the entry
+				// parts made over another run: it gives none. A record
+				// over it is over another run too.
+				row.otherRun, row.own = true, ownNone
 			}
+			changed = true
 		}
 		for _, row := range commit.rows {
 			if !dropped[row.ordinal] || installing[row.res] != row {
@@ -572,6 +582,31 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 			}
 		}
 	}
+	return dropped
+}
+
+// overApartRow reports whether one of row's dependencies, or one of its
+// offers' owners', is a row in apart, and that row's route. Both are named
+// by ordinal.
+func overApartRow(row *mergeRow, apart map[uint64]ownRoute) (ownRoute, bool) {
+	for _, dep := range row.value.DependencyIDs {
+		if route, ok := apart[dep]; ok {
+			return route, true
+		}
+	}
+	for _, offer := range row.value.Record.Envelope.PendingOffers {
+		for _, dep := range offer.Owner.DependencyIDs {
+			if route, ok := apart[dep]; ok {
+				return route, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// dropApartRows takes the rows dropped out of the commit, notes the recipes
+// of every row kept apart or dropped, and skips the roots among them.
+func (commit *valueMergeCommit) dropApartRows(dropped map[uint64]bool) {
 	// A transferred call over a row kept apart or dropped would teach the
 	// cache's own run of that input the stored run's answer.
 	commit.apartRecipes = map[digest.Digest]bool{}
