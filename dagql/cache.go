@@ -3104,11 +3104,8 @@ type sharedResult struct {
 	inlineBorrow *PartHost
 	// apartCloud is a Cloud entry's record a merge kept apart from this
 	// entry, which the engine computed, for want of the content digest the
-	// record named (rememberApartLocked); shownEqual names the Cloud record
-	// and the value of this entry last shown equal by content. Guarded by
-	// egraphMu.
+	// record named (rememberApartLocked). Guarded by egraphMu.
 	apartCloud *apartCloudCopy
-	shownEqual *cloudEquality
 	// Origin is immutable; slots and graph revisions are guarded by egraphMu.
 	imported bool
 	// persistDeclined records that the call that computed the entry's value

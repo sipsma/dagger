@@ -609,12 +609,12 @@ func ownRunTestHeldChain(t *testing.T, content digest.Digest) (context.Context, 
 	return ctx, cloud, cloudP, cloudR, bctx, b, bsrv, own
 }
 
-// Equality names the two values compared, not only their entries: a held
-// row stands for the engine's own value only while that value, and the
-// Cloud's record it was shown equal to, are the ones compared. After the
-// engine replaces its value, or with the Cloud's record replaced, the held
-// row is kept apart again. (Without either change it stands:
-// TestMergeValuesComparesAgainWhenTheDigestIsTaught.)
+// A held row stands for the engine's own value only when it names the
+// content digest the engine's value has, compared on every merge: after the
+// engine replaces its value, or after the Cloud prunes its record and
+// another engine's different run stores there again, with the same number
+// and replacement count, the held row is kept apart. (Without either change
+// it stands: TestMergeValuesComparesAgainWhenTheDigestIsTaught.)
 func TestMergeValuesHeldRowAfterAValueChanged(t *testing.T) {
 	t.Parallel()
 	content := digest.FromString("dep content")
@@ -630,19 +630,39 @@ func TestMergeValuesHeldRowAfterAValueChanged(t *testing.T) {
 		require.Len(t, reply.OtherRun, 1, "the held row is kept apart from the new value")
 		require.Empty(t, reply.Imported())
 	})
-	t.Run("the Cloud's record replaced", func(t *testing.T) {
+	t.Run("the Cloud's record pruned and stored again by another run", func(t *testing.T) {
 		t.Parallel()
 		ctx, cloud, cloudP, cloudR, bctx, b, _, _ := ownRunTestHeldChain(t, content)
+		before := storedBundleTestEntry(cloud, cloudP)
+		cloud.egraphMu.RLock()
+		replacements := before.replacements
+		cloud.egraphMu.RUnlock()
+		_, removed, _, err := cloud.removePrunedEdge(ctx, sharedResultID(cloudR))
+		require.NoError(t, err)
+		require.True(t, removed)
+		// Another engine's run of P, with other content, and of R over it.
+		cctx, c, csrv := transferTestCache(t)
+		p := persistedListTestResult(t, cctx, c, csrv, "bundle-dep", &transferTestValue{Text: "another dep"})
+		require.NoError(t, c.TeachContentDigest(cctx, p, digest.FromString("another dep content")))
+		frame := &ResultCall{Kind: ResultCallKindField, Field: "held-chained", Type: NewResultCallType((&transferTestValue{}).Type()), Receiver: &ResultCallRef{ResultID: uint64(p.cacheSharedResult().id)}}
+		r, err := c.GetOrInitCall(cctx, "test-session", csrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+			return NewResultForCall(&transferTestValue{Text: "chained"}, frame)
+		})
+		require.NoError(t, err)
+		_, err = cloud.MergeValues(ctx, "cache-c", exportTestBundle(t, cctx, c, r))
+		require.NoError(t, err)
+		after := storedBundleTestEntry(cloud, cloudP)
+		cloud.egraphMu.RLock()
+		require.Same(t, before, after, "the same entry stores again")
+		require.Equal(t, replacements, after.replacements, "with the same replacement count")
+		cloud.egraphMu.RUnlock()
+
 		held, err := cloud.StoredBundle(ctx, []uint64{cloudR}, time.Now().Unix(), &HeldBy{Cache: "cache-b"})
 		require.NoError(t, err)
-		for i := range held.Bundle.Values {
-			if held.Bundle.Values[i].SenderNumber == cloudP {
-				held.Bundle.Values[i].SenderReplacements++
-			}
-		}
+		require.Equal(t, []uint64{cloudP}, held.Held)
 		reply, err := b.MergeValues(bctx, cloudCacheID, held.Bundle)
 		require.NoError(t, err)
-		require.Len(t, reply.OtherRun, 1, "a later record of the Cloud's entry isn't the one compared")
+		require.Len(t, reply.OtherRun, 1, "the stored record is another run now")
 		require.Empty(t, reply.Imported())
 	})
 }
