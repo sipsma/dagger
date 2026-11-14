@@ -1325,6 +1325,8 @@ type valueMergeCommit struct {
 	apartRecipes map[digest.Digest]bool
 	ownDropped   map[uint64]bool
 	ownRoutes    MergeRowCounts
+	// carried are the recipes of the merge's rows (carriedRecipe).
+	carried map[digest.Digest]bool
 }
 
 // mergeAttachedOffer is an offer a merge attached: the entry, its part key
@@ -2187,7 +2189,7 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 	}
 	for _, merged := range commit.prep.calls {
 		row := commit.byOrdinal[merged.value]
-		if row == nil || row.res == nil || row.otherRun || callOverApartRow(commit, merged.id) {
+		if row == nil || row.res == nil || row.otherRun || c.callOverOwnRunLocked(commit, merged.id) {
 			continue
 		}
 		// The row's expiry is the earliest of its calls', the Cloud's
@@ -2209,10 +2211,13 @@ func (c *Cache) applyMergedIdentitiesLocked(ctx context.Context, commit *valueMe
 	}
 }
 
-// callOverApartRow reports whether an input of a transferred call is a row
-// the merge kept apart or dropped (keepOwnRunsLocked): its answer was made
-// over another run of that input than the one the cache holds.
-func callOverApartRow(commit *valueMergeCommit, id callIdentity) bool {
+// callOverOwnRunLocked reports whether a transferred call's answer was made
+// over another run of one of its inputs than the one the cache holds: the
+// input is a row the merge kept apart or dropped (keepOwnRunsLocked), or the
+// bundle left the input out because the cache holds it, and the cache's
+// entry of that recipe has a run of its own at or below it (readOwnRuns; an
+// entry the read didn't see counts as run). Requires egraphMu.
+func (c *Cache) callOverOwnRunLocked(commit *valueMergeCommit, id callIdentity) bool {
 	for i, input := range id.inputs {
 		if i < len(id.witnesses) && id.witnesses[i] {
 			continue
@@ -2220,8 +2225,30 @@ func callOverApartRow(commit *valueMergeCommit, id callIdentity) bool {
 		if commit.apartRecipes[input] {
 			return true
 		}
+		if commit.carriedRecipe(input) {
+			continue
+		}
+		res := c.currentEntryForRecipeLocked(input)
+		if res == nil || !c.computedHereLocked(res) {
+			continue
+		}
+		if run, read := commit.prep.ownRuns[res]; !read || run {
+			return true
+		}
 	}
 	return false
+}
+
+// carriedRecipe reports whether a row of the merge, as decided, is of
+// recipe.
+func (commit *valueMergeCommit) carriedRecipe(recipe digest.Digest) bool {
+	if commit.carried == nil {
+		commit.carried = make(map[digest.Digest]bool, len(commit.rows))
+		for _, row := range commit.rows {
+			commit.carried[row.plan.recipe] = true
+		}
+	}
+	return commit.carried[recipe]
 }
 
 // teachCallIdentityLocked teaches res a call that returned it, as
