@@ -1872,6 +1872,9 @@ func (c *Cache) checkMergeGraphLocked(commit *valueMergeCommit) error {
 			return nil
 		}
 		state[res] = visiting
+		if c.testMergeGraphVisited != nil {
+			c.testMergeGraphVisited(res.id)
+		}
 		for _, child := range children(res) {
 			if child == nil {
 				continue
