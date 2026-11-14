@@ -82,6 +82,9 @@ type RemoteCacheAdapter struct {
 	// lookupMerges counts the merges in progress that answer lookups,
 	// which the others wait for.
 	lookupMerges inProgress
+	// apartNamed counts the rows kept apart from the engine's own runs that
+	// merges have logged by name, up to apartNamedLimit.
+	apartNamed atomic.Int64
 	// exports counts the exports in progress, which a graceful stop lets
 	// finish.
 	exports inProgress
