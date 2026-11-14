@@ -1145,4 +1145,23 @@ type EngineStopEvent struct {
 	Clean bool `json:"clean"`
 	// SavedEntries counts the entries the save wrote.
 	SavedEntries int `json:"savedEntries"`
+	// OwnRuns counts what the engine's cache, keeping to its own runs, did
+	// with what the remote cache sent it over its life.
+	OwnRuns EngineOwnRuns `json:"ownRuns"`
+}
+
+// EngineOwnRuns counts, over an engine's life, the merge rows and offered
+// parts that met a value the engine computed itself (dagql.OwnRunStats).
+type EngineOwnRuns struct {
+	// RowsKeptApart are stored records kept apart from a run of the
+	// engine's own; RowsSameContent landed on one, shown equal by content;
+	// RowsNotRun landed on an entry the engine created with no run of its
+	// own at or below it yet.
+	RowsKeptApart   uint64 `json:"rowsKeptApart"`
+	RowsSameContent uint64 `json:"rowsSameContent"`
+	RowsNotRun      uint64 `json:"rowsNotRun"`
+	// OffersRefused are offered parts refused over a run of the engine's
+	// own; OffersLent the offered parts attached.
+	OffersRefused uint64 `json:"offersRefused"`
+	OffersLent    uint64 `json:"offersLent"`
 }

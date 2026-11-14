@@ -515,11 +515,15 @@ func TestCacheEvidenceRemoteHit(t *testing.T) {
 		local := persistedListTestResult(t, ctx, c, srv, "root", &transferTestValue{Text: "local"})
 		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
 		assert.NilError(t, err)
-		assert.Equal(t, uint64(local.cacheSharedResult().id), reply.Imported()[0].ResultID, "the merge kept the local value")
+		// The engine computed the local value: the record is another run of
+		// it, kept apart, and the entry learns no Cloud holding
+		// (keepOwnRunsLocked).
+		assert.Equal(t, 0, len(reply.Imported()), "the merge kept the local value")
+		assert.Equal(t, 1, len(reply.OtherRun))
 		c.egraphMu.RLock()
 		_, cloud := local.cacheSharedResult().cloudHoldingLocked()
 		c.egraphMu.RUnlock()
-		assert.Assert(t, cloud != nil, "and gave it a Cloud holding")
+		assert.Assert(t, cloud == nil, "and gave it no Cloud holding")
 		ev := hit(t, ctx, c, srv)
 		assert.Assert(t, !ev.HitRemote)
 		assert.Equal(t, int64(0), ev.HitMergedAtUnixNano)

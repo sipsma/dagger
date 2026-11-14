@@ -32,7 +32,9 @@ func TestMergeValuesKeptRecordSkipsItsPayload(t *testing.T) {
 	mergeTestBadPayload(t, bundle)
 
 	bctx, b, bsrv := transferTestCache(t)
-	local := persistedListTestResult(t, bctx, b, bsrv, "root", &transferTestValue{Text: "local"})
+	// B took its value from another cache: a value B computed itself would
+	// keep the record apart (keepOwnRunsLocked).
+	local := takenTestResult(t, bctx, b, bsrv, "root", &transferTestValue{Text: "local"})
 	b.egraphMu.RLock()
 	payloadBytes := local.cacheSharedResult().payloadBytes
 	b.egraphMu.RUnlock()
@@ -44,7 +46,7 @@ func TestMergeValuesKeptRecordSkipsItsPayload(t *testing.T) {
 	imported := local.cacheSharedResult().imported
 	require.Equal(t, payloadBytes, local.cacheSharedResult().payloadBytes, "the entry counts its own value")
 	b.egraphMu.RUnlock()
-	require.False(t, imported, "the entry keeps its own value")
+	require.True(t, imported, "the entry keeps the value it took")
 	total, sum := cacheTestPayloadTotalConsistent(b)
 	require.Equal(t, sum, total)
 

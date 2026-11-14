@@ -24,7 +24,7 @@ func splitTestSource(t *testing.T) ValueBundle {
 // splitTestReply returns reply without what differs between two equal
 // commits: the clock, and the lengths of the hold and of the warming.
 func splitTestReply(reply MergeReply) MergeReply {
-	reply.CommitHold, reply.Warm, reply.EngineTimeUnixNano = 0, 0, 0
+	reply.CommitHold, reply.Warm, reply.OwnRunsRead, reply.EngineTimeUnixNano = 0, 0, 0, 0
 	return reply
 }
 
@@ -174,7 +174,9 @@ func TestCommitValueMergeDecidesByTheCacheAtCommit(t *testing.T) {
 	})
 
 	// An entry of the root's recipe is published after the preparation: the
-	// commit keeps its value instead of creating an entry.
+	// commit keeps its value instead of creating an entry. The engine computed
+	// it, so the record is another run of it and is kept apart
+	// (keepOwnRunsLocked).
 	t.Run("entry-published", func(t *testing.T) {
 		t.Parallel()
 		bundle := splitTestSource(t)
@@ -184,7 +186,12 @@ func TestCommitValueMergeDecidesByTheCacheAtCommit(t *testing.T) {
 		local := persistedListTestResult(t, ctx, c, srv, "split-root", &transferTestValue{Text: "local"})
 		reply, err := c.CommitValueMerge(ctx, p)
 		require.NoError(t, err)
-		require.Equal(t, uint64(local.cacheSharedResult().id), reply.Imported()[0].ResultID, "the published entry keeps its value")
+		require.Empty(t, reply.Imported(), "the published entry keeps its value")
+		require.Len(t, reply.OtherRun, 1, "and the record is kept apart")
+		c.egraphMu.RLock()
+		_, current := c.resultsByID[local.cacheSharedResult().id]
+		c.egraphMu.RUnlock()
+		require.True(t, current)
 		c.egraphMu.RLock()
 		imported := local.cacheSharedResult().imported
 		c.egraphMu.RUnlock()

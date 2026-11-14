@@ -148,6 +148,50 @@ func TestRemoteCacheAdapterMergeLogsItsClock(t *testing.T) {
 	require.Equal(t, "INFO", lines[0]["level"])
 }
 
+// A stored record of a recipe the engine computed itself is another run of
+// it: the merge keeps it apart (dagql's keepOwnRunsLocked). The service
+// learns that the engine's entry is its own run of a recipe the store has,
+// and nothing more: no value, no retained root, the root skipped as
+// another run, and the record named kept apart. The merge's log line counts
+// it.
+func TestRemoteCacheAdapterReportsARunKeptApart(t *testing.T) {
+	source := newGCTestCache(t)
+	ctx, res := addGCTestPersistableResult(t, source, "source", "merged", dagql.NewInt(7))
+	var bundle dagql.ValueBundle
+	require.NoError(t, source.WithExportedValues(ctx, dagql.ValueSelection{Roots: []dagql.AnyResult{res}}, config.RefConfig{}, func(_ context.Context, exp *dagql.ExportedValues) error {
+		bundle = exp.Bundle
+		return nil
+	}))
+	target := newGCTestCache(t)
+	addGCTestPersistableResult(t, target, "target", "merged", dagql.NewInt(8))
+	adapter := newTestRemoteCacheAdapter(t, target)
+
+	logs := &lockedLog{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	merged, err := adapter.Merge(t.Context(), 1, protocol.Merge{Bundle: bundle}, nil)
+	require.NoError(t, err)
+	require.Empty(t, merged.Values)
+	require.Empty(t, merged.Retained)
+	require.Equal(t, []protocol.SkippedValue{{Ordinal: bundle.Roots[0].Ordinal, Reason: protocol.SkipOtherRun}}, merged.Skipped)
+	require.Equal(t, []dagql.TransferOrdinal{bundle.Values[0].Ordinal}, merged.OtherRun)
+
+	var lines []map[string]any
+	dec := json.NewDecoder(strings.NewReader(logs.String()))
+	dec.UseNumber()
+	for dec.More() {
+		var line map[string]any
+		require.NoError(t, dec.Decode(&line))
+		if line["msg"] == "remote cache merge" {
+			lines = append(lines, line)
+		}
+	}
+	require.Len(t, lines, 1)
+	require.Equal(t, json.Number("1"), lines[0]["other_run_rows"])
+	require.Equal(t, json.Number("1"), lines[0]["other_run_roots"])
+}
+
 // A merge that committed and then failed to release something is still
 // answered with what it committed: the cache changed, and the service must
 // learn how. The injected result is the one MergeValues returns when a
@@ -810,7 +854,7 @@ func TestOfferLogAttrs(t *testing.T) {
 	for i := 0; i < len(attrs); i += 2 {
 		keys = append(keys, attrs[i].(string))
 	}
-	require.Equal(t, []string{"entry", "target", "output", "part", "outcome", "replaced", "layers", "bytes", "expires_in", "admit"}, keys)
+	require.Equal(t, []string{"entry", "target", "output", "part", "outcome", "own_run_below", "replaced", "layers", "bytes", "expires_in", "admit"}, keys)
 	m := logAttrs(attrs)
 	require.Equal(t, uint64(5), m["entry"])
 	require.Equal(t, uint64(7), m["target"])
@@ -905,8 +949,12 @@ func TestRemoteCacheAdapterOfferParts(t *testing.T) {
 		{Number: goneNumber, Offers: []protocol.CloudPart{offer}},
 	}})
 	require.NoError(t, err)
+	// The pending file is over a file this engine computed and evaluated: a
+	// part of another run would sit beside that run in one value, so it is
+	// refused (dagql's anyRanHere), as a check's CA file over its own
+	// CA was.
 	require.Equal(t, protocol.Offered{Items: []protocol.OfferedItem{
-		{Number: entryNumber(t, pending), Replacements: state.Replacements, Deps: state.Deps, Parts: []protocol.OfferedPart{{Address: snapshotPart, Outcome: protocol.OfferAccepted}}},
+		{Number: entryNumber(t, pending), Replacements: state.Replacements, Deps: state.Deps, Parts: []protocol.OfferedPart{{Address: snapshotPart, Outcome: protocol.OfferUnavailable}}},
 		{Number: entryNumber(t, complete), Parts: []protocol.OfferedPart{{Address: snapshotPart, Outcome: protocol.OfferAlreadyComplete}}},
 		{Number: goneNumber, Gone: true},
 	}}, offered)
@@ -925,6 +973,7 @@ func TestRemoteCacheAdapterOfferParts(t *testing.T) {
 	for i, item := range offered.Items[:2] {
 		require.Equal(t, json.Number(fmt.Sprint(item.Number)), lines[i]["entry"])
 		require.Equal(t, string(item.Parts[0].Outcome), lines[i]["outcome"])
+		require.Equal(t, i == 0, lines[i]["own_run_below"], "the log says which refusal was the rule's")
 		admit, err := lines[i]["admit"].(json.Number).Int64()
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, admit, int64(0))

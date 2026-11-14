@@ -95,7 +95,9 @@ func TestOfferPendingRestartAndForward(t *testing.T) {
 	// Service directly.
 	actx, a, asrv := transferTestCache(t)
 	receiver := persistedListTestResult(t, actx, a, asrv, "receiver", &transferTestValue{Text: "pending"})
-	service := persistedListTestResult(t, actx, a, asrv, "service", String("service"))
+	// A took the service from another cache: a part offered to an entry over
+	// a run of A's own is refused (anyRanHere).
+	service := takenTestResult(t, actx, a, asrv, "service", String("service"))
 	explicit := persistedListTestResult(t, actx, a, asrv, "explicit", String("explicit"))
 	transferTestDependency(a, actx, receiver, service)
 	offer := exhaustionOffer(chain, "renewal-key", false)
