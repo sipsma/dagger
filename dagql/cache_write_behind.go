@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"maps"
 	"slices"
 	"strconv"
@@ -92,6 +93,12 @@ type writeBehindState struct {
 	births map[eqClassID]uint32
 	// classes are the written classes.
 	classes map[eqClassID]struct{}
+	// prints are the fingerprints of each saved entry's rows in the store,
+	// and termPrints of each written term's (cache_write_behind_prints.go):
+	// a write rewrites only the tables whose rows changed. seed seeds them.
+	prints     map[sharedResultID]entryPrints
+	termPrints map[egraphTermID]uint64
+	seed       maphash.Seed
 	// unclean are the entries whose attachment opened and hasn't been seen
 	// to close cleanly (noteAttachmentOpenedLocked). invalid are the ones it
 	// left failed and every entry that owns one of them, which a whole save
@@ -120,9 +127,15 @@ type WriteBehindReport struct {
 	Whole   bool `json:"whole,omitempty"`
 	Waited  bool `json:"waited,omitempty"`
 	More    bool `json:"more,omitempty"`
-	// Held is how long the write held the cache's read lock to plan; a
-	// write that wrote nothing reports none.
-	Held time.Duration `json:"held,omitempty"`
+	// Inserted is how many rows the write inserted.
+	Inserted int `json:"inserted,omitempty"`
+	// Held is how long the write held the cache's read lock to plan, Encoded
+	// how long it then took to encode and fingerprint the rows, and Applied
+	// how long its transaction took; a write that wrote nothing reports
+	// none.
+	Held    time.Duration `json:"held,omitempty"`
+	Encoded time.Duration `json:"encoded,omitempty"`
+	Applied time.Duration `json:"applied,omitempty"`
 }
 
 // WriteBehind writes to a blob-backed cache's store the rows of whatever
@@ -158,7 +171,8 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 	step := c.readLockGraphAs(ctx, "dagql.persist.behind")
 	locked := time.Now()
 	plan, err := c.planWriteBehindLocked()
-	held := time.Since(locked)
+	unlocked := time.Now()
+	held := unlocked.Sub(locked)
 	c.runlockGraphAs(step)
 	if err != nil {
 		c.behind.broken = true
@@ -185,22 +199,65 @@ func (c *Cache) writeBehind(ctx context.Context) (WriteBehindReport, error) {
 			return WriteBehindReport{}, err
 		}
 	}
-	if err := c.applyWriteBehindPlan(ctx, plan); err != nil {
-		c.behind.broken = true
+	b := c.behind
+	printer := newRowPrinter(b.seed)
+	for id, rows := range plan.entries {
+		if rows == nil {
+			continue
+		}
+		var edge *persistdb.MirrorPersistedEdge
+		if row, ok := plan.edges[id]; ok {
+			edge = &row
+		}
+		plan.prints[id] = printer.printEntry(rows, edge)
+	}
+	for termID, rows := range plan.terms {
+		if rows != nil {
+			plan.termPrints[termID] = printer.printTerm(rows)
+		}
+	}
+	encoded := time.Now()
+	inserted, err := c.applyWriteBehindPlan(ctx, plan)
+	if err != nil {
+		b.broken = true
 		return WriteBehindReport{}, err
 	}
-	b := c.behind
+	applied := time.Now()
+	for id, rows := range plan.entries {
+		if rows == nil {
+			delete(b.prints, id)
+		} else {
+			b.prints[id] = plan.prints[id]
+		}
+	}
+	// A last use updated alone leaves the result row's print behind it.
+	for id := range plan.used {
+		if prints, ok := b.prints[id]; ok {
+			prints[persistdb.MirrorResultsTable] = 0
+			b.prints[id] = prints
+		}
+	}
+	for termID, rows := range plan.terms {
+		if rows == nil {
+			delete(b.termPrints, termID)
+		} else {
+			b.termPrints[termID] = plan.termPrints[termID]
+		}
+	}
 	b.nextResultID = plan.nextResultID
 	step = c.lockGraphAs(ctx, "dagql.persist.behind.count")
 	c.persistedResults = len(b.outputs)
 	c.unlockGraphAs(step)
 	return WriteBehindReport{
-		Entries: len(plan.entries),
-		Used:    len(plan.used),
-		Classes: len(plan.classes),
-		Terms:   len(plan.terms),
-		More:    plan.more,
-		Held:    held,
+		Entries:  len(plan.entries),
+		Used:     len(plan.used),
+		Classes:  len(plan.classes),
+		Terms:    len(plan.terms),
+		Inserted: inserted,
+		More:     plan.more,
+		Held:     held,
+		Encoded:  encoded.Sub(unlocked),
+		Applied:  applied.Sub(encoded),
 	}, nil
 }
 
@@ -211,11 +268,15 @@ type writeBehindPlan struct {
 	entries map[sharedResultID]*persistResultRows
 	// held are the entries among them whose rows the store already holds:
 	// a write rewrites those, and writes their dependencies by difference.
-	held         map[sharedResultID]struct{}
-	edges        map[sharedResultID]persistdb.MirrorPersistedEdge
-	used         map[sharedResultID]int64
-	classes      map[eqClassID]*classRows
-	terms        map[egraphTermID]*persistTermRows
+	held    map[sharedResultID]struct{}
+	edges   map[sharedResultID]persistdb.MirrorPersistedEdge
+	used    map[sharedResultID]int64
+	classes map[eqClassID]*classRows
+	terms   map[egraphTermID]*persistTermRows
+	// prints are the fingerprints of the entries' and terms' rows the write
+	// writes, made once they are encoded.
+	prints       map[sharedResultID]entryPrints
+	termPrints   map[egraphTermID]uint64
 	nextResultID sharedResultID
 	nextChanged  bool
 	// waited is set when a replacement in flight made the write wait, and
@@ -499,6 +560,8 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 		used:         map[sharedResultID]int64{},
 		classes:      map[eqClassID]*classRows{},
 		terms:        map[egraphTermID]*persistTermRows{},
+		prints:       map[sharedResultID]entryPrints{},
+		termPrints:   map[egraphTermID]uint64{},
 		nextResultID: c.nextSharedResultID,
 		nextChanged:  c.nextSharedResultID != b.nextResultID,
 	}
@@ -719,13 +782,15 @@ func (c *Cache) planWriteBehindLocked() (*writeBehindPlan, error) {
 
 // applyWriteBehindPlan writes the plan in one transaction: every delete
 // first, then every insert, but for an entry's dependencies, written by
-// difference with its inserts.
+// difference with its inserts. Of an entry the store holds, it rewrites only
+// the tables whose rows changed, and of a term, only one whose rows changed.
+// It reports how many rows it inserted.
 //
 //nolint:gocyclo // one statement per table, deletes then inserts; splitting hides the order of the tables
-func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan) (rerr error) {
+func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan) (inserted int, rerr error) {
 	tx, err := c.sqlDB.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("write behind: begin: %w", err)
+		return 0, fmt.Errorf("write behind: begin: %w", err)
 	}
 	defer func() {
 		if rerr != nil {
@@ -733,31 +798,52 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		}
 	}()
 	q := c.pdb.WithTx(tx)
-	// An entry the store holds is deleted whole when it leaves, and else
-	// rewritten but for its dependencies, which are written by difference
-	// below; a new entry has nothing to delete.
+	b := c.behind
+	// changed reports whether the entry's rows of the table at print changed
+	// from the store's: all of them for an entry new to the store.
+	changed := func(id sharedResultID, print int) bool {
+		if _, held := plan.held[id]; !held {
+			return true
+		}
+		return b.prints[id][print] != plan.prints[id][print]
+	}
+	termChanged := func(termID egraphTermID) bool {
+		stored, ok := b.termPrints[termID]
+		return !ok || plan.termPrints[termID] == 0 || stored != plan.termPrints[termID]
+	}
+	// An entry the store holds is deleted whole when it leaves, and else has
+	// the rows of each table that changed deleted; a new entry has nothing
+	// to delete.
 	for _, id := range slices.Sorted(maps.Keys(plan.entries)) {
-		_, held := plan.held[id]
-		switch {
-		case !held:
-		case plan.entries[id] == nil:
+		if _, held := plan.held[id]; !held {
+			continue
+		}
+		if plan.entries[id] == nil {
 			if err := q.DeleteMirrorResultRows(ctx, int64(id)); err != nil {
-				return fmt.Errorf("write behind: delete result %d: %w", id, err)
+				return 0, fmt.Errorf("write behind: delete result %d: %w", id, err)
 			}
-		default:
-			if err := q.DeleteMirrorResultRowsButDeps(ctx, int64(id)); err != nil {
-				return fmt.Errorf("write behind: delete result %d: %w", id, err)
+			continue
+		}
+		for table := range persistdb.MirrorResultTables {
+			if !changed(id, int(table)) {
+				continue
+			}
+			if err := q.DeleteMirrorResultTable(ctx, table, int64(id)); err != nil {
+				return 0, fmt.Errorf("write behind: delete result %d's rows of table %d: %w", id, table, err)
 			}
 		}
 	}
 	for _, eqID := range slices.Sorted(maps.Keys(plan.classes)) {
 		if err := q.DeleteMirrorEqClassRows(ctx, int64(eqID)); err != nil {
-			return fmt.Errorf("write behind: delete eq_class %d: %w", eqID, err)
+			return 0, fmt.Errorf("write behind: delete eq_class %d: %w", eqID, err)
 		}
 	}
 	for _, termID := range slices.Sorted(maps.Keys(plan.terms)) {
+		if plan.terms[termID] != nil && !termChanged(termID) {
+			continue
+		}
 		if err := q.DeleteMirrorTermRows(ctx, int64(termID)); err != nil {
-			return fmt.Errorf("write behind: delete term %d: %w", termID, err)
+			return 0, fmt.Errorf("write behind: delete term %d: %w", termID, err)
 		}
 	}
 	for _, eqID := range slices.Sorted(maps.Keys(plan.classes)) {
@@ -766,26 +852,30 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 			continue
 		}
 		if err := q.InsertMirrorEqClass(ctx, rows.class); err != nil {
-			return fmt.Errorf("write behind: insert eq_class %d: %w", eqID, err)
+			return 0, fmt.Errorf("write behind: insert eq_class %d: %w", eqID, err)
 		}
+		inserted++
 		for _, row := range rows.digests {
 			if err := q.InsertMirrorEqClassDigest(ctx, row); err != nil {
-				return fmt.Errorf("write behind: insert eq_class_digest (%d,%s,%s): %w", row.EqClassID, row.Digest, row.Label, err)
+				return 0, fmt.Errorf("write behind: insert eq_class_digest (%d,%s,%s): %w", row.EqClassID, row.Digest, row.Label, err)
 			}
+			inserted++
 		}
 	}
 	for _, termID := range slices.Sorted(maps.Keys(plan.terms)) {
 		term := plan.terms[termID]
-		if term == nil {
+		if term == nil || !termChanged(termID) {
 			continue
 		}
 		if err := q.InsertMirrorTerm(ctx, term.term); err != nil {
-			return fmt.Errorf("write behind: insert term %d: %w", term.term.ID, err)
+			return 0, fmt.Errorf("write behind: insert term %d: %w", term.term.ID, err)
 		}
+		inserted++
 		for _, input := range term.inputs {
 			if err := q.InsertMirrorTermInput(ctx, input); err != nil {
-				return fmt.Errorf("write behind: insert term_input (%d,%d): %w", input.TermID, input.Position, err)
+				return 0, fmt.Errorf("write behind: insert term_input (%d,%d): %w", input.TermID, input.Position, err)
 			}
+			inserted++
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(plan.entries)) {
@@ -793,84 +883,107 @@ func (c *Cache) applyWriteBehindPlan(ctx context.Context, plan *writeBehindPlan)
 		if rows == nil {
 			continue
 		}
-		if err := q.InsertMirrorResult(ctx, rows.result.row); err != nil {
-			return fmt.Errorf("write behind: insert result %d: %w", id, err)
+		if changed(id, int(persistdb.MirrorResultsTable)) {
+			if err := q.InsertMirrorResult(ctx, rows.result.row); err != nil {
+				return 0, fmt.Errorf("write behind: insert result %d: %w", id, err)
+			}
+			inserted++
 		}
-		if err := writeBehindDeps(ctx, q, id, rows.result.resultDeps, plan); err != nil {
-			return err
+		if changed(id, depsPrint) {
+			n, err := writeBehindDeps(ctx, q, id, rows.result.resultDeps, plan)
+			if err != nil {
+				return 0, err
+			}
+			inserted += n
 		}
-		for _, row := range rows.outputs {
-			if err := q.InsertMirrorResultOutputEqClass(ctx, row); err != nil {
-				return fmt.Errorf("write behind: insert result_output_eq_class (%d,%d): %w", row.ResultID, row.EqClassID, err)
+		if changed(id, int(persistdb.MirrorResultOutputEqClassesTable)) {
+			for _, row := range rows.outputs {
+				if err := q.InsertMirrorResultOutputEqClass(ctx, row); err != nil {
+					return 0, fmt.Errorf("write behind: insert result_output_eq_class (%d,%d): %w", row.ResultID, row.EqClassID, err)
+				}
+				inserted++
 			}
 		}
-		for _, row := range rows.calls {
-			if err := q.InsertMirrorResultCall(ctx, row); err != nil {
-				return fmt.Errorf("write behind: insert result_call (%d,%s): %w", row.ResultID, row.RequestDigest, err)
+		if changed(id, int(persistdb.MirrorResultCallsTable)) {
+			for _, row := range rows.calls {
+				if err := q.InsertMirrorResultCall(ctx, row); err != nil {
+					return 0, fmt.Errorf("write behind: insert result_call (%d,%s): %w", row.ResultID, row.RequestDigest, err)
+				}
+				inserted++
 			}
 		}
-		for _, row := range rows.taught {
-			if err := q.InsertMirrorResultTaught(ctx, row); err != nil {
-				return fmt.Errorf("write behind: insert result_taught (%d,%d): %w", row.ResultID, row.Position, err)
+		if changed(id, int(persistdb.MirrorResultTaughtTable)) {
+			for _, row := range rows.taught {
+				if err := q.InsertMirrorResultTaught(ctx, row); err != nil {
+					return 0, fmt.Errorf("write behind: insert result_taught (%d,%d): %w", row.ResultID, row.Position, err)
+				}
+				inserted++
 			}
 		}
-		for _, row := range rows.result.resultSnapshotLinks {
-			if err := q.InsertMirrorResultSnapshotLink(ctx, row); err != nil {
-				return fmt.Errorf("write behind: insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
+		if changed(id, int(persistdb.MirrorResultSnapshotLinksTable)) {
+			for _, row := range rows.result.resultSnapshotLinks {
+				if err := q.InsertMirrorResultSnapshotLink(ctx, row); err != nil {
+					return 0, fmt.Errorf("write behind: insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
+				}
+				inserted++
 			}
 		}
-		if edge, ok := plan.edges[id]; ok {
+		if edge, ok := plan.edges[id]; ok && changed(id, int(persistdb.MirrorPersistedEdgesTable)) {
 			if err := q.InsertMirrorPersistedEdge(ctx, edge); err != nil {
-				return fmt.Errorf("write behind: insert persisted_edge (%d): %w", id, err)
+				return 0, fmt.Errorf("write behind: insert persisted_edge (%d): %w", id, err)
 			}
+			inserted++
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(plan.used)) {
 		if err := q.UpdateMirrorResultLastUsed(ctx, int64(id), plan.used[id]); err != nil {
-			return fmt.Errorf("write behind: update result %d last use: %w", id, err)
+			return 0, fmt.Errorf("write behind: update result %d last use: %w", id, err)
 		}
 	}
 	if plan.nextChanged || len(plan.entries) > 0 {
 		if err := q.UpsertMeta(ctx, persistdb.MetaKeyNextResultID, strconv.FormatUint(uint64(plan.nextResultID), 10)); err != nil {
-			return fmt.Errorf("write behind: save next result ID: %w", err)
+			return 0, fmt.Errorf("write behind: save next result ID: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("write behind: commit: %w", err)
+		return 0, fmt.Errorf("write behind: commit: %w", err)
 	}
-	return nil
+	return inserted, nil
 }
 
 // writeBehindDeps writes the dependency rows of the entry numbered id: all
 // of them for an entry new to the store, and, for one it holds, those it
-// lacks, deleting those it has that the entry no longer depends on.
-func writeBehindDeps(ctx context.Context, q *persistdb.Queries, id sharedResultID, deps []persistdb.MirrorResultDep, plan *writeBehindPlan) error {
+// lacks, deleting those it has that the entry no longer depends on. It
+// reports how many it inserted.
+func writeBehindDeps(ctx context.Context, q *persistdb.Queries, id sharedResultID, deps []persistdb.MirrorResultDep, plan *writeBehindPlan) (int, error) {
 	var had map[int64]struct{}
 	if _, held := plan.held[id]; held {
 		stored, err := q.ListMirrorResultDepsOf(ctx, int64(id))
 		if err != nil {
-			return fmt.Errorf("write behind: list result_deps of %d: %w", id, err)
+			return 0, fmt.Errorf("write behind: list result_deps of %d: %w", id, err)
 		}
 		had = make(map[int64]struct{}, len(stored))
 		for _, dep := range stored {
 			had[dep] = struct{}{}
 		}
 	}
+	inserted := 0
 	for _, row := range deps {
 		if _, ok := had[row.DepResultID]; ok {
 			delete(had, row.DepResultID)
 			continue
 		}
 		if err := q.InsertMirrorResultDep(ctx, row); err != nil {
-			return fmt.Errorf("write behind: insert result_dep (%d,%d): %w", row.ParentResultID, row.DepResultID, err)
+			return 0, fmt.Errorf("write behind: insert result_dep (%d,%d): %w", row.ParentResultID, row.DepResultID, err)
 		}
+		inserted++
 	}
 	for _, dep := range slices.Sorted(maps.Keys(had)) {
 		if err := q.DeleteMirrorResultDep(ctx, persistdb.MirrorResultDep{ParentResultID: int64(id), DepResultID: dep}); err != nil {
-			return fmt.Errorf("write behind: delete result_dep (%d,%d): %w", id, dep, err)
+			return 0, fmt.Errorf("write behind: delete result_dep (%d,%d): %w", id, dep, err)
 		}
 	}
-	return nil
+	return inserted, nil
 }
 
 // newWriteBehindStateLocked is the writer's state for a store that holds
@@ -889,6 +1002,9 @@ func (c *Cache) newWriteBehindStateLocked(selected, roots, invalid map[sharedRes
 		termsNaming:   map[eqClassID]map[egraphTermID]struct{}{},
 		births:        map[eqClassID]uint32{},
 		classes:       map[eqClassID]struct{}{},
+		prints:        map[sharedResultID]entryPrints{},
+		termPrints:    map[egraphTermID]uint64{},
+		seed:          maphash.MakeSeed(),
 		unclean:       map[sharedResultID]struct{}{},
 		invalid:       map[sharedResultID]struct{}{},
 		nextResultID:  c.nextSharedResultID,

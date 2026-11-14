@@ -2,7 +2,6 @@ package persistdb
 
 import (
 	"context"
-	"strings"
 )
 
 type MirrorResult struct {
@@ -163,18 +162,35 @@ var deleteMirrorResultRows = []string{
 	`DELETE FROM results WHERE id = ?`,
 }
 
-// DeleteMirrorResultRowsButDeps deletes the rows of the entry numbered id
-// but its dependencies, for a write that writes those by difference.
-func (q *Queries) DeleteMirrorResultRowsButDeps(ctx context.Context, id int64) error {
-	for _, stmt := range deleteMirrorResultRows {
-		if strings.Contains(stmt, "result_deps") {
-			continue
-		}
-		if _, err := q.exec(ctx, nil, stmt, id); err != nil {
-			return err
-		}
-	}
-	return nil
+// MirrorResultTable is one of the tables that hold an entry's rows, but its
+// dependencies, for a write that rewrites an entry's rows a table at a time.
+type MirrorResultTable int
+
+const (
+	MirrorResultsTable MirrorResultTable = iota
+	MirrorResultOutputEqClassesTable
+	MirrorResultCallsTable
+	MirrorResultTaughtTable
+	MirrorResultSnapshotLinksTable
+	MirrorPersistedEdgesTable
+	// MirrorResultTables is how many there are.
+	MirrorResultTables
+)
+
+var deleteMirrorResultTable = [MirrorResultTables]string{
+	MirrorResultsTable:               `DELETE FROM results WHERE id = ?`,
+	MirrorResultOutputEqClassesTable: `DELETE FROM result_output_eq_classes WHERE result_id = ?`,
+	MirrorResultCallsTable:           `DELETE FROM result_calls WHERE result_id = ?`,
+	MirrorResultTaughtTable:          `DELETE FROM result_taught WHERE result_id = ?`,
+	MirrorResultSnapshotLinksTable:   `DELETE FROM result_snapshot_links WHERE result_id = ?`,
+	MirrorPersistedEdgesTable:        `DELETE FROM persisted_edges WHERE result_id = ?`,
+}
+
+// DeleteMirrorResultTable deletes the rows table holds for the entry
+// numbered id.
+func (q *Queries) DeleteMirrorResultTable(ctx context.Context, table MirrorResultTable, id int64) error {
+	_, err := q.exec(ctx, nil, deleteMirrorResultTable[table], id)
+	return err
 }
 
 const listMirrorResultDepsOf = `SELECT dep_result_id FROM result_deps WHERE parent_result_id = ?`

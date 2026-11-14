@@ -460,7 +460,8 @@ func TestWriteBehindUpdatesALastUseAlone(t *testing.T) {
 	report, err := cloud.WriteBehind(ctx)
 	require.NoError(t, err)
 	require.Positive(t, report.Held, "the write held the read lock to plan")
-	report.Held = 0
+	require.Positive(t, report.Applied, "the write's transaction took time")
+	report.Held, report.Encoded, report.Applied = 0, 0, 0
 	require.Equal(t, WriteBehindReport{Used: 1}, report)
 	writeBehindTestMatchesWholeSave(t, ctx, cloud, "a last use")
 }
@@ -1000,4 +1001,42 @@ func TestWriteBehindWritesDependenciesByDifference(t *testing.T) {
 	stored, err := cloud.pdb.ListMirrorResultDepsOf(ctx, int64(root))
 	require.NoError(t, err)
 	require.Equal(t, []int64{int64(deps[0])}, stored)
+}
+
+// A write rewrites an entry the store holds a table at a time, and a term
+// only when its rows changed: marked with nothing changed, an entry and the
+// terms written for it write no row; with only its expiry changed, the
+// entry writes its result row alone.
+func TestWriteBehindRewritesOnlyTablesThatChange(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPersistenceTestCloud(t, filepath.Join(t.TempDir(), "cloud.db"))
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	root := sharedResultID(storedPruneTestRoot(t, ctx, cloud, "wb-tables"))
+	writeBehindTestSettle(t, cloud, "a stored root")
+	writeBehindTestDrain(t, ctx, cloud, "a stored root", nil)
+	write := func(change func(*sharedResult)) WriteBehindReport {
+		t.Helper()
+		cloud.checkpointMu.Lock()
+		terms := slices.Collect(maps.Keys(cloud.behind.terms))
+		cloud.checkpointMu.Unlock()
+		cloud.egraphMu.Lock()
+		if change != nil {
+			change(cloud.resultsByID[root])
+		}
+		cloud.markEntryLocked(root, markSave)
+		for _, termID := range terms {
+			cloud.markSavedTermIDLocked(termID)
+		}
+		cloud.egraphMu.Unlock()
+		report, err := cloud.WriteBehind(ctx)
+		require.NoError(t, err)
+		return report
+	}
+	report := write(nil)
+	require.Equal(t, 1, report.Entries)
+	require.Positive(t, report.Terms)
+	require.Zero(t, report.Inserted, "an entry and terms marked with nothing changed write no row")
+	report = write(func(res *sharedResult) { res.expiresAtUnix = time.Now().Add(time.Hour).Unix() })
+	require.Equal(t, 1, report.Inserted, "an entry whose expiry alone changed writes its result row alone")
+	writeBehindTestMatchesWholeSave(t, ctx, cloud, "the root's expiry changed")
 }
