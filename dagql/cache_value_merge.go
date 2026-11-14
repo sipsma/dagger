@@ -296,6 +296,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 		}
 		commit.restore, commit.hold = restore, hold
 		reply, finish := c.commitValueMergeLocked(ctx, commit)
+		c.commitOwnRunsLocked(commit)
 		reply.Committed, reply.CommitHold, reply.Warm, reply.OwnRunsRead = true, time.Since(locked), warmed, ownRunsRead
 		reply.LockWait = locked.Sub(asked)
 		c.noteOwnRunRows(reply.Rows)
@@ -1337,6 +1338,9 @@ type valueMergeCommit struct {
 	hold    bool
 	roots   []MergedRoot
 	now     int64
+	// apartToRemember are the rows keepOwnRunsLocked kept apart for want of
+	// the entry's digest, which the commit records (commitOwnRunsLocked).
+	apartToRemember []*mergeRow
 	// apartRecipes are the recipes of the rows keepOwnRunsLocked kept apart
 	// or dropped, ownDropped the ordinals it dropped, and ownRoutes its
 	// counts by route.
