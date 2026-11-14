@@ -190,6 +190,23 @@ func TestRemoteCacheAdapterReportsARunKeptApart(t *testing.T) {
 	require.Len(t, lines, 1)
 	require.Equal(t, json.Number("1"), lines[0]["other_run_rows"])
 	require.Equal(t, json.Number("1"), lines[0]["other_run_roots"])
+	require.Equal(t, "merged=1", lines[0]["apart_fields"], "the rows kept apart, by field")
+
+	// The row is named on a line of its own.
+	var named []map[string]any
+	dec = json.NewDecoder(strings.NewReader(logs.String()))
+	dec.UseNumber()
+	for dec.More() {
+		var line map[string]any
+		require.NoError(t, dec.Decode(&line))
+		if line["msg"] == "remote cache merge kept apart" {
+			named = append(named, line)
+		}
+	}
+	require.Len(t, named, 1)
+	require.Equal(t, "merged", named[0]["field"])
+	require.Equal(t, "full", named[0]["route"])
+	require.Equal(t, "ran itself: whole at its call", named[0]["reason"])
 }
 
 // A merge that committed and then failed to release something is still
