@@ -829,3 +829,23 @@ func TestSchemaLoadResolvesAnIdentityEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sharedResultID(own), loaded.cacheSharedResult().id, "the engine's own P")
 }
+
+// An installed equivalent the session holds serves an identity-only Module
+// first, expired or not, as it serves any recorded Module, without asking
+// the Cloud.
+func TestSchemaLoadPrefersAnInstalledModuleToAnIdentityEntry(t *testing.T) {
+	t.Parallel()
+	bctx, b, bsrv, _, pEntry, _, _, _ := identityTestEngine(t)
+	fetcher := &identityTestFetcher{fetch: func([]uint64, bool, bool) (ValueBundle, []uint64, error) {
+		return ValueBundle{}, nil, errors.New("connection lost")
+	}}
+	b.SetRowFetcher(fetcher)
+	own := heldTestSessionValue(t, bctx, b, bsrv)
+	b.egraphMu.Lock()
+	b.resultsByID[sharedResultID(own)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	b.egraphMu.Unlock()
+	loaded, err := b.LoadResultByResultIDForSchema(bctx, "test-session", bsrv, uint64(pEntry.id), []SchemaModuleCandidate{{ModuleResultID: own, ScopedResultID: own}})
+	require.NoError(t, err)
+	require.Equal(t, sharedResultID(own), loaded.cacheSharedResult().id, "the installed Module")
+	require.Zero(t, fetcher.calls)
+}
