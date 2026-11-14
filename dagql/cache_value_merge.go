@@ -335,6 +335,11 @@ type MergeReply struct {
 	// which of its targets the cache computed itself have a run of its own
 	// at or below them (readOwnRuns).
 	OwnRunsRead time.Duration
+	// ApartSamples name up to apartSamplesPerMerge of the rows the merge
+	// kept apart directly from a run of the cache's own, and ApartFields
+	// counts all of those by field.
+	ApartSamples []OwnRunApart
+	ApartFields  map[string]int
 }
 
 // MergeRowCounts counts a merge's records by what its commit did with each:
@@ -453,8 +458,10 @@ type valueMergePrep struct {
 	// computed itself, whether a run of the cache's own is at or below it,
 	// read before the commit's lock (readOwnRuns).
 	ownRuns map[*sharedResult]bool
-	order   []uint64
-	index   map[uint64]*TransferredValue
+	// ownStates are how far each of those entries has itself run.
+	ownStates map[*sharedResult]ownRunState
+	order     []uint64
+	index     map[uint64]*TransferredValue
 	// rows are the bundle's ordinals by sender number, which its records'
 	// own references name rows by, and senders the reverse
 	// (transferSenderNumbers).
@@ -1256,6 +1263,10 @@ type valueMergeCommit struct {
 	ownRoutes    MergeRowCounts
 	// carried are the recipes of the merge's rows (carriedRecipe).
 	carried map[digest.Digest]bool
+	// apartSamples and apartFields name the rows kept apart directly
+	// (noteApart).
+	apartSamples []OwnRunApart
+	apartFields  map[string]int
 }
 
 // mergeAttachedOffer is an offer a merge attached: the entry, its part key
@@ -2545,6 +2556,7 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 	reply := MergeReply{Generation: c.identity.Generation, EngineTimeUnixNano: time.Now().UnixNano()}
 	reply.Rows.ApartFull, reply.Rows.ApartHeld = commit.ownRoutes.ApartFull, commit.ownRoutes.ApartHeld
 	reply.Rows.OverApartFull, reply.Rows.OverApartHeld = commit.ownRoutes.OverApartFull, commit.ownRoutes.OverApartHeld
+	reply.ApartSamples, reply.ApartFields = commit.apartSamples, commit.apartFields
 	for _, row := range commit.rows {
 		reply.Rows.count(row)
 		res := row.res

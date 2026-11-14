@@ -432,3 +432,33 @@ func TestCallRecordOverAHeldOwnInputIsNotTaught(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ran, "the call over the engine's own receiver runs")
 }
+
+// A merge names the rows it keeps apart directly: each one's field and type,
+// how it came, why it was kept apart, and whether the engine's entry and the
+// stored row each carried a content digest at that moment; and it counts
+// them by field.
+func TestMergeValuesNamesTheRowsItKeepsApart(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	sentCA := persistedListTestResult(t, actx, a, asrv, "named-ca", String("fill ca"))
+	sentFile := persistedListTestResult(t, actx, a, asrv, "named-file", &transferTestValue{Text: "fill file"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentFile, sentCA, "test"))
+	require.NoError(t, a.TeachContentDigest(actx, sentCA, digest.FromString("fill ca content")))
+	bundle := exportTestBundle(t, actx, a, sentFile)
+
+	ctx, c, srv := transferTestCache(t)
+	ca := persistedListTestResult(t, ctx, c, srv, "named-ca", String("own ca"))
+	file := persistedListTestResult(t, ctx, c, srv, "named-file", ownRunTestLazy("own file"))
+	require.NoError(t, c.AddExplicitDependency(ctx, file, ca, "test"))
+	reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.Len(t, reply.OtherRun, 2)
+	samples := map[string]OwnRunApart{}
+	for _, s := range reply.ApartSamples {
+		samples[s.Field] = s
+	}
+	require.Len(t, samples, 2, "both rows were kept apart directly")
+	require.Equal(t, OwnRunApart{Field: "named-ca", Type: "String", Route: "full", Reason: "ran itself: whole at its call", StoredDigest: true, SenderNumber: uint64(sentCA.cacheSharedResult().id)}, samples["named-ca"])
+	require.Equal(t, OwnRunApart{Field: "named-file", Type: "TransferTestValue", Route: "full", Reason: "a run of its own below", SenderNumber: uint64(sentFile.cacheSharedResult().id)}, samples["named-file"])
+	require.Equal(t, map[string]int{"named-ca": 1, "named-file": 1}, reply.ApartFields)
+}

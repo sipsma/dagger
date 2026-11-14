@@ -59,6 +59,65 @@ func sameContentLocked(row *mergeRow, res *sharedResult) bool {
 	return frame.ContentDigest() == incoming
 }
 
+// OwnRunApart names a row a merge kept apart directly from a run of the
+// cache's own (keepOwnRunsLocked), for the engine's log.
+type OwnRunApart struct {
+	// Field and Type are the row's call's field and result type.
+	Field, Type string
+	// Route is how it came: "full", with its record, or "held".
+	Route string
+	// Reason is why: the entry "ran itself: <how far>", "a run of its own
+	// below", or "not read" (the entry wasn't a target when the merge read
+	// its runs).
+	Reason string
+	// OwnDigest and StoredDigest report whether the entry's call and the
+	// row's record each named a content digest when the merge decided.
+	OwnDigest, StoredDigest bool
+	// SenderNumber is the row's entry number in the sender's cache.
+	SenderNumber uint64
+}
+
+// apartSamplesPerMerge bounds the rows a merge names (MergeReply.ApartSamples).
+const apartSamplesPerMerge = 16
+
+// noteApart names row, kept apart directly, in the commit's samples and its
+// count by field. read reports whether readOwnRuns saw the row's entry.
+// Requires egraphMu.
+func (commit *valueMergeCommit) noteApart(row *mergeRow, held, read bool) {
+	own := row.res.loadResultCall()
+	frame := own
+	if !held && row.value.Record.Call != nil {
+		frame = row.value.Record.Call
+	}
+	sample := OwnRunApart{Route: "full", SenderNumber: row.value.SenderNumber}
+	if held {
+		sample.Route = "held"
+	}
+	if frame != nil {
+		sample.Field = frame.Field
+		if frame.Type != nil {
+			sample.Type = frame.Type.NamedType
+		}
+	}
+	switch state := commit.prep.ownStates[row.res]; {
+	case !read:
+		sample.Reason = "not read"
+	case state != ownRunNone:
+		sample.Reason = "ran itself: " + state.String()
+	default:
+		sample.Reason = "a run of its own below"
+	}
+	sample.OwnDigest = own != nil && own.ContentDigest() != ""
+	sample.StoredDigest = !held && row.value.Record.Call != nil && row.value.Record.Call.ContentDigest() != ""
+	if commit.apartFields == nil {
+		commit.apartFields = map[string]int{}
+	}
+	commit.apartFields[sample.Field]++
+	if len(commit.apartSamples) < apartSamplesPerMerge {
+		commit.apartSamples = append(commit.apartSamples, sample)
+	}
+}
+
 // ownRoute is how a row kept apart reached the cache: as a full row, with
 // its record, or as a held row, which stands for the cache's own value
 // without one.
@@ -91,7 +150,7 @@ const (
 // after this read is taken as run. Its cost is one recipe lookup per record
 // and the region of entries the cache computed below its targets.
 func (c *Cache) readOwnRuns(prep *valueMergePrep) {
-	prep.ownRuns = nil
+	prep.ownRuns, prep.ownStates = nil, nil
 	if c.blobBacked {
 		return
 	}
@@ -146,12 +205,14 @@ func (c *Cache) readOwnRuns(prep *valueMergePrep) {
 	// A run at or below each entry, over the edges read: entries are a
 	// DAG, so each is decided once.
 	runs := make(map[*sharedResult]bool, len(below))
+	states := make(map[*sharedResult]ownRunState, len(below))
 	var runAtOrBelow func(*sharedResult) bool
 	runAtOrBelow = func(res *sharedResult) bool {
 		if run, done := runs[res]; done {
 			return run
 		}
-		run := res.ranHere()
+		states[res] = res.runState()
+		run := states[res] != ownRunNone
 		for _, dep := range below[res] {
 			if run {
 				break
@@ -162,8 +223,10 @@ func (c *Cache) readOwnRuns(prep *valueMergePrep) {
 		return run
 	}
 	prep.ownRuns = make(map[*sharedResult]bool, len(targets))
+	prep.ownStates = make(map[*sharedResult]ownRunState, len(targets))
 	for _, res := range targets {
 		prep.ownRuns[res] = runAtOrBelow(res)
+		prep.ownStates[res] = states[res]
 	}
 }
 
@@ -202,10 +265,12 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 			row.otherRun = true
 			apart[row.ordinal] = ownRouteHeld
 			counts.ApartHeld++
+			commit.noteApart(row, true, read)
 		default:
 			row.otherRun = true
 			apart[row.ordinal] = ownRouteFull
 			counts.ApartFull++
+			commit.noteApart(row, false, read)
 		}
 	}
 	if len(apart) == 0 {
@@ -350,26 +415,58 @@ func anyRanHere(entries []*sharedResult) bool {
 	return false
 }
 
+// ownRunState is how far an entry this cache computed has run here.
+type ownRunState uint8
+
+const (
+	ownRunNone ownRunState = iota
+	// ownRunPart: a part is complete or installed.
+	ownRunPart
+	// ownRunRunning: an evaluation is running.
+	ownRunRunning
+	// ownRunEvaluated: its deferred computation is done.
+	ownRunEvaluated
+	// ownRunWhole: it has no deferred work; its call made it whole.
+	ownRunWhole
+)
+
+func (s ownRunState) String() string {
+	return [...]string{"not run", "a part complete", "evaluating", "evaluated", "whole at its call"}[s]
+}
+
 // ranHere reports whether res, an entry this cache computed, has run or is
-// running here: a part is complete or installed, an evaluation has started,
-// or no computation of its value is left (HasPendingLazyComputation's
-// answer). A value with no deferred work was made whole by its call; a lazy
-// one nothing has evaluated has no run yet. It takes res's gate lock and
-// lazyMu one at a time, and is never called with egraphMu held: a capture
-// holds lazyMu while its encoding resolves results through egraphMu.
+// running here (runState).
 func (res *sharedResult) ranHere() bool {
+	return res.runState() != ownRunNone
+}
+
+// runState reports how far res, an entry this cache computed, has run here: a
+// part is complete or installed, an evaluation has started, or no
+// computation of its value is left (HasPendingLazyComputation's answer). A
+// value with no deferred work was made whole by its call; a lazy one nothing
+// has evaluated has no run yet. It takes res's gate lock and lazyMu one at a
+// time, and is never called with egraphMu held: a capture holds lazyMu while
+// its encoding resolves results through egraphMu.
+func (res *sharedResult) runState() ownRunState {
 	if gate := res.partGate.gate.Load(); gate != nil {
 		gate.mu.Lock()
-		started := false
+		state := ownRunNone
 		for _, out := range gate.outputs {
-			started = started || out.phase == PartComplete || out.phase == PartOutputInstalled
+			if out.phase == PartComplete || out.phase == PartOutputInstalled {
+				state = ownRunPart
+			}
 		}
 		for _, group := range gate.groups {
-			started = started || group.phase == LazyEvaluationRunning || group.phase == LazyEvaluationEvaluated
+			if group.phase == LazyEvaluationRunning && state < ownRunRunning {
+				state = ownRunRunning
+			}
+			if group.phase == LazyEvaluationEvaluated && state < ownRunEvaluated {
+				state = ownRunEvaluated
+			}
 		}
 		gate.mu.Unlock()
-		if started {
-			return true
+		if state != ownRunNone {
+			return state
 		}
 	}
 	res.payloadMu.RLock()
@@ -378,24 +475,29 @@ func (res *sharedResult) ranHere() bool {
 	res.lazyMu.Lock()
 	defer res.lazyMu.Unlock()
 	if lazyEvaluationInFlightLocked(res) != nil {
-		return true
+		return ownRunRunning
 	}
 	if reporting, ok := UnwrapAs[HasLazyEvaluationReporting](self); ok {
-		return !pendingLazyComputationLocked(res, reporting)
+		if pendingLazyComputationLocked(res, reporting) {
+			return ownRunNone
+		}
+		return ownRunEvaluated
 	}
 	if res.lazyEvalComplete {
-		return true
+		return ownRunEvaluated
 	}
 	if !res.lazyWhole.settled() {
-		return false
+		return ownRunNone
 	}
 	for _, group := range res.lazyPartGroups {
 		if !group.settled() {
-			return false
+			return ownRunNone
 		}
 	}
-	lazy, ok := UnwrapAs[HasLazyEvaluation](self)
-	return !ok || lazy.LazyEvalFunc() == nil
+	if lazy, ok := UnwrapAs[HasLazyEvaluation](self); ok && lazy.LazyEvalFunc() != nil {
+		return ownRunNone
+	}
+	return ownRunWhole
 }
 
 // OwnRunStats counts, since the cache opened, what keeping its own runs
