@@ -388,16 +388,22 @@ func (c *Cache) resolveIdentityFrame(ctx context.Context, id sharedResultID) (*R
 	c.egraphMu.RLock()
 	res := c.resultsByID[id]
 	identity := res != nil && res.identityOnly
+	var frame *ResultCall
+	if identity {
+		frame = res.loadResultCall()
+	}
 	c.egraphMu.RUnlock()
-	if !identity {
-		return nil, nil
+	if !identity || frame != nil {
+		return frame, nil
 	}
 	c.identityRows.recipeWalks.Add(1)
 	resolved, err := c.resolveIdentityEntry(ctx, res, false, true, nil)
 	if err != nil {
 		return nil, err
 	}
-	frame := c.resultCallByResultID(resolved.id)
+	c.egraphMu.RLock()
+	frame = resolved.loadResultCall()
+	c.egraphMu.RUnlock()
 	if frame == nil {
 		return nil, fmt.Errorf("entry %d: %w: its stand-in %d has no call frame", id, errRowUnavailable, resolved.id)
 	}

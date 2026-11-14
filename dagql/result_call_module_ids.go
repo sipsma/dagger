@@ -149,7 +149,10 @@ func (w *moduleIDsFrameWalk) ref(ref *ResultCallRef) error {
 		if ref.ResultID == 0 {
 			return nil
 		}
-		child = w.c.resultCallByResultID(sharedResultID(ref.ResultID))
+		var err error
+		if child, err = w.c.resultCallForWalk(w.r.ctx, sharedResultID(ref.ResultID)); err != nil {
+			return err
+		}
 		if child == nil {
 			return fmt.Errorf("missing result call frame for result %d", ref.ResultID)
 		}
