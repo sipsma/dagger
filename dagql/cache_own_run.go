@@ -1,6 +1,10 @@
 package dagql
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/opencontainers/go-digest"
+)
 
 // A cache never puts another run of a recipe beside a value it computed
 // itself. On one engine that holds by construction: a result keeps the exact
@@ -82,16 +86,17 @@ func (c *Cache) readOwnRuns(prep *valueMergePrep) {
 		return
 	}
 	var targets []*sharedResult
+	isTarget := map[*sharedResult]bool{}
 	below := map[*sharedResult][]*sharedResult{}
 	c.egraphMu.RLock()
 	for _, plan := range prep.plans {
 		res := c.currentEntryForRecipeLocked(plan.recipe)
-		if res == nil || !c.computedHereLocked(res) {
+		if res == nil || isTarget[res] || !c.computedHereLocked(res) {
 			continue
 		}
-		if _, seen := below[res]; seen {
-			continue
-		}
+		// A target can already have been walked as another's dependency:
+		// it is still a target.
+		isTarget[res] = true
 		targets = append(targets, res)
 		stack := []*sharedResult{res}
 		for len(stack) > 0 {
@@ -184,7 +189,9 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 	for changed := true; changed; {
 		changed = false
 		for _, row := range commit.rows {
-			if dropped[row.ordinal] || row.otherRun {
+			if dropped[row.ordinal] || row.otherRun || row.own == ownSameContent {
+				// A row shown a copy of the entry's value by content lands
+				// as that value, whatever run its record was computed over.
 				continue
 			}
 			deps := slices.Clone(row.value.DependencyIDs)
@@ -200,8 +207,10 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 				} else {
 					// A record landing on an entry that keeps its value
 					// installs nothing, but its offers would give the entry
-					// parts made over another run: it gives none.
+					// parts made over another run: it gives none. A record
+					// over it is over another run too.
 					row.otherRun, row.own = true, ownNone
+					apart[row.ordinal] = true
 				}
 				changed = true
 				break
@@ -217,6 +226,14 @@ func (c *Cache) keepOwnRunsLocked(commit *valueMergeCommit) {
 					changed = true
 				}
 			}
+		}
+	}
+	// A transferred call over a row kept apart or dropped would teach the
+	// cache's own run of that input the stored run's answer.
+	commit.apartRecipes = map[digest.Digest]bool{}
+	for _, row := range commit.rows {
+		if dropped[row.ordinal] || row.otherRun {
+			commit.apartRecipes[row.plan.recipe] = true
 		}
 	}
 	kept := commit.rows[:0]

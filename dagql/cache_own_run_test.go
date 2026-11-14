@@ -3,7 +3,10 @@ package dagql
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/dagger/dagger/dagql/call"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -180,4 +183,124 @@ func TestMergeValuesKeepsApartOverAnOwnRunBelow(t *testing.T) {
 	key, _ := file.cacheSharedResult().cloudHoldingLocked()
 	c.egraphMu.RUnlock()
 	require.Zero(t, key)
+}
+
+// Records of a chain the engine created lazily and hasn't run, P over D,
+// both land, whichever of the two the read meets first: a read that walks P
+// first must still read D.
+func TestMergeValuesLandsOnAnOwnChainNotYetRun(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	sentD := persistedListTestResult(t, actx, a, asrv, "chain-d", &transferTestValue{Text: "fill d"})
+	sentP := persistedListTestResult(t, actx, a, asrv, "chain-p", &transferTestValue{Text: "fill p"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentP, sentD, "test"))
+	bundle := exportTestBundle(t, actx, a, sentP)
+	for range 20 {
+		ctx, c, srv := transferTestCache(t)
+		d := persistedListTestResult(t, ctx, c, srv, "chain-d", ownRunTestLazy("own d"))
+		p := persistedListTestResult(t, ctx, c, srv, "chain-p", ownRunTestLazy("own p"))
+		require.NoError(t, c.AddExplicitDependency(ctx, p, d, "test"))
+		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+		require.NoError(t, err)
+		require.Empty(t, reply.OtherRun, "neither has run")
+		require.Equal(t, 2, reply.Rows.OwnNotRun)
+	}
+}
+
+// C over B over A arrive, where B is an entry the engine took earlier, over
+// its own A while A hadn't run, and A has run since. A's record is kept
+// apart, so B's lands on B as another run, and C, computed over that run of
+// B, isn't installed.
+func TestMergeValuesKeepsApartWhatIsOverAKeptApartRow(t *testing.T) {
+	t.Parallel()
+	source := func(t *testing.T, text string, withC bool) ValueBundle {
+		actx, a, asrv := transferTestCache(t)
+		sentA := persistedListTestResult(t, actx, a, asrv, "kept-a", &transferTestValue{Text: text + " a"})
+		sentB := persistedListTestResult(t, actx, a, asrv, "kept-b", &transferTestValue{Text: text + " b"})
+		require.NoError(t, a.AddExplicitDependency(actx, sentB, sentA, "test"))
+		if !withC {
+			return exportTestBundle(t, actx, a, sentB)
+		}
+		sentC := persistedListTestResult(t, actx, a, asrv, "kept-c", &transferTestValue{Text: text + " c"})
+		require.NoError(t, a.AddExplicitDependency(actx, sentC, sentB, "test"))
+		return exportTestBundle(t, actx, a, sentC)
+	}
+	ctx, c, srv := transferTestCache(t)
+	own := persistedListTestResult(t, ctx, c, srv, "kept-a", ownRunTestLazy("own a"))
+	first, err := c.MergeValues(ctx, cloudCacheID, source(t, "first", false))
+	require.NoError(t, err)
+	require.Empty(t, first.OtherRun, "A hadn't run: B is taken over it")
+	require.NoError(t, c.Evaluate(ctx, own))
+
+	bundle := source(t, "second", true)
+	reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.Len(t, reply.OtherRun, 2, "A, and B over it")
+	require.Len(t, reply.Roots, 1)
+	require.True(t, reply.Roots[0].OtherRun, "C isn't installed")
+	require.Empty(t, reply.Imported())
+}
+
+// A file shown equal by content to the engine's own lands on it, though the
+// exec it was read from is another run, kept apart: equal content is the
+// same result.
+func TestMergeValuesLandsAContentCopyOverAKeptApartRow(t *testing.T) {
+	t.Parallel()
+	content := digest.FromString("file content")
+	actx, a, asrv := transferTestCache(t)
+	sentExec := persistedListTestResult(t, actx, a, asrv, "copy-exec", String("fill exec"))
+	sentFile := persistedListTestResult(t, actx, a, asrv, "copy-file", &transferTestValue{Text: "fill file"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentFile, sentExec, "test"))
+	require.NoError(t, a.TeachContentDigest(actx, sentFile, content))
+	bundle := exportTestBundle(t, actx, a, sentFile)
+
+	ctx, c, srv := transferTestCache(t)
+	exec := persistedListTestResult(t, ctx, c, srv, "copy-exec", String("own exec"))
+	file := persistedListTestResult(t, ctx, c, srv, "copy-file", &transferTestValue{Text: "own file"})
+	require.NoError(t, c.AddExplicitDependency(ctx, file, exec, "test"))
+	require.NoError(t, c.TeachContentDigest(ctx, file, content))
+	reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.Len(t, reply.OtherRun, 1, "the exec is kept apart")
+	require.Equal(t, 1, reply.Rows.OwnSameContent, "the file lands")
+	require.Equal(t, uint64(file.cacheSharedResult().id), reply.Imported()[0].ResultID)
+	c.egraphMu.RLock()
+	key, _ := file.cacheSharedResult().cloudHoldingLocked()
+	c.egraphMu.RUnlock()
+	require.NotZero(t, key, "and learns the Cloud's copy")
+}
+
+// A call the Cloud sends over an input the merge keeps apart isn't taught:
+// it was answered over another run of that input than the engine's own, so
+// the engine's own call over its input misses.
+func TestCallRecordOverAKeptApartInputIsNotTaught(t *testing.T) {
+	t.Parallel()
+	test := newReceiverCallTest(t)
+	built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number, test.receiverNumber}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Len(t, built.Bundle.Calls, 1)
+
+	// The engine ran the receiver's recipe itself, with other content.
+	ctx, fresh, srv := transferTestCache(t)
+	ownFrame := func() *ResultCall {
+		frame := receiverTestFrame("a")
+		frame.ExtraDigests = []call.ExtraDigest{{Digest: digest.FromString("own receiver content"), Label: call.ExtraDigestLabelContent}}
+		return frame
+	}
+	_, err = fresh.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: ownFrame(), IsPersistable: true},
+		func(context.Context) (AnyResult, error) {
+			return NewResultForCall(&transferTestValue{Text: "own receiver"}, ownFrame())
+		})
+	require.NoError(t, err)
+	reply, err := fresh.MergeValues(ctx, CloudCacheID, built.Bundle)
+	require.NoError(t, err)
+	require.NotEmpty(t, reply.OtherRun, "the receiver is kept apart")
+	ran := false
+	_, err = fresh.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: receiverTestCall("a"), IsPersistable: true},
+		func(context.Context) (AnyResult, error) {
+			ran = true
+			return NewResultForCall(&transferTestValue{Text: "own outer"}, receiverTestCall("a"))
+		})
+	require.NoError(t, err)
+	require.True(t, ran, "the call over the engine's own receiver runs")
 }
