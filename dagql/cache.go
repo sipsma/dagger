@@ -240,7 +240,11 @@ type persistedEdge struct {
 // its source's engine version chose. Older stores rebuilt them at the view of
 // whichever client loaded the Module, so a module could be served another
 // view than it declares; they are wiped on import.
-const cachePersistenceSchemaVersion = "25"
+//
+// 26: a module object's content digest holds its type. Older stores took
+// objects of two types with equal fields as one result, and a load of one
+// could be served the other, so they are wiped on import.
+const cachePersistenceSchemaVersion = "26"
 
 // blobBackedStoreFormat names the format a blob-backed cache saves its stored
 // records in (encodeStoredRow), on top of the schema: it saves in a format of
