@@ -217,7 +217,11 @@ type persistedEdge struct {
 // (Query._builtinContainer) is gone: the built-in SDKs' files come through the
 // image's entries. Older stores holding its records cannot decode them, so
 // they are wiped on import.
-const cachePersistenceSchemaVersion = "24"
+//
+// 25: a module object's content digest holds its type. Older stores took
+// objects of two types with equal fields as one result, and a load of one
+// could be served the other, so they are wiped on import.
+const cachePersistenceSchemaVersion = "25"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 var ErrCacheSessionReleased = errors.New("cache session released")
