@@ -3547,7 +3547,6 @@ type sharedResultPayloadState struct {
 	hasValue              bool
 	objClass              objectClassRef
 	persistedEnvelope     *PersistedResultEnvelope
-	firstUse              *mergedFirstUse
 	stored                *storedBody
 	snapshotOwnerLinks    []PersistedSnapshotRefLink
 	createdAtUnixNano     int64
@@ -3635,7 +3634,6 @@ func (res *sharedResult) loadPayloadState() sharedResultPayloadState {
 		hasValue:              res.hasValue,
 		objClass:              res.objClass,
 		persistedEnvelope:     res.persistedEnvelope,
-		firstUse:              res.firstUse,
 		stored:                res.stored,
 		snapshotOwnerLinks:    cloneSnapshotRefLinks(res.snapshotOwnerLinks),
 		createdAtUnixNano:     res.createdAtUnixNano,
