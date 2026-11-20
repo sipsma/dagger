@@ -13,6 +13,7 @@ const defaultImageRepository = "cgr.dev/chainguard/apko"
 
 const cachePath = "/work/cache"
 
+// Build container images from apk packages.
 type Apko struct {
 	// +private
 	Container *dagger.Container

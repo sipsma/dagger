@@ -9,6 +9,7 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
+// Build container images from apk packages.
 type Apko struct { // apko (../../:0:0)
 	query *querybuilder.Selection
 	// refetchID is set when this object is built through a field marked

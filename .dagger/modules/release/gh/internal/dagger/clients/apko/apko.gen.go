@@ -9,7 +9,8 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-type Apko struct { // apko (../../main.go:16:6)
+// Build container images from apk packages.
+type Apko struct { // apko (../../main.go:17:6)
 	query *querybuilder.Selection
 	// refetchID is set when this object is built through a field marked
 	// @reevaluate: it fetches its ID on every use, so each use evaluates that
@@ -52,45 +53,45 @@ type ApkoBuildOpts struct {
 	//
 	// A .lock.json file (e.g. produced by apko lock) that constraints versions of packages to the listed ones.
 	//
-	Lockfile *File // apko (../../main.go:172:2)
+	Lockfile *File // apko (../../main.go:173:2)
 	//
 	// OCI annotations to add. Separate with colon (key:value).
 	//
-	Annotations []string // apko (../../main.go:177:2)
+	Annotations []string // apko (../../main.go:178:2)
 	//
 	// Architectures to build for (e.g., x86_64,ppc64le,arm64) -- default is all, unless specified in config. Can also use 'host' to indicate arch of host this is running on.
 	//
-	Arch []string // apko (../../main.go:182:2)
+	Arch []string // apko (../../main.go:183:2)
 	//
 	// Date used for the timestamps of the files inside the image in RFC3339 format.
 	//
-	BuildDate string // apko (../../main.go:187:2)
+	BuildDate string // apko (../../main.go:188:2)
 	//
 	// Path to extra keys to include in the keyring.
 	//
-	KeyringAppend []string // apko (../../main.go:192:2)
+	KeyringAppend []string // apko (../../main.go:193:2)
 	//
 	// Do not use network to fetch packages (cache must be pre-populated).
 	//
-	Offline bool // apko (../../main.go:197:2)
+	Offline bool // apko (../../main.go:198:2)
 	//
 	// Extra packages to include.
 	//
-	PackageAppend []string // apko (../../main.go:202:2)
+	PackageAppend []string // apko (../../main.go:203:2)
 	//
 	// Path to extra repositories to include.
 	//
-	RepositoryAppend []string // apko (../../main.go:207:2)
+	RepositoryAppend []string // apko (../../main.go:208:2)
 	//
 	// Detect and embed VCS URLs.
 	//
 	//
 	// Default: true
-	Vcs bool // apko (../../main.go:215:2)
+	Vcs bool // apko (../../main.go:216:2)
 }
 
 // Build an image from a YAML configuration file.
-func (r *Apko) Build(config *File, tag string, opts ...ApkoBuildOpts) *ApkoBuildResult { // apko (../../main.go:162:1)
+func (r *Apko) Build(config *File, tag string, opts ...ApkoBuildOpts) *ApkoBuildResult { // apko (../../main.go:163:1)
 	assertNotNil("config", config)
 	q := r.query.Select("build")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -223,41 +224,41 @@ type ApkoPublishOpts struct {
 	//
 	// OCI annotations to add. Separate with colon (key:value).
 	//
-	Annotations []string // apko (../../main.go:274:2)
+	Annotations []string // apko (../../main.go:275:2)
 	//
 	// Architectures to build for (e.g., x86_64,ppc64le,arm64) -- default is all, unless specified in config. Can also use 'host' to indicate arch of host this is running on.
 	//
-	Arch []string // apko (../../main.go:279:2)
+	Arch []string // apko (../../main.go:280:2)
 	//
 	// Date used for the timestamps of the files inside the image in RFC3339 format.
 	//
-	BuildDate string // apko (../../main.go:284:2)
+	BuildDate string // apko (../../main.go:285:2)
 	//
 	// Path to extra keys to include in the keyring.
 	//
-	KeyringAppend []string // apko (../../main.go:289:2)
+	KeyringAppend []string // apko (../../main.go:290:2)
 	//
 	// Do not use network to fetch packages (cache must be pre-populated).
 	//
-	Offline bool // apko (../../main.go:294:2)
+	Offline bool // apko (../../main.go:295:2)
 	//
 	// Extra packages to include.
 	//
-	PackageAppend []string // apko (../../main.go:299:2)
+	PackageAppend []string // apko (../../main.go:300:2)
 	//
 	// Path to extra repositories to include.
 	//
-	RepositoryAppend []string // apko (../../main.go:304:2)
+	RepositoryAppend []string // apko (../../main.go:305:2)
 	//
 	// Detect and embed VCS URLs.
 	//
 	//
 	// Default: true
-	Vcs bool // apko (../../main.go:312:2)
+	Vcs bool // apko (../../main.go:313:2)
 }
 
 // Publish a built image from a YAML configuration file.
-func (r *Apko) Publish(ctx context.Context, config *File, tag string, opts ...ApkoPublishOpts) error { // apko (../../main.go:262:1)
+func (r *Apko) Publish(ctx context.Context, config *File, tag string, opts ...ApkoPublishOpts) error { // apko (../../main.go:263:1)
 	assertNotNil("config", config)
 	if r.publish != nil {
 		return nil
@@ -308,15 +309,15 @@ type ApkoWithCacheOpts struct {
 	//
 	// Identifier of the directory to use as the cache volume's root.
 	//
-	Source *Directory // apko (../../main.go:67:2)
+	Source *Directory // apko (../../main.go:68:2)
 	//
 	// Sharing mode of the cache volume.
 	//
-	Sharing CacheSharingMode // apko (../../main.go:72:2)
+	Sharing CacheSharingMode // apko (../../main.go:73:2)
 }
 
 // Mount a cache volume for apk cache.
-func (r *Apko) WithCache(cache *CacheVolume, opts ...ApkoWithCacheOpts) *Apko { // apko (../../main.go:61:1)
+func (r *Apko) WithCache(cache *CacheVolume, opts ...ApkoWithCacheOpts) *Apko { // apko (../../main.go:62:1)
 	assertNotNil("cache", cache)
 	q := r.query.Select("withCache")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -338,7 +339,7 @@ func (r *Apko) WithCache(cache *CacheVolume, opts ...ApkoWithCacheOpts) *Apko { 
 }
 
 // Add credentials for a registry.
-func (r *Apko) WithRegistryAuth(address string, username string, secret *Secret) *Apko { // apko (../../main.go:87:1)
+func (r *Apko) WithRegistryAuth(address string, username string, secret *Secret) *Apko { // apko (../../main.go:88:1)
 	assertNotNil("secret", secret)
 	q := r.query.Select("withRegistryAuth")
 	q = q.Arg("address", address)
@@ -352,7 +353,7 @@ func (r *Apko) WithRegistryAuth(address string, username string, secret *Secret)
 }
 
 // Removes credentials for a registry.
-func (r *Apko) WithoutRegistryAuth(address string) *Apko { // apko (../../main.go:94:1)
+func (r *Apko) WithoutRegistryAuth(address string) *Apko { // apko (../../main.go:95:1)
 	q := r.query.Select("withoutRegistryAuth")
 	q = q.Arg("address", address)
 
@@ -378,7 +379,7 @@ func (r *Apko) AsNode() Node {
 	return new(NodeClient).WithGraphQLQuery(r.query)
 }
 
-type ApkoBuildResult struct { // apko (../../main.go:251:6)
+type ApkoBuildResult struct { // apko (../../main.go:252:6)
 	query *querybuilder.Selection
 	// refetchID is set when this object is built through a field marked
 	// @reevaluate: it fetches its ID on every use, so each use evaluates that
@@ -399,13 +400,13 @@ func (r *ApkoBuildResult) WithGraphQLQuery(q *querybuilder.Selection) *ApkoBuild
 }
 
 // Import the image into a container.
-func (r *ApkoBuildResult) AsContainer() *Container { // apko (../../main.go:257:1)
+func (r *ApkoBuildResult) AsContainer() *Container { // apko (../../main.go:258:1)
 	q := r.query.Select("asContainer")
 
 	return new(Container).WithGraphQLQuery(q)
 }
 
-func (r *ApkoBuildResult) File() *File { // apko (../../main.go:252:2)
+func (r *ApkoBuildResult) File() *File { // apko (../../main.go:253:2)
 	q := r.query.Select("file")
 
 	return new(File).WithGraphQLQuery(q)
@@ -466,7 +467,7 @@ func (r *ApkoBuildResult) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *ApkoBuildResult) Tag(ctx context.Context) (string, error) { // apko (../../main.go:253:2)
+func (r *ApkoBuildResult) Tag(ctx context.Context) (string, error) { // apko (../../main.go:254:2)
 	if r.tag != nil {
 		return *r.tag, nil
 	}
@@ -692,14 +693,15 @@ type ApkoOpts struct {
 	//
 	// Custom container to use as a base container.
 	//
-	Container *Container // apko (../../main.go:28:2)
+	Container *Container // apko (../../main.go:29:2)
 	//
 	// Disable mounting a default cache volume.
 	//
-	WithoutCache bool // apko (../../main.go:33:2)
+	WithoutCache bool // apko (../../main.go:34:2)
 }
 
-func (r *Query) Apko(opts ...ApkoOpts) *Apko { // apko (../../main.go:24:1)
+// Build container images from apk packages.
+func (r *Query) Apko(opts ...ApkoOpts) *Apko { // apko (../../main.go:25:1)
 	q := r.query.Select("apko")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `container` optional argument
@@ -720,6 +722,8 @@ func (r *Query) Apko(opts ...ApkoOpts) *Apko { // apko (../../main.go:24:1)
 
 // New calls Apko on the default connection.
 // Use Connect(connection).Apko to call it on an explicit connection.
+//
+// Build container images from apk packages.
 func New(opts ...ApkoOpts) *Apko {
 	return Connect().Apko(opts...)
 }
