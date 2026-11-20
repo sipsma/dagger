@@ -720,9 +720,22 @@ func nonNilAddresses(addresses []dagql.PersistedPartAddress) []dagql.PersistedPa
 // item's entry is held while its parts are offered; a missing one is gone.
 // An item's replacement count and dependencies are those its outcomes were
 // decided at.
+//
+// An engine with no session at work (sessionLedger.idle) takes no offer: it
+// answers every part unavailable and leaves its entries as they are. None of
+// its checks can use a part before its next session, and an offer that lands
+// on a row moves the row's revisions under any capture of the results above
+// it, which then refuses them as busy. At one stop on a whole pull request's
+// fill, the service's offers landed on eight rows below a finished test run
+// while its last export was captured, and its content was never stored. An
+// unavailable part is one the service offers again: its next open has it
+// offer every class the engine holds (the service's reopened).
 func (a *RemoteCacheAdapter) OfferParts(ctx context.Context, req protocol.Offer) (protocol.Offered, error) {
 	if a.stopped.Load() {
 		return protocol.Offered{}, ErrRemoteCacheAdapterClosed
+	}
+	if a.ledger != nil && a.ledger.idle() {
+		return refusedOffers(req), nil
 	}
 	offered := protocol.Offered{Items: make([]protocol.OfferedItem, 0, len(req.Items))}
 	for _, item := range req.Items {
@@ -733,6 +746,29 @@ func (a *RemoteCacheAdapter) OfferParts(ctx context.Context, req protocol.Offer)
 		offered.Items = append(offered.Items, answer)
 	}
 	return offered, nil
+}
+
+// noSessionOffer is the message of a part an engine with no session at work
+// didn't take (OfferParts).
+const noSessionOffer = "no session at work: the engine takes no offer until its next session"
+
+// refusedOffers answers every part of req unavailable, with no entry held or
+// read: the value state an answer carries is left at zero, which the service
+// applies as no change (a replacement count no higher than the one it holds
+// changes nothing). It logs one line for the request.
+func refusedOffers(req protocol.Offer) protocol.Offered {
+	offered := protocol.Offered{Items: make([]protocol.OfferedItem, 0, len(req.Items))}
+	parts := 0
+	for _, item := range req.Items {
+		answer := protocol.OfferedItem{Number: item.Number, Parts: make([]protocol.OfferedPart, 0, len(item.Offers))}
+		for _, offer := range item.Offers {
+			answer.Parts = append(answer.Parts, protocol.OfferedPart{Address: offer.Offer.Address, Outcome: protocol.OfferUnavailable, Message: noSessionOffer})
+		}
+		parts += len(answer.Parts)
+		offered.Items = append(offered.Items, answer)
+	}
+	slog.Info("remote cache offer refused with no session at work", "items", len(req.Items), "parts", parts)
+	return offered
 }
 
 func (a *RemoteCacheAdapter) offerItem(ctx context.Context, item protocol.OfferItem) (_ protocol.OfferedItem, rerr error) {

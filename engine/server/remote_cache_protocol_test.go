@@ -1033,6 +1033,54 @@ func TestRemoteCacheAdapterOfferParts(t *testing.T) {
 	}
 }
 
+// An engine with no session at work takes no offer: once its last session
+// has ended, every offered part is answered unavailable, and the entry is
+// left as it was, so no capture of the results above it finds its rows
+// moved. At one stop on a whole pull request's fill, offers landing on the
+// rows below a finished test run made its last export's capture refuse it as
+// busy, and its content was never stored. A session at work again takes the
+// same offer.
+func TestRemoteCacheAdapterTakesNoOfferWithNoSessionAtWork(t *testing.T) {
+	e := newAdapterTestEngine(t)
+	ledger := &sessionLedger{}
+	e.adapter.ledger = ledger
+	complete := e.file(t, "complete")
+	require.NoError(t, e.cache.Evaluate(e.ctx, complete))
+	pending, decision := e.publishFile(t, "pending", complete)
+	before, ok := decision.ResultState(e.ctx, pending)
+	require.True(t, ok)
+	other := testutil.NewStore(t)
+	ref, _ := other.Build(t, nil, "offered.txt", "offered bytes")
+	chain, err := ref.ExportChain(t.Context(), config.RefConfig{Compression: compression.New(compression.Uncompressed)})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, chain.Release(context.Background())) })
+	spec := adapterTestPlatform.Spec()
+	offer := protocol.Offer{Items: []protocol.OfferItem{{Number: entryNumber(t, pending), Offers: []protocol.CloudPart{{
+		Offer:       dagql.PersistedPartOffer{Address: snapshotPart, Value: dagql.SnapshotValue{Kind: "file", Path: "/offered.txt", Platform: &spec}, Chain: dagql.OfferedChain{Layers: chain.Layers, RenewalKey: "7/snapshot"}},
+		CloudNumber: 7,
+	}}}}}
+
+	ledger.sessionStarted("session", "client", "")
+	ledger.sessionEnded("session", "client", "", true)
+	offered, err := e.adapter.OfferParts(e.ctx, offer)
+	require.NoError(t, err)
+	require.Equal(t, protocol.Offered{Items: []protocol.OfferedItem{
+		{Number: entryNumber(t, pending), Parts: []protocol.OfferedPart{{Address: snapshotPart, Outcome: protocol.OfferUnavailable, Message: noSessionOffer}}},
+	}}, offered, "with no session at work every part is refused")
+	after, ok := decision.ResultState(e.ctx, pending)
+	require.True(t, ok)
+	require.Equal(t, before, after, "the refused offer left the entry as it was")
+
+	ledger.sessionStarted("next", "client", "")
+	offered, err = e.adapter.OfferParts(e.ctx, offer)
+	require.NoError(t, err)
+	require.Len(t, offered.Items, 1)
+	require.Equal(t, []protocol.OfferedPart{{Address: snapshotPart, Outcome: protocol.OfferAccepted}}, offered.Items[0].Parts, "a session at work takes the offer")
+	taken, ok := decision.ResultState(e.ctx, pending)
+	require.True(t, ok)
+	require.NotEqual(t, before, taken, "a taken offer shows in the entry's state, so the unchanged state above is the refusal's")
+}
+
 // lockedLog is a log destination concurrent writers can share.
 type lockedLog struct {
 	mu  sync.Mutex
