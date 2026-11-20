@@ -57,6 +57,7 @@ func (came offerCame) String() string {
 		return "offer"
 	}
 }
+
 type resultOwnershipChild struct {
 	result   *sharedResult
 	resultID sharedResultID
