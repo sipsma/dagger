@@ -1051,7 +1051,7 @@ func TestRemoteCacheAdapterTakesNoOfferWithNoLiveSession(t *testing.T) {
 	complete := e.file(t, "complete")
 	require.NoError(t, e.cache.Evaluate(e.ctx, complete))
 	tearing, _ := e.publishFile(t, "tearing", complete)
-	refused, decision := e.publishFile(t, "refused", complete)
+	refused, _ := e.publishFile(t, "refused", complete)
 	other := testutil.NewStore(t)
 	ref, _ := other.Build(t, nil, "offered.txt", "offered bytes")
 	chain, err := ref.ExportChain(t.Context(), config.RefConfig{Compression: compression.New(compression.Uncompressed)})
@@ -1072,19 +1072,16 @@ func TestRemoteCacheAdapterTakesNoOfferWithNoLiveSession(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, offered.Items, 1)
 	require.Equal(t, accepted, offered.Items[0].Parts, "a session tearing down still takes the offer")
+	require.True(t, e.cache.HasPartOffer(tearing, snapshotPart.Part), "the taken offer is attached to its entry")
 
 	ledger.sessionEnded("first", "client", "", true)
 	ended, _ := ledger.settleState()
-	before, ok := decision.ResultState(e.ctx, refused)
-	require.True(t, ok)
 	offered, err = e.adapter.OfferParts(e.ctx, offerFor(refused, 8))
 	require.NoError(t, err)
 	require.Equal(t, protocol.Offered{Items: []protocol.OfferedItem{
 		{Number: entryNumber(t, refused), Parts: []protocol.OfferedPart{{Address: snapshotPart, Outcome: protocol.OfferUnavailable, Message: noSessionOffer}}},
 	}}, offered, "with no live session every part is refused")
-	after, ok := decision.ResultState(e.ctx, refused)
-	require.True(t, ok)
-	require.Equal(t, before, after, "the refused offer left the entry as it was")
+	require.False(t, e.cache.HasPartOffer(refused, snapshotPart.Part), "the refused offer left the entry with no offer attached")
 
 	ledger.sessionStarted("next", "client", "")
 	next, _ := ledger.settleState()
@@ -1093,9 +1090,7 @@ func TestRemoteCacheAdapterTakesNoOfferWithNoLiveSession(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, offered.Items, 1)
 	require.Equal(t, accepted, offered.Items[0].Parts, "the next session takes the offer again")
-	taken, ok := decision.ResultState(e.ctx, refused)
-	require.True(t, ok)
-	require.NotEqual(t, before, taken, "a taken offer shows in the entry's state, so the unchanged state above is the refusal's")
+	require.True(t, e.cache.HasPartOffer(refused, snapshotPart.Part), "the offer taken in the next session is attached to its entry")
 }
 
 // lockedLog is a log destination concurrent writers can share.
