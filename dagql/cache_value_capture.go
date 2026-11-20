@@ -423,6 +423,11 @@ func (c *Cache) retireStaleOffers(ctx context.Context, stale []staleOffer) error
 		if !current {
 			continue
 		}
+		if key, err := partAddressKey(offer.address); err == nil {
+			if live := offer.row.partOfferLocked(key); live != nil {
+				logOfferOnCompletePart(ctx, offer.row, key, live.came, "export")
+			}
+		}
 		q, err := c.retirePartOfferLocked(ctx, offer.row, offer.address)
 		queue = append(queue, q...)
 		rerr = errors.Join(rerr, err)

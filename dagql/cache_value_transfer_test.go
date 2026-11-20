@@ -204,6 +204,8 @@ func TestValueTransferCapturePhases(t *testing.T) {
 func TestValueTransferCaptureRetiresAnOfferOnACompletedOutput(t *testing.T) {
 	ctx, c, srv := statePartCache(t, "")
 	t.Cleanup(func() { require.NoError(t, c.CloseDiscardingPersistence()) })
+	logs := &offerLogs{}
+	ctx = logs.into(ctx)
 	value := &statePartValue{}
 	root := persistedListTestResult(t, ctx, c, srv, "root", value)
 	res := root.cacheSharedResult()
@@ -229,6 +231,17 @@ func TestValueTransferCaptureRetiresAnOfferOnACompletedOutput(t *testing.T) {
 	c.egraphMu.RUnlock()
 	require.Zero(t, offers, "the capture retired the obsolete offer")
 	require.Equal(t, owners, res.incomingOwnershipCount.Load())
+	// The capture logs the offer it found, as one the gate never settled and
+	// an offer call brought.
+	key, err := partAddressKey(testLiveOffer().Address)
+	require.NoError(t, err)
+	lines := logs.lines(t, "remote cache offer on a complete part")
+	require.Len(t, lines, 1)
+	require.EqualValues(t, res.id, lines[0].int(t, "entry"))
+	require.Equal(t, key, lines[0].fields["part"])
+	require.Equal(t, false, lines[0].fields["settled"])
+	require.Equal(t, "offer", lines[0].fields["came"])
+	require.Equal(t, "export", lines[0].fields["found_by"])
 	require.Zero(t, c.activeGlobalOperations.Load())
 }
 
