@@ -217,6 +217,15 @@ func (l *sessionLedger) sessionEnded(sessionID, clientID, claimID string, marker
 	l.ended[key] = l.clock()
 }
 
+// noneLive reports whether no root session is live on the engine: none has
+// started, or every one has ended. A session tearing down is still live. The
+// next session to start then starts a new idle period (sessionStarted).
+func (l *sessionLedger) noneLive() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.sessions == 0
+}
+
 // idle reports whether no session runs work on the engine: none is live,
 // or every live one is tearing down.
 func (l *sessionLedger) idle() bool {

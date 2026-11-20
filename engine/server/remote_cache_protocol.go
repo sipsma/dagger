@@ -721,20 +721,24 @@ func nonNilAddresses(addresses []dagql.PersistedPartAddress) []dagql.PersistedPa
 // An item's replacement count and dependencies are those its outcomes were
 // decided at.
 //
-// An engine with no session at work (sessionLedger.idle) takes no offer: it
+// An engine with no live session (sessionLedger.noneLive) takes no offer: it
 // answers every part unavailable and leaves its entries as they are. None of
 // its checks can use a part before its next session, and an offer that lands
 // on a row moves the row's revisions under any capture of the results above
 // it, which then refuses them as busy. At one stop on a whole pull request's
 // fill, the service's offers landed on eight rows below a finished test run
-// while its last export was captured, and its content was never stored. An
-// unavailable part is one the service offers again: its next open has it
-// offer every class the engine holds (the service's reopened).
+// while its last export was captured, and its content was never stored.
+// The next session starts a new idle period, which the engine opens with the
+// service (session.settles), and the service's reopened then offers every
+// class the engine holds again: a refused part needs no retry, which the
+// refusal's zero replacement count may not get. A session tearing down still
+// takes offers: the next session can start before that teardown ends, and
+// would then open no new period.
 func (a *RemoteCacheAdapter) OfferParts(ctx context.Context, req protocol.Offer) (protocol.Offered, error) {
 	if a.stopped.Load() {
 		return protocol.Offered{}, ErrRemoteCacheAdapterClosed
 	}
-	if a.ledger != nil && a.ledger.idle() {
+	if a.ledger != nil && a.ledger.noneLive() {
 		return refusedOffers(req), nil
 	}
 	offered := protocol.Offered{Items: make([]protocol.OfferedItem, 0, len(req.Items))}
@@ -748,9 +752,9 @@ func (a *RemoteCacheAdapter) OfferParts(ctx context.Context, req protocol.Offer)
 	return offered, nil
 }
 
-// noSessionOffer is the message of a part an engine with no session at work
+// noSessionOffer is the message of a part an engine with no live session
 // didn't take (OfferParts).
-const noSessionOffer = "no session at work: the engine takes no offer until its next session"
+const noSessionOffer = "no live session: the engine takes no offer until its next session"
 
 // refusedOffers answers every part of req unavailable, with no entry held or
 // read: the value state an answer carries is left at zero, which the service
@@ -767,7 +771,7 @@ func refusedOffers(req protocol.Offer) protocol.Offered {
 		parts += len(answer.Parts)
 		offered.Items = append(offered.Items, answer)
 	}
-	slog.Info("remote cache offer refused with no session at work", "items", len(req.Items), "parts", parts)
+	slog.Info("remote cache offer refused with no live session", "items", len(req.Items), "parts", parts)
 	return offered
 }
 
