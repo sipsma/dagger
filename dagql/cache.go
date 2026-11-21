@@ -3305,6 +3305,13 @@ type sharedResult struct {
 	// the recipe index, and no lookup, offer or class mate reaches it again;
 	// it keeps serving what names it already. Guarded by egraphMu.
 	runReplaced bool
+	// runRan marks, on the Cloud, a stored record whose own run reported a
+	// part besides its metadata complete: the holding the run names did,
+	// or the record proves one (ownRunRanLocked). imageEntry marks one an
+	// engine's image ships (PreparedValueMerge.ImageEntries). Both go with
+	// the value, and a later run replaces only a record that ran and isn't
+	// an image entry's (replaceRunsLocked). Guarded by egraphMu.
+	runRan, imageEntry bool
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in

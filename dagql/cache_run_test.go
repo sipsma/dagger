@@ -263,6 +263,7 @@ func TestALaterRunReplacesARecordStoredWithoutContent(t *testing.T) {
 	cloud.egraphMu.RLock()
 	require.True(t, cloud.storedWithoutContentLocked(cloud.resultsByID[sharedResultID(p1)]), "A's dep has none")
 	cloud.egraphMu.RUnlock()
+	replaceTestRan(t, ctx, cloud, p1)
 	pRecipe, ok := cloud.EntryRecipe(p1)
 	require.True(t, ok)
 	rRecipe, ok := cloud.EntryRecipe(r1)
@@ -328,6 +329,7 @@ func TestALaterRunDoesntReplaceARecordWhoseContentIsUploading(t *testing.T) {
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
 	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
 	for _, n := range []uint64{r1, p1} {
+		replaceTestRan(t, ctx, cloud, n)
 		_, err := cloud.MarkPartUploading(n, testLiveOffer().Address, true)
 		require.NoError(t, err)
 	}
@@ -339,7 +341,95 @@ func TestALaterRunDoesntReplaceARecordWhoseContentIsUploading(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cloud.MarkPartUploading(r1, testLiveOffer().Address, false)
 	require.NoError(t, err)
+	replaceTestRan(t, ctx, cloud, p1)
+	replaceTestRan(t, ctx, cloud, r1)
 	reply, _, p3 := replaceTestRun(t, ctx, cloud, "cache-c")
 	require.Equal(t, 2, reply.Rows.RunsReplaced, "once the uploads end without content, a later run replaces both")
 	require.NotEqual(t, p1, p3)
+}
+
+// replaceTestRan attaches the holding a stored record's run names, reporting
+// a part complete: the run's own engine ran the step.
+func replaceTestRan(t *testing.T, ctx context.Context, cloud *Cache, number uint64) {
+	t.Helper()
+	run, ok := cloud.EntryRun(number)
+	require.True(t, ok)
+	recipe, ok := cloud.EntryRecipe(number)
+	require.True(t, ok)
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: recipe, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+}
+
+// A record whose own run never ran its step is a recipe: a later run
+// doesn't replace it, though another engine's holding of the same entry
+// reports the part complete. Once its own run's holding does, it is
+// replaced, and the mark survives a restart.
+func TestALaterRunReplacesOnlyARecordWhoseOwnRunRan(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
+	stored, _, err := cloud.SetStoredPart(ctx, r1, storedPartRunOf(t, cloud, r1), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	cloud.egraphMu.RLock()
+	require.False(t, cloud.ownRunRanLocked(cloud.resultsByID[sharedResultID(p1)]), "A's record proves no part complete")
+	cloud.egraphMu.RUnlock()
+
+	recipe, ok := cloud.EntryRecipe(p1)
+	require.True(t, ok)
+	_, err = cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-x", Number: 77}, RemoteHolding{Recipe: recipe, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	reply, _, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Zero(t, reply.Rows.RunsReplaced, "another engine's run of the entry says nothing of A's")
+	require.Equal(t, p1, p2)
+
+	replaceTestRan(t, ctx, cloud, p1)
+	require.NoError(t, cloud.Close(ctx))
+	ctx, cloud = storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	reply, _, p3 := replaceTestRun(t, ctx, cloud, "cache-c")
+	require.Equal(t, 1, reply.Rows.RunsReplaced, "A's run ran, its content not stored: replaced, after a restart too")
+	require.NotEqual(t, p1, p3)
+}
+
+// An image entry's record is never replaced, and a sender's own run of a row
+// its image ships replaces nothing; the mark survives a restart.
+func TestALaterRunNeverReplacesAnImageEntry(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "image root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "image dep"})
+	transferTestDependency(e, ectx, r, p)
+	bundle := exportTestBundle(t, ectx, e, r)
+	prepared, err := cloud.PrepareValueMerge(ctx, "cache-a", bundle)
+	require.NoError(t, err)
+	for _, v := range bundle.Values {
+		prepared.ImageEntries(v.Ordinal)
+	}
+	reply, err := cloud.CommitValueMerge(ctx, prepared)
+	require.NoError(t, err)
+	var p1 uint64
+	for _, value := range reply.Values {
+		for _, sent := range bundle.Values {
+			if sent.Ordinal == value.Ordinal && sent.SenderNumber == uint64(p.cacheSharedResult().id) {
+				p1 = value.Number
+			}
+		}
+	}
+	require.NotZero(t, p1)
+	replaceTestRan(t, ctx, cloud, p1)
+	require.NoError(t, cloud.Close(ctx))
+
+	ctx, cloud = storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	cloud.egraphMu.RLock()
+	image := cloud.resultsByID[sharedResultID(p1)].imageEntry
+	cloud.egraphMu.RUnlock()
+	require.True(t, image, "the mark survives a restart")
+	reply, _, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Zero(t, reply.Rows.RunsReplaced, "an image entry's record isn't replaced")
+	require.Equal(t, p1, p2)
 }

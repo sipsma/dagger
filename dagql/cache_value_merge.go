@@ -142,6 +142,9 @@ type PreparedValueMerge struct {
 	// unretained are the bundle's roots, by ordinal, the commit gives no
 	// retention edge (Unretained).
 	unretained map[TransferOrdinal]bool
+	// imageRows are the bundle's rows, by ordinal, that its sender's image
+	// ships (ImageEntries).
+	imageRows map[uint64]bool
 	// restore is set for a restore's merge (RestoreValues): its commit
 	// queues the offers it attaches in the prefetcher's backlog, and hold
 	// has it hold every entry it lands on until the reply's Release.
@@ -178,6 +181,20 @@ func (p *PreparedValueMerge) Unretained(ordinals ...TransferOrdinal) {
 	}
 	for _, ordinal := range ordinals {
 		p.unretained[ordinal] = true
+	}
+}
+
+// ImageEntries marks the bundle's rows, by ordinal, that its sender's image
+// ships, on the Cloud: a remote cache service knows them from the engine's
+// hello. Their stored records are image entries' (sharedResult.imageEntry),
+// which a later run never replaces, and their sender's own run of one
+// replaces nothing (replaceRunsLocked). Call it before CommitValueMerge.
+func (p *PreparedValueMerge) ImageEntries(ordinals ...TransferOrdinal) {
+	if p.imageRows == nil {
+		p.imageRows = map[uint64]bool{}
+	}
+	for _, ordinal := range ordinals {
+		p.imageRows[uint64(ordinal)] = true
 	}
 }
 
@@ -277,7 +294,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 	}
 	ctx = withCacheWork(ctx, work)
 	p.input, p.prep = ValueBundle{}, nil
-	prep.unretained = p.unretained
+	prep.unretained, prep.imageRows = p.unretained, p.imageRows
 	var origin *mergeOrigin
 	if !c.blobBacked {
 		origin = &mergeOrigin{route: p.source.Route, number: p.source.Merge, file: p.source.File}
@@ -333,7 +350,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 				return MergeReply{}, err
 			}
 			prep.lockWaits.addAll(waited)
-			prep.unretained = p.unretained
+			prep.unretained, prep.imageRows = p.unretained, p.imageRows
 			prep.origin = origin
 			if len(prep.stale) > 0 {
 				return c.staleMergeReply(prep.stale), nil
@@ -564,7 +581,10 @@ type valueMergePrep struct {
 	// preparation drops the rows' records (dropRecordCopies) and marks every
 	// prepared record imported (mergeRunLocked).
 	senderImported map[uint64]bool
-	bundle         ValueBundle
+	// imageRows are, on the Cloud, the rows its sender's image ships
+	// (PreparedValueMerge.ImageEntries), by ordinal.
+	imageRows map[uint64]bool
+	bundle    ValueBundle
 	// unretained are the bundle's roots the commit gives no retention edge
 	// (PreparedValueMerge.Unretained).
 	unretained map[TransferOrdinal]bool
@@ -1570,10 +1590,12 @@ type mergeRow struct {
 	ordinal uint64
 	value   *TransferredValue
 	// run is, on the Cloud, the run the row's value comes from
-	// (mergeRunLocked).
-	run    RunName
-	plan   transferIdentityPlan
-	action mergeAction
+	// (mergeRunLocked), and imageEntry whether its sender's image ships it
+	// (PreparedValueMerge.ImageEntries).
+	run        RunName
+	imageEntry bool
+	plan       transferIdentityPlan
+	action     mergeAction
 	// target is the recipe's entry before the merge, if any.
 	target *sharedResult
 	// res is the entry that holds the record's value after the merge: the
@@ -1737,6 +1759,7 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 	if c.blobBacked {
 		for _, row := range commit.rows {
 			row.run = c.mergeRunLocked(prep.from, row.value, prep.senderImported[row.ordinal])
+			row.imageEntry = prep.imageRows[row.ordinal]
 		}
 		c.replaceRunsLocked(commit, func(row *mergeRow) bool { return best[row.plan.recipe.String()] == row })
 	}
@@ -2951,11 +2974,14 @@ type mergeReplacement struct {
 func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, origin *mergeOrigin) {
 	rec := row.rec
 	// On the Cloud, the stored record names the row's run, which goes with
-	// it (RunName). An engine keeps no runs.
-	res.run = nil
+	// it (RunName), whether that run ran, and whether it is an image
+	// entry's. An engine keeps no runs.
+	res.run, res.runRan, res.imageEntry = nil, false, false
 	if c.blobBacked {
 		run := row.run
 		res.run = &run
+		res.runRan = c.runHoldingRanLocked(run)
+		res.imageEntry = row.imageEntry
 	}
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil
