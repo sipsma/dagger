@@ -686,6 +686,9 @@ type noBackfillArchive struct {
 	// noMetricSelection refuses metric selections, as an older engine's
 	// reads are.
 	noMetricSelection bool
+	// holdFull, when set, keeps a whole-history span read from returning
+	// until it is closed, and so the import that made it from finishing.
+	holdFull chan struct{}
 	// calls records the call closures asked for, and serves closure.
 	calls   chan archive.CallClosureQuery
 	closure *collogspb.ExportLogsServiceRequest
@@ -760,8 +763,15 @@ func (s *noBackfillArchive) span(id, parent dagui.SpanID, attrs ...*commonpb.Key
 	return span
 }
 
-func (s *noBackfillArchive) Traces(_ context.Context, _ string, opts archive.StreamOptions, consume func(int64, *coltracepb.ExportTraceServiceRequest) error) (int64, error) {
+func (s *noBackfillArchive) Traces(ctx context.Context, _ string, opts archive.StreamOptions, consume func(int64, *coltracepb.ExportTraceServiceRequest) error) (int64, error) {
 	s.traces <- opts
+	if s.holdFull != nil && opts.Spans != nil && opts.Spans.Full {
+		select {
+		case <-s.holdFull:
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
+	}
 	partial := boolAttr(telemetryattrs.UIPartialAttr, true)
 	var spans []*tracepb.Span
 	if opts.Spans != nil && len(opts.Spans.Listen) > 0 {
@@ -949,6 +959,9 @@ func TestArchiveRestoreNoBackfillOffersBackfill(t *testing.T) {
 			noBackfillPrimaries(t)
 			source := newNoBackfillArchive()
 			source.noMetricSelection = !selectable
+			// The fake archive answers at once, so the whole history could
+			// finish loading before a second /backfill: hold it until then.
+			source.holdFull = make(chan struct{})
 			fe := &lazyRestoreFrontend{restoreTestFrontend: newRestoreTestFrontend()}
 			req := restoreRequest()
 			var backfill func() error
@@ -966,6 +979,7 @@ func TestArchiveRestoreNoBackfillOffersBackfill(t *testing.T) {
 
 			require.NoError(t, backfill())
 			require.ErrorContains(t, backfill(), "already loading", "the whole history loads once")
+			close(source.holdFull)
 			spans := receiveOpts(t, source.traces, "the whole span history")
 			require.Equal(t, &archive.SpanSelection{Full: true, DagUIView: true}, spans.Spans)
 			require.Equal(t, &archive.LogSelection{Records: archive.LogRecordsMetadata}, receiveOpts(t, source.logs, "the metadata history").Logs)
