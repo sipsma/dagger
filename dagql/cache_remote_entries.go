@@ -835,6 +835,7 @@ func (c *Cache) applyHeldValueStateLocked(ctx context.Context, state *remoteCach
 	}
 	if advanceHeldParts(h, parts, heldPartComplete) {
 		changed = true
+		c.noteRunRanLocked(entry, key, h)
 	}
 	if described || changed {
 		c.markHoldingLocked(key)

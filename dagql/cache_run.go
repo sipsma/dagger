@@ -96,8 +96,10 @@ func (c *Cache) EntryRun(number uint64) (RunName, bool) {
 
 // replaceRunsLocked decides, on the Cloud, the stored runs commit's merge
 // replaces. A best row (isBest) replaces the entry it lands on when the
-// sender computed the row itself, the entry holds a value of another run,
-// and that value's stored record has no content (storedWithoutContentLocked).
+// sender computed the row itself and its image doesn't ship it, and the
+// entry holds a live value of another run whose stored record isn't an image
+// entry's, whose own run ran (ownRunRanLocked) and whose content isn't
+// stored (storedWithoutContentLocked).
 // Every entry over a replaced one is retired with it: a row of the merge
 // that lands on one, of another run than it holds, takes a new entry
 // (mergeRetire); the commit retires the others (retireOver). Its counts go
@@ -107,11 +109,15 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 	for _, row := range commit.rows {
 		cur := row.target
 		// Only a live record is replaced here: an expired one the merge
-		// replaces as it does today (decideMergeRowLocked).
-		if !isBest(row) || row.action != mergeKeep || row.expired || row.value.Held != "" || commit.prep.senderImported[row.ordinal] || cur == nil || cur.runReplaced {
+		// replaces as it does today (decideMergeRowLocked). The sender's
+		// own run of an image entry replaces nothing.
+		if !isBest(row) || row.action != mergeKeep || row.expired || row.value.Held != "" || commit.prep.senderImported[row.ordinal] || row.imageEntry || cur == nil || cur.runReplaced {
 			continue
 		}
-		if cur.noValueLocked() || c.runOfLocked(cur) == row.run || !c.storedWithoutContentLocked(cur) {
+		// Only a record whose own run ran, with its content not stored, is
+		// replaced: a record whose run never ran is a recipe, and an image
+		// entry's run is the image's.
+		if cur.noValueLocked() || cur.imageEntry || c.runOfLocked(cur) == row.run || !c.storedWithoutContentLocked(cur) || !c.ownRunRanLocked(cur) {
 			continue
 		}
 		replaced = append(replaced, cur)
@@ -138,6 +144,64 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 		commit.retireOver = append(commit.retireOver, res)
 	}
 	slices.SortFunc(commit.retireOver, compareSharedResults)
+}
+
+// metadataPartKey is the metadata part's address key (partAddressKey).
+const metadataPartKey = `{"part":"metadata"}`
+
+// ranPartsLocked reports whether h reports a part complete besides its
+// metadata: its cache ran the step. Requires egraphMu.
+func ranPartsLocked(h *holding) bool {
+	for _, part := range h.parts {
+		if part.state >= heldPartComplete && handleString(part.key) != metadataPartKey {
+			return true
+		}
+	}
+	return false
+}
+
+// runHoldingRanLocked reports, on the Cloud, whether the holding run names,
+// the engine entry that made the run at its replacement count, reports a
+// part complete besides its metadata. Another engine's holding of the same
+// entry says nothing of this run. Requires egraphMu.
+func (c *Cache) runHoldingRanLocked(run RunName) bool {
+	_, h := c.holdingLocked(HolderKey{Cache: run.Cache, Number: run.Number})
+	return h != nil && h.replacements == run.Replacements && ranPartsLocked(h)
+}
+
+// noteRunRanLocked marks, on the Cloud, entry's stored record as having run
+// (sharedResult.runRan) when key is its run's holding and h now reports a
+// part complete besides its metadata. Requires egraphMu for writing.
+func (c *Cache) noteRunRanLocked(entry *sharedResult, key HolderKey, h *holding) {
+	if !c.blobBacked || entry == nil || entry.runRan || entry.run == nil {
+		return
+	}
+	if run := *entry.run; key.Cache != run.Cache || key.Number != run.Number || h.replacements != run.Replacements || !ranPartsLocked(h) {
+		return
+	}
+	entry.runRan = true
+	c.markEntryLocked(entry.id)
+}
+
+// ownRunRanLocked reports whether res's stored record's own run ran: its
+// run's holding reported a part complete besides its metadata
+// (sharedResult.runRan), or the record proves one complete. A record whose
+// run never evaluated its step is a recipe, whatever another engine did with
+// the same entry. Requires egraphMu.
+func (c *Cache) ownRunRanLocked(res *sharedResult) bool {
+	if res.runRan {
+		return true
+	}
+	parts, ok := c.recordPartsLocked(res)
+	if !ok || parts.complete == nil {
+		return false
+	}
+	for _, address := range parts.complete.addresses() {
+		if address.Part != "metadata" {
+			return true
+		}
+	}
+	return false
 }
 
 // entriesOverLocked returns from and every entry that depends on one of
