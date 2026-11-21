@@ -18,7 +18,8 @@ import (
 // core schema base early, so its startup is unchanged and its notification
 // hooks cost one flag check.
 func snapshotSharingReceivesImports(opts *NewServerOpts) bool {
-	return opts != nil && opts.RemoteCacheIntegration != nil
+	// BENCH ONLY: early sharing off, to measure an engine without it.
+	return false
 }
 
 // initSnapshotSharing builds the static core schema base, registers the
