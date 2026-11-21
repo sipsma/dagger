@@ -60,6 +60,9 @@ func (w *RemoteWrites) AttachRemoteHolding(ctx context.Context, key HolderKey, d
 	if err != nil {
 		return RemoteChange{}, err
 	}
+	if err := w.c.checkHoldingEntryLocked(key, desc); err != nil {
+		return RemoteChange{}, err
+	}
 	return w.c.attachRemoteHoldingLocked(ctx, key, desc, parts, kept), nil
 }
 
