@@ -320,3 +320,26 @@ func TestALaterRunDoesntReplaceARecordWithContent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []StoredPartResult{{OtherRun: true}}, got)
 }
+
+// A record whose content is being uploaded isn't without content: a later
+// run doesn't replace it while the upload's claim holds (MarkPartUploading).
+func TestALaterRunDoesntReplaceARecordWhoseContentIsUploading(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
+	for _, n := range []uint64{r1, p1} {
+		_, err := cloud.MarkPartUploading(n, testLiveOffer().Address, true)
+		require.NoError(t, err)
+	}
+	reply, r2, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Zero(t, reply.Rows.RunsReplaced)
+	require.Equal(t, []uint64{r1, p1}, []uint64{r2, p2}, "B's records land on A's entries")
+
+	_, err := cloud.MarkPartUploading(p1, testLiveOffer().Address, false)
+	require.NoError(t, err)
+	_, err = cloud.MarkPartUploading(r1, testLiveOffer().Address, false)
+	require.NoError(t, err)
+	reply, _, p3 := replaceTestRun(t, ctx, cloud, "cache-c")
+	require.Equal(t, 2, reply.Rows.RunsReplaced, "once the uploads end without content, a later run replaces both")
+	require.NotEqual(t, p1, p3)
+}
