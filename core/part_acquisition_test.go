@@ -113,12 +113,13 @@ func TestPartAcquisitionRootRoutes(t *testing.T) {
 				require.NoError(t, a.Evaluate(actx, original))
 				selections = []dagql.SelectedValueOutput{{Result: original, Address: dagql.PersistedPartAddress{Part: "snapshot"}}}
 			}
+			var donorRes dagql.ObjectResult[*File]
 			if mode == "ready" {
 				ref, _ := bStore.Build(t, nil, "donor/selected.txt", "ready bytes")
 				donor := &File{File: new(LazyAccessor[string, *File]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]), Platform: platform}
 				donor.SetPath("/donor/selected.txt")
 				donor.SetSnapshot(ref)
-				attachTransferObject(t, bctx, b, bsrv, "b", "partFile", donor)
+				donorRes = attachTransferObject(t, bctx, b, bsrv, "b", "partFile", donor)
 			}
 			observed.bodies.Store(0)
 			require.NoError(t, a.WithExportedValues(actx, dagql.ValueSelection{Roots: []dagql.AnyResult{original}, Outputs: selections}, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(ctx context.Context, exported *dagql.ExportedValues) error {
@@ -134,6 +135,16 @@ func TestPartAcquisitionRootRoutes(t *testing.T) {
 				importedReply, err := b.MergeValues(bctx, dagql.CloudCacheID, exported.Bundle)
 				imported := importedReply.Imported()
 				require.NoError(t, err)
+				if mode == "ready" {
+					// B made the recipe's value itself, with other bytes than
+					// A's run: A's record is another run of it, kept apart
+					// (keepOwnRunsLocked), and B keeps its own bytes.
+					require.Empty(t, imported)
+					require.Len(t, importedReply.OtherRun, 1)
+					require.Equal(t, "ready bytes", string(demandedFileContents(t, bctx, donorRes)))
+					require.Zero(t, observed.bodies.Load())
+					return nil
+				}
 				loaded, err := b.LoadResultByResultID(bctx, "", bsrv, imported[0].ResultID)
 				require.NoError(t, err)
 				result := loaded.(dagql.ObjectResult[*File])
@@ -193,13 +204,8 @@ func TestPartAcquisitionRootRoutes(t *testing.T) {
 				require.Same(t, oldPath, result.Self().File)
 				require.Same(t, oldSnapshot, result.Self().Snapshot)
 				got := demandedFileContents(t, bctx, result)
-				if mode == "ready" {
-					require.Equal(t, "ready bytes", string(got))
-					require.Equal(t, "/donor/selected.txt", mustTransferPath(t, bctx, result))
-				} else {
-					require.Equal(t, "operation bytes", string(got))
-					require.Equal(t, "/produced.txt", mustTransferPath(t, bctx, result))
-				}
+				require.Equal(t, "operation bytes", string(got))
+				require.Equal(t, "/produced.txt", mustTransferPath(t, bctx, result))
 				if mode == "operation" || mode == "chain-fallback" {
 					require.EqualValues(t, 1, observed.bodies.Load())
 				} else {
