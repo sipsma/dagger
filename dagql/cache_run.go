@@ -151,11 +151,13 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 // a call whose step its engine never evaluated is a recipe, which no run's
 // content can mix with. It doesn't when the record's run ran
 // (ownRunRanLocked), stores content of its own, is an image entry's, or
-// has a stored record over it that its own engine made: that engine's run
-// of it happened, though no row said so, and a value of it over another
-// run's record would mix the two. Nothing is retired: nothing over a recipe
-// was built from its content. It reports whether res took run. Requires
-// egraphMu for writing.
+// has over it a stored record its own engine made whose own run ran:
+// running a step evaluates its inputs, so that engine's run of res
+// happened, though no row said so, and a value of it over another run's
+// record would mix the two. A record of that engine over res that never ran
+// itself, such as a list over its lazy items, says nothing of it. Nothing
+// is retired: nothing over a recipe was built from its content. It reports
+// whether res took run. Requires egraphMu for writing.
 func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) bool {
 	if !c.blobBacked || res.run == nil || res.imageEntry || c.ownRunRanLocked(res) {
 		return false
@@ -165,16 +167,41 @@ func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) bool {
 			return false
 		}
 	}
-	for parentID := range res.depParents {
-		parent := c.resultsByID[parentID]
-		if parent != nil && parent.run != nil && parent.run.Cache == res.run.Cache && !parent.noValueLocked() {
-			return false
-		}
+	if c.ownEngineRanOverLocked(res) {
+		return false
 	}
 	adopted := run
 	res.run, res.runRan = &adopted, true
 	c.markEntryLocked(res.id)
 	return true
+}
+
+// ownEngineRanOverLocked reports whether a stored record over res, directly
+// or through others of the same engine, was made by res's own engine and
+// its own run ran. Requires egraphMu.
+func (c *Cache) ownEngineRanOverLocked(res *sharedResult) bool {
+	engine := res.run.Cache
+	seen := map[sharedResultID]bool{res.id: true}
+	queue := []*sharedResult{res}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for parentID := range cur.depParents {
+			if seen[parentID] {
+				continue
+			}
+			seen[parentID] = true
+			parent := c.resultsByID[parentID]
+			if parent == nil || parent.run == nil || parent.run.Cache != engine || parent.noValueLocked() {
+				continue
+			}
+			if c.ownRunRanLocked(parent) {
+				return true
+			}
+			queue = append(queue, parent)
+		}
+	}
+	return false
 }
 
 // metadataPartKey is the metadata part's address key (partAddressKey).
