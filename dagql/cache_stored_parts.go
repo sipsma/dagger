@@ -129,10 +129,13 @@ func (c *Cache) SetStoredParts(ctx context.Context, parts []StoredPartWrite) (_ 
 		}
 		res := c.resultsByID[sharedResultID(w.Number)]
 		if res != nil && !res.noValueLocked() && c.runOfLocked(res) != w.Run {
-			// Another run's bytes beside the record of the run the entry
-			// holds would mix the two: the first run stored wins.
-			results[i].OtherRun = true
-			continue
+			if !c.adoptRunLocked(res, w.Run) {
+				// Another run's bytes beside the record of the run the
+				// entry holds would mix the two: the first run stored
+				// wins.
+				results[i].OtherRun = true
+				continue
+			}
 		}
 		results[i].Stored, results[i].Err = c.setStoredPartLocked(ctx, w.Number, ready[i].key, ready[i].stored, w.CopyExpiresAtUnix, now)
 	}

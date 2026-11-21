@@ -146,6 +146,37 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 	slices.SortFunc(commit.retireOver, compareSharedResults)
 }
 
+// adoptRunLocked gives res's stored record run, the run of a part being
+// stored onto it, when the record's own run never ran: a record learned at
+// a call whose step its engine never evaluated is a recipe, which no run's
+// content can mix with. It doesn't when the record's run ran
+// (ownRunRanLocked), stores content of its own, is an image entry's, or
+// has a stored record over it that its own engine made: that engine's run
+// of it happened, though no row said so, and a value of it over another
+// run's record would mix the two. Nothing is retired: nothing over a recipe
+// was built from its content. It reports whether res took run. Requires
+// egraphMu for writing.
+func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) bool {
+	if !c.blobBacked || res.run == nil || res.imageEntry || c.ownRunRanLocked(res) {
+		return false
+	}
+	for _, part := range res.storedPartsLocked() {
+		if part.address().Part != "metadata" {
+			return false
+		}
+	}
+	for parentID := range res.depParents {
+		parent := c.resultsByID[parentID]
+		if parent != nil && parent.run != nil && parent.run.Cache == res.run.Cache && !parent.noValueLocked() {
+			return false
+		}
+	}
+	adopted := run
+	res.run, res.runRan = &adopted, true
+	c.markEntryLocked(res.id)
+	return true
+}
+
 // metadataPartKey is the metadata part's address key (partAddressKey).
 const metadataPartKey = `{"part":"metadata"}`
 
