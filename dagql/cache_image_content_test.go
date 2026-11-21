@@ -374,8 +374,9 @@ func TestDebugCacheSnapshotMarksImageEntries(t *testing.T) {
 func TestImageEntries(t *testing.T) {
 	t.Parallel()
 	ctx, c, srv := transferTestCache(t)
-	dep := persistedListTestResult(t, ctx, c, srv, "dep", &transferTestValue{Text: "dep"})
-	root := persistedListTestResult(t, ctx, c, srv, "root", &transferTestValue{Text: "pending"})
+	// Neither has run on c, so the offer lands (keepOwnRunsLocked).
+	dep := persistedListTestResult(t, ctx, c, srv, "dep", ownRunTestLazy("dep"))
+	root := persistedListTestResult(t, ctx, c, srv, "root", ownRunTestLazy("pending"))
 	require.NoError(t, c.AddExplicitDependency(ctx, root, dep, "root reads dep"))
 	out, err := c.testOfferParts(ctx, root, []PersistedPartOffer{imageTestLayerOffer(ImageBlobAddress)})
 	require.NoError(t, err)

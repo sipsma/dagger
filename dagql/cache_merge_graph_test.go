@@ -61,7 +61,9 @@ func TestMergeGraphRefusesACycleThroughANewOffer(t *testing.T) {
 		bundle := cloudTestBundle(t, ctx, a, k)
 
 		bctx, b, bsrv := transferTestCache(t)
-		keptK := persistedListTestResult(t, bctx, b, bsrv, "new-owner-k", &transferTestValue{Text: "pending"})
+		// K hasn't run on the engine, so the Cloud's offer may land on it
+		// (keepOwnRunsLocked); M is equal to the bundle's by content.
+		keptK := persistedListTestResult(t, bctx, b, bsrv, "new-owner-k", ownRunTestLazy("pending"))
 		keptM := persistedListTestResult(t, bctx, b, bsrv, "new-owner-m", String("m"))
 		require.NoError(t, b.AddExplicitDependency(bctx, keptM, keptK, "test"))
 
@@ -82,7 +84,9 @@ func TestMergeGraphRefusesACycleThroughANewOffer(t *testing.T) {
 		bundle := cloudTestBundle(t, ctx, a, x)
 
 		bctx, b, bsrv := transferTestCache(t)
-		keptX := persistedListTestResult(t, bctx, b, bsrv, "old-owner-x", &transferTestValue{Text: "pending"})
+		// X hasn't run on the engine, so the Cloud's offer may land on it
+		// (keepOwnRunsLocked); Y is equal to the bundle's by content.
+		keptX := persistedListTestResult(t, bctx, b, bsrv, "old-owner-x", ownRunTestLazy("pending"))
 		keptM := persistedListTestResult(t, bctx, b, bsrv, "old-owner-m", String("m"))
 		keptY := persistedListTestResult(t, bctx, b, bsrv, "old-owner-y", String("y"))
 		require.NoError(t, b.AddExplicitDependency(bctx, keptM, keptX, "test"))

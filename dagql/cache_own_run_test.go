@@ -371,7 +371,7 @@ func TestMergeValuesLeavesAnOfferOwnedByADroppedRow(t *testing.T) {
 	sentC := persistedListTestResult(t, actx, a, asrv, "owner-c", &transferTestValue{Text: "fill c"})
 	require.NoError(t, a.TeachContentDigest(actx, sentC, content))
 	mergeTestOfferOn(t, actx, a, sentC, "/c", sentB)
-	bundle := exportTestBundle(t, actx, a, sentC, sentB)
+	bundle := cloudTestBundle(t, actx, a, sentC, sentB)
 
 	for _, sameContent := range []bool{true, false} {
 		t.Run(map[bool]string{true: "own copy by content", false: "taken value"}[sameContent], func(t *testing.T) {
