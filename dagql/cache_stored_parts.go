@@ -76,6 +76,9 @@ type StoredPartResult struct {
 	// the recipe wins.
 	OtherRun bool
 	Err      error
+	// Adopted reports that the part was stored onto a record whose own run
+	// never ran, which took the part's run (adoptRunLocked).
+	Adopted bool
 }
 
 // SetStoredParts stores parts as SetStoredPart stores each, in order, under
@@ -143,6 +146,7 @@ func (c *Cache) SetStoredParts(ctx context.Context, parts []StoredPartWrite) (_ 
 		if adopt && results[i].Stored {
 			// The recipe takes the run only with its part.
 			c.adoptRunLocked(res, w.Run)
+			results[i].Adopted = true
 		}
 	}
 	return results, change, nil

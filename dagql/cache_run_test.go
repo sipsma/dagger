@@ -445,6 +445,9 @@ func TestALaterRunNeverReplacesAnImageResult(t *testing.T) {
 		got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p1, Run: RunName{Cache: "cache-b", Number: 9}, Part: testLiveOffer()}})
 		require.NoError(t, err)
 		require.Equal(t, []StoredPartResult{{OtherRun: true}}, got, "never adopted")
+		reply, _, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
+		require.Zero(t, reply.Rows.RunsReplaced, "never replaced")
+		require.Equal(t, p1, p2)
 	})
 	t.Run("image closure record", func(t *testing.T) {
 		t.Parallel()
@@ -454,6 +457,9 @@ func TestALaterRunNeverReplacesAnImageResult(t *testing.T) {
 		image := cloud.resultsByID[sharedResultID(p1)].imageEntry
 		cloud.egraphMu.RUnlock()
 		require.False(t, image, "a record the image ships without content isn't the image's run")
+		got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p1, Run: RunName{Cache: "cache-b", Number: 9}, Part: testLiveOffer()}})
+		require.NoError(t, err)
+		require.Equal(t, []StoredPartResult{{Stored: true, Adopted: true}}, got, "a recipe: the first run stored adopts it")
 	})
 }
 
@@ -480,7 +486,7 @@ func TestARecipeRecordTakesTheRunOfTheFirstPartStored(t *testing.T) {
 		cloud.egraphMu.Lock()
 		cloud.resultsByID[sharedResultID(r)].run = &RunName{Cache: "cache-third", Number: 1}
 		cloud.egraphMu.Unlock()
-		require.Equal(t, StoredPartResult{Stored: true}, partOf(t, cloud, p, later), "stored onto the recipe")
+		require.Equal(t, StoredPartResult{Stored: true, Adopted: true}, partOf(t, cloud, p, later), "stored onto the recipe")
 		run, ok := cloud.EntryRun(p)
 		require.True(t, ok)
 		require.Equal(t, later, run, "the record takes the part's run")
@@ -497,7 +503,7 @@ func TestARecipeRecordTakesTheRunOfTheFirstPartStored(t *testing.T) {
 		t.Parallel()
 		ctx, cloud := storedPartTestCache(t, WithBlobStore())
 		_, _, p := replaceTestRun(t, ctx, cloud, "cache-a")
-		require.Equal(t, StoredPartResult{Stored: true}, partOf(t, cloud, p, later), "a recipe over a recipe says nothing of it")
+		require.Equal(t, StoredPartResult{Stored: true, Adopted: true}, partOf(t, cloud, p, later), "a recipe over a recipe says nothing of it")
 	})
 	t.Run("ran", func(t *testing.T) {
 		t.Parallel()
