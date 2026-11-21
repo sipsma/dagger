@@ -124,23 +124,25 @@ func TestAPrunedEntryTakesTheRunOfItsRefill(t *testing.T) {
 }
 
 // A stored bundle doesn't lend a part of one run to another run of the same
-// recipe: a retired run's parts stay with it.
+// recipe: the only other entries of a recipe are the runs a later run
+// retired, and a bundle of the later run borrows nothing of theirs.
 func TestStoredBundleLendsNoPartOfAnotherRunOfTheRecipe(t *testing.T) {
 	t.Parallel()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
-	a, _ := mergeTestSource(t, "root", "a's value")
-	b, _ := mergeTestSource(t, "root", "b's value")
-	ra, err := cloud.MergeValues(ctx, "cache-a", a)
+	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
+	stored, _, err := cloud.SetStoredPart(ctx, r1, storedPartRunOf(t, cloud, r1), testLiveOffer(), 0)
 	require.NoError(t, err)
-	na := ra.Imported()[0].ResultID
-	cloud.egraphMu.Lock()
-	resA := cloud.resultsByID[sharedResultID(na)]
-	resB := &sharedResult{id: resA.id + 1000, recipeKeys: resA.recipeKeys}
-	resB.run = &RunName{Cache: "cache-b", Number: b.Values[0].SenderNumber}
-	require.True(t, cloud.otherRunOfRecipeLocked(resA, resB), "two runs of one recipe")
-	resB.run = resA.run
-	require.False(t, cloud.otherRunOfRecipeLocked(resA, resB), "one run")
-	cloud.egraphMu.Unlock()
+	require.True(t, stored)
+	replaceTestRan(t, ctx, cloud, p1)
+	_, r2, _ := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.NotEqual(t, r1, r2, "A's root is retired")
+	content := testDigest("one root, two runs")
+	for _, n := range []uint64{r1, r2} {
+		require.NoError(t, cloud.TeachContentDigest(ctx, Result[Typed]{shared: storedBundleTestEntry(cloud, n)}, content))
+	}
+	built, err := cloud.StoredBundle(ctx, []uint64{r2}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Empty(t, built.Bundle.Outputs, "B's root borrows nothing of A's run")
 }
 
 // The Cloud keeps each record's run whether it holds the record whole or
@@ -395,15 +397,13 @@ func TestALaterRunReplacesOnlyARecordWhoseOwnRunRan(t *testing.T) {
 	require.NotEqual(t, p1, p3)
 }
 
-// An image entry's record is never replaced, and a sender's own run of a row
-// its image ships replaces nothing; the mark survives a restart.
-func TestALaterRunNeverReplacesAnImageEntry(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "cloud.db")
-	ctx, cloud := storedPersistenceTestCloud(t, path)
+// imageTestRun merges, from cache-a, P and R over it as rows its image
+// ships, P's value declaring snapshot in state, and returns P's number.
+func imageTestRun(t *testing.T, ctx context.Context, cloud *Cache, state string) uint64 {
+	t.Helper()
 	ectx, e, esrv := transferTestCache(t)
 	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "image root"})
-	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "image dep"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "image dep", Parts: []transferTestPart{{Part: "snapshot", State: state, Kind: "directory"}}})
 	transferTestDependency(e, ectx, r, p)
 	bundle := exportTestBundle(t, ectx, e, r)
 	prepared, err := cloud.PrepareValueMerge(ctx, "cache-a", bundle)
@@ -413,34 +413,55 @@ func TestALaterRunNeverReplacesAnImageEntry(t *testing.T) {
 	}
 	reply, err := cloud.CommitValueMerge(ctx, prepared)
 	require.NoError(t, err)
-	var p1 uint64
 	for _, value := range reply.Values {
 		for _, sent := range bundle.Values {
 			if sent.Ordinal == value.Ordinal && sent.SenderNumber == uint64(p.cacheSharedResult().id) {
-				p1 = value.Number
+				return value.Number
 			}
 		}
 	}
-	require.NotZero(t, p1)
-	replaceTestRan(t, ctx, cloud, p1)
-	require.NoError(t, cloud.Close(ctx))
+	t.Fatal("no P")
+	return 0
+}
 
-	ctx, cloud = storedPersistenceTestCloud(t, path)
-	defer func() { require.NoError(t, cloud.Close(ctx)) }()
-	cloud.egraphMu.RLock()
-	image := cloud.resultsByID[sharedResultID(p1)].imageEntry
-	cloud.egraphMu.RUnlock()
-	require.True(t, image, "the mark survives a restart")
-	reply, _, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
-	require.Zero(t, reply.Rows.RunsReplaced, "an image entry's record isn't replaced")
-	require.Equal(t, p1, p2)
+// An image entry whose content the image ships is the image's run: a later
+// run never replaces it, nor does another run's part adopt it, over a
+// restart too. One the image ships as a record alone is a recipe like any
+// other: a later run's part adopts it.
+func TestALaterRunNeverReplacesAnImageResult(t *testing.T) {
+	t.Parallel()
+	t.Run("image result", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "cloud.db")
+		ctx, cloud := storedPersistenceTestCloud(t, path)
+		p1 := imageTestRun(t, ctx, cloud, "completed")
+		require.NoError(t, cloud.Close(ctx))
+		ctx, cloud = storedPersistenceTestCloud(t, path)
+		defer func() { require.NoError(t, cloud.Close(ctx)) }()
+		cloud.egraphMu.RLock()
+		image := cloud.resultsByID[sharedResultID(p1)].imageEntry
+		cloud.egraphMu.RUnlock()
+		require.True(t, image, "the mark survives a restart")
+		got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p1, Run: RunName{Cache: "cache-b", Number: 9}, Part: testLiveOffer()}})
+		require.NoError(t, err)
+		require.Equal(t, []StoredPartResult{{OtherRun: true}}, got, "never adopted")
+	})
+	t.Run("image closure record", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud := storedPartTestCache(t, WithBlobStore())
+		p1 := imageTestRun(t, ctx, cloud, "pending")
+		cloud.egraphMu.RLock()
+		image := cloud.resultsByID[sharedResultID(p1)].imageEntry
+		cloud.egraphMu.RUnlock()
+		require.False(t, image, "a record the image ships without content isn't the image's run")
+	})
 }
 
 // A stored record whose own run never ran is a recipe: a part of another
 // run, one that ran, is stored onto it, and the record takes that run.
 // Nothing is retired. A record with a stored record over it from its own
-// engine, whose run did happen though no row said so, and an image entry's
-// record keep refusing it.
+// engine that ran, so its run did happen though no row said so, keeps
+// refusing it.
 func TestARecipeRecordTakesTheRunOfTheFirstPartStored(t *testing.T) {
 	t.Parallel()
 	partOf := func(t *testing.T, cloud *Cache, number uint64, run RunName) StoredPartResult {
@@ -488,15 +509,121 @@ func TestARecipeRecordTakesTheRunOfTheFirstPartStored(t *testing.T) {
 		replaceTestRan(t, ctx, cloud, n)
 		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, n, later))
 	})
-	t.Run("image entry", func(t *testing.T) {
-		t.Parallel()
-		ctx, cloud := storedPartTestCache(t, WithBlobStore())
-		bundle, _ := mergeTestSource(t, "root", "value")
-		prepared, err := cloud.PrepareValueMerge(ctx, "cache-a", bundle)
-		require.NoError(t, err)
-		prepared.ImageEntries(bundle.Values[0].Ordinal)
-		reply, err := cloud.CommitValueMerge(ctx, prepared)
-		require.NoError(t, err)
-		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, reply.Imported()[0].ResultID, later))
-	})
+}
+
+// replaceTestProving merges from cache-a P, whose record proves snapshot
+// complete, and R over it, holding them whole or compressed, and returns P.
+func replaceTestProving(t *testing.T, compressed bool) (context.Context, *Cache, uint64) {
+	t.Helper()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	if !compressed {
+		storedTestHoldWhole(cloud)
+	}
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "dep", Parts: []transferTestPart{{Part: "snapshot", State: "completed", Kind: "directory"}}})
+	transferTestDependency(e, ectx, r, p)
+	bundle := exportTestBundle(t, ectx, e, r)
+	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	require.NoError(t, err)
+	if compressed {
+		storedTestCompress(cloud)
+	}
+	for _, value := range reply.Values {
+		for _, sent := range bundle.Values {
+			if sent.Ordinal == value.Ordinal && sent.SenderNumber == uint64(p.cacheSharedResult().id) {
+				return ctx, cloud, value.Number
+			}
+		}
+	}
+	t.Fatal("no P")
+	return nil, nil, 0
+}
+
+// A record that proves a part complete is its run's, whole or compressed:
+// another run's part is refused onto it before any telemetry says it ran.
+func TestARecordThatProvesItsRunIsNoRecipe(t *testing.T) {
+	t.Parallel()
+	for _, compressed := range []bool{false, true} {
+		t.Run(storedTestState(compressed), func(t *testing.T) {
+			t.Parallel()
+			ctx, cloud, p := replaceTestProving(t, compressed)
+			got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p, Run: RunName{Cache: "cache-b", Number: 9}, Part: testLiveOffer()}})
+			require.NoError(t, err)
+			require.Equal(t, []StoredPartResult{{OtherRun: true}}, got)
+		})
+	}
+}
+
+// A merge that would retire an entry a held row of it stands for replaces
+// nothing: the held row carries no record to install in its place.
+func TestAHeldRowOverAReplacedRunStopsTheReplacement(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRan(t, ctx, cloud, p1)
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "b root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "b dep"})
+	transferTestDependency(e, ectx, r, p)
+	held := engineHeldTestBundle(t, e, exportTestBundle(t, ectx, e, r, p), r)
+	reply, err := cloud.MergeValues(ctx, "cache-b", held)
+	require.NoError(t, err)
+	require.Zero(t, reply.Rows.RunsReplaced)
+	recipe, ok := cloud.EntryRecipe(r1)
+	require.True(t, ok)
+	require.Equal(t, []uint64{r1}, cloud.EquivalentEntries(recipe.String()), "A's root stays")
+}
+
+// A record's own engine's record over it that ran says the recipe's run
+// happened, though a record of another engine sits between them.
+func TestARecipeKeepsItsRunUnderItsEnginesRecordThroughAnothers(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "chain-r", &transferTestValue{Text: "r"})
+	q := persistedListTestResult(t, ectx, e, esrv, "chain-q", &transferTestValue{Text: "q"})
+	p := persistedListTestResult(t, ectx, e, esrv, "chain-p", &transferTestValue{Text: "p"})
+	transferTestDependency(e, ectx, r, q)
+	transferTestDependency(e, ectx, q, p)
+	bundle := exportTestBundle(t, ectx, e, r)
+	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	require.NoError(t, err)
+	numbers := map[uint64]uint64{}
+	for _, value := range reply.Values {
+		for _, sent := range bundle.Values {
+			if sent.Ordinal == value.Ordinal {
+				numbers[sent.SenderNumber] = value.Number
+			}
+		}
+	}
+	cp, cq, cr := numbers[uint64(p.cacheSharedResult().id)], numbers[uint64(q.cacheSharedResult().id)], numbers[uint64(r.cacheSharedResult().id)]
+	cloud.egraphMu.Lock()
+	cloud.resultsByID[sharedResultID(cq)].run = &RunName{Cache: "cache-b", Number: 5}
+	cloud.egraphMu.Unlock()
+	replaceTestRan(t, ctx, cloud, cr)
+	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: cp, Run: RunName{Cache: "cache-c", Number: 9}, Part: testLiveOffer()}})
+	require.NoError(t, err)
+	require.Equal(t, []StoredPartResult{{OtherRun: true}}, got, "cache-a's R over B's Q ran, so cache-a's P ran")
+}
+
+// A recipe takes a part's run only with the part: a part refused for its
+// expired copy leaves the recipe as it was, to take a later run's.
+func TestARefusedPartLeavesTheRecipesRun(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, p := replaceTestRun(t, ctx, cloud, "cache-other")
+	before, ok := cloud.EntryRun(p)
+	require.True(t, ok)
+	cloud.egraphMu.Lock()
+	for parentID := range cloud.resultsByID[sharedResultID(p)].depParents {
+		cloud.resultsByID[parentID].run = &RunName{Cache: "cache-third", Number: 1}
+	}
+	cloud.egraphMu.Unlock()
+	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p, Run: RunName{Cache: "cache-b", Number: 9}, Part: testLiveOffer(), CopyExpiresAtUnix: 1}})
+	require.NoError(t, err)
+	require.False(t, got[0].Stored, "the expired copy is refused")
+	run, ok := cloud.EntryRun(p)
+	require.True(t, ok)
+	require.Equal(t, before, run, "the recipe keeps its run")
 }

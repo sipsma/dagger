@@ -128,16 +128,22 @@ func (c *Cache) SetStoredParts(ctx context.Context, parts []StoredPartWrite) (_ 
 			continue
 		}
 		res := c.resultsByID[sharedResultID(w.Number)]
+		adopt := false
 		if res != nil && !res.noValueLocked() && c.runOfLocked(res) != w.Run {
-			if !c.adoptRunLocked(res, w.Run) {
+			if !c.canAdoptRunLocked(res) {
 				// Another run's bytes beside the record of the run the
 				// entry holds would mix the two: the first run stored
 				// wins.
 				results[i].OtherRun = true
 				continue
 			}
+			adopt = true
 		}
 		results[i].Stored, results[i].Err = c.setStoredPartLocked(ctx, w.Number, ready[i].key, ready[i].stored, w.CopyExpiresAtUnix, now)
+		if adopt && results[i].Stored {
+			// The recipe takes the run only with its part.
+			c.adoptRunLocked(res, w.Run)
+		}
 	}
 	return results, change, nil
 }
