@@ -168,9 +168,13 @@ func entriesOverLocked(c *Cache, from []*sharedResult) map[sharedResultID]*share
 
 // storedWithoutContentLocked reports whether res's stored record declares or
 // proves a part besides its metadata, and the cache stores none of its
-// parts but metadata: a run whose content no engine can fetch. Requires
-// egraphMu.
+// parts but metadata, nor has an upload of one in progress
+// (MarkPartUploading): a run whose content no engine can fetch, nor is on
+// its way. Requires egraphMu.
 func (c *Cache) storedWithoutContentLocked(res *sharedResult) bool {
+	if len(res.uploading) > 0 {
+		return false
+	}
 	for _, part := range res.storedPartsLocked() {
 		if part.address().Part != "metadata" {
 			return false
