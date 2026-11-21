@@ -930,7 +930,7 @@ func (c *Cache) prepareCheckedValueMerge(ctx context.Context, prep *valueMergePr
 		prep.early = c.earlyMergeRows(ctx, prep)
 	}
 	if !c.blobBacked {
-		prep.notePlainRecords()
+		prep.notePlainRecords(c.rowsOverOwnEntries(ctx, prep))
 	}
 	// Every other record is prepared with its payload.
 	if err := prep.prepareRecordPayloads(ctx, relocateRecord, relocate); err != nil {

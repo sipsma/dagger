@@ -133,14 +133,38 @@ type incomingPlain struct {
 	named []uint64
 }
 
+// rowsOverOwnEntries returns the ordinals of the bundle's rows whose recipe's
+// current entry holds a value the cache computed itself, as the cache stands
+// while the merge prepares: only such a row's record is compared with the
+// cache's own value (samePlainValueLocked). An entry that becomes the cache's
+// own after this read has no plain record to compare, so a row landing on it
+// is kept apart.
+func (c *Cache) rowsOverOwnEntries(ctx context.Context, prep *valueMergePrep) map[uint64]bool {
+	c.readLockGraphGathered(ctx)
+	defer c.egraphMu.RUnlock()
+	var own map[uint64]bool
+	for id, plan := range prep.plans {
+		if !c.computedHereLocked(c.currentEntryForRecipeLocked(plan.recipe)) {
+			continue
+		}
+		if own == nil {
+			own = map[uint64]bool{}
+		}
+		own[id] = true
+	}
+	return own
+}
+
 // notePlainRecords records, during preparation, each plain record of the
-// bundle with the entries it names read as the bundle's rows: a row its
-// recipe's entry keeps is prepared from its call alone (keptMergeRecords), so
-// its value is read here, from the bundle, while preparation still has it. A
-// record naming an entry outside the bundle isn't recorded.
-func (prep *valueMergePrep) notePlainRecords() {
+// bundle that lands on an entry the cache computed itself (own), with the
+// entries it names read as the bundle's rows: a row its recipe's entry keeps
+// is prepared from its call alone (keptMergeRecords), so its value is read
+// here, from the bundle, while preparation still has it. Reading a record's
+// value decodes its payload, so no other row's is read. A record naming an
+// entry outside the bundle isn't recorded.
+func (prep *valueMergePrep) notePlainRecords(own map[uint64]bool) {
 	for _, id := range prep.order {
-		if prep.held[id] {
+		if prep.held[id] || !own[id] {
 			continue
 		}
 		row := prep.index[id]
