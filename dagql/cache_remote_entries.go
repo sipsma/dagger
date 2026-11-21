@@ -90,6 +90,11 @@ type RemoteHolding struct {
 	// Recipe is the recipe digest of the entry's stored call frame
 	// (dag.output); the holding sits on the entry of that recipe.
 	Recipe digest.Digest
+	// Entry, when set, is the Cloud entry a new holding sits on in place of
+	// its recipe's: a record an engine restored from a file is the run of
+	// the entry the file named, which a later run may have retired since
+	// (replaceRunsLocked). Its recipe isn't taught to the entry.
+	Entry uint64
 	// Request is the digest of the call that returned the entry (dag.digest),
 	// taught onto the entry as an equivalence when it differs from Recipe.
 	Request digest.Digest
@@ -431,14 +436,29 @@ func (c *Cache) AttachRemoteHolding(ctx context.Context, key HolderKey, desc Rem
 	}
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
+	if err := c.checkHoldingEntryLocked(key, desc); err != nil {
+		return RemoteChange{}, err
+	}
 	return c.attachRemoteHoldingLocked(ctx, key, desc, parts, kept), nil
+}
+
+// checkHoldingEntryLocked refuses a new holding on an entry desc names that
+// the cache doesn't have. Requires egraphMu.
+func (c *Cache) checkHoldingEntryLocked(key HolderKey, desc RemoteHolding) error {
+	if desc.Entry == 0 || c.resultsByID[sharedResultID(desc.Entry)] != nil {
+		return nil
+	}
+	if _, h := c.holdingLocked(key); h != nil {
+		return nil
+	}
+	return fmt.Errorf("attach remote holding %s/%d: no entry %d", key.Cache, key.Number, desc.Entry)
 }
 
 // prepareRemoteHolding checks a holding's key and recipe, and derives what
 // attaching it reads of its description without the cache: its parts' keys
 // and the call it keeps.
 func prepareRemoteHolding(key HolderKey, desc RemoteHolding) ([]string, *keptCall, error) {
-	if key.Cache == "" || key.Number == 0 || desc.Recipe == "" {
+	if key.Cache == "" || key.Number == 0 || desc.Recipe == "" && desc.Entry == 0 {
 		return nil, nil, fmt.Errorf("attach remote holding: empty key or recipe")
 	}
 	if senderCache(key.Cache) {
@@ -472,7 +492,11 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		entry, h = c.newHoldingLocked(ctx, state, key, desc)
 		change.Candidates = []HolderKey{key}
 	}
-	c.teachRemoteIdentityLocked(ctx, entry, desc.Field, desc.Recipe, desc.Request, desc.ContentDigest, desc.Term)
+	recipe := desc.Recipe
+	if desc.Entry != 0 {
+		recipe = ""
+	}
+	c.teachRemoteIdentityLocked(ctx, entry, desc.Field, recipe, desc.Request, desc.ContentDigest, desc.Term)
 	change.Saved = c.keepCallLocked(entry, desc, kept)
 	if desc.TypeName != "" && desc.TypeName != handleString(h.typeName) {
 		h.typeName = internString(desc.TypeName)
@@ -493,9 +517,14 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 	return change
 }
 
-// newHoldingLocked attaches a new holding to the entry of desc's recipe and
-// gives it its waiting dependents. Requires egraphMu for writing.
+// newHoldingLocked attaches a new holding to desc's entry, or else the entry
+// of desc's recipe, and gives it its waiting dependents. Requires egraphMu
+// for writing.
 func (c *Cache) newHoldingLocked(ctx context.Context, state *remoteCacheState, key HolderKey, desc RemoteHolding) (*sharedResult, *holding) {
+	if desc.Entry != 0 {
+		entry := c.resultsByID[sharedResultID(desc.Entry)]
+		return entry, c.addHoldingLocked(ctx, state, key, entry)
+	}
 	entry := c.resultsByID[c.entriesByRecipe[desc.Recipe]]
 	if entry == nil {
 		entry = &sharedResult{
