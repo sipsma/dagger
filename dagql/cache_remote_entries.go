@@ -1820,9 +1820,11 @@ func (c *Cache) entryClassEntriesLocked(number uint64) (EntryClass, bool) {
 	var class EntryClass
 	class.Number, class.Stored, class.StoredExpiresAtUnix, _ = entryFactsLocked(entry)
 	entries := map[sharedResultID]struct{}{entry.id: {}}
+	// An entry a later run replaced is no class mate of the class's current
+	// entries, nor they of it (runReplaced).
 	for root := range c.outputEqClassRootsLocked(entry.id) {
 		for id := range c.outputEqClassResults[root] {
-			if c.resultsByID[id] != nil {
+			if mate := c.resultsByID[id]; mate != nil && !mate.runReplaced && !entry.runReplaced {
 				entries[id] = struct{}{}
 			}
 		}

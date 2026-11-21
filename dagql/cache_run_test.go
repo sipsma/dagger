@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -199,12 +200,123 @@ func TestCloudCountsRecordsOverAnotherRunOfAnInput(t *testing.T) {
 				transferTestDependency(s, sctx, r, p)
 				return exportTestBundle(t, sctx, s, r)
 			}
-			_, err := cloud.MergeValues(ctx, "cache-a", source("cache-a", tc.a, ""))
+			first, err := cloud.MergeValues(ctx, "cache-a", source("cache-a", tc.a, ""))
 			require.NoError(t, err)
+			// A's input has its content, so B's run of it doesn't replace
+			// it (replaceRunsLocked).
+			p := first.Imported()[0].ResultID
+			stored, _, err := cloud.SetStoredPart(ctx, p, storedPartRunOf(t, cloud, p), testLiveOffer(), 0)
+			require.NoError(t, err)
+			require.True(t, stored)
 			reply, err := cloud.MergeValues(ctx, "cache-b", source("cache-b", tc.b, "over-r"))
 			require.NoError(t, err)
 			got := MergeRowCounts{OverOtherRunEqual: reply.Rows.OverOtherRunEqual, OverOtherRunDifferent: reply.Rows.OverOtherRunDifferent, OverOtherRunUnknown: reply.Rows.OverOtherRunUnknown}
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// replaceTestRun exports a run of P and of R over it from an engine cache of
+// its own, P's and R's values naming the run, and merges it into cloud as
+// from. It returns the merge's reply and the Cloud's numbers for R and P.
+func replaceTestRun(t *testing.T, ctx context.Context, cloud *Cache, from CacheID) (MergeReply, uint64, uint64) {
+	t.Helper()
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
+	transferTestDependency(e, ectx, r, p)
+	bundle := exportTestBundle(t, ectx, e, r)
+	reply, err := cloud.MergeValues(ctx, from, bundle)
+	require.NoError(t, err)
+	var rNumber, pNumber uint64
+	for _, value := range reply.Values {
+		for _, sent := range bundle.Values {
+			if sent.Ordinal != value.Ordinal {
+				continue
+			}
+			switch sent.SenderNumber {
+			case uint64(r.cacheSharedResult().id):
+				rNumber = value.Number
+			case uint64(p.cacheSharedResult().id):
+				pNumber = value.Number
+			}
+		}
+	}
+	require.NotZero(t, rNumber)
+	require.NotZero(t, pNumber)
+	return reply, rNumber, pNumber
+}
+
+// A stored record whose run left no content is replaced by a later engine's
+// own run of it: the old entry and every entry over it are retired, whatever
+// content they hold, and the later run's records become the recipes'
+// entries. A retired entry is no lookup's or class mate's, keeps its stored
+// parts for what names it already, and stays retired over a restart.
+func TestALaterRunReplacesARecordStoredWithoutContent(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
+	stored, _, err := cloud.SetStoredPart(ctx, r1, storedPartRunOf(t, cloud, r1), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored, "A's root has its content")
+	cloud.egraphMu.RLock()
+	require.True(t, cloud.storedWithoutContentLocked(cloud.resultsByID[sharedResultID(p1)]), "A's dep has none")
+	cloud.egraphMu.RUnlock()
+	pRecipe, ok := cloud.EntryRecipe(p1)
+	require.True(t, ok)
+	rRecipe, ok := cloud.EntryRecipe(r1)
+	require.True(t, ok)
+
+	reply, r2, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Equal(t, 1, reply.Rows.RunsReplaced, "B's dep replaces A's")
+	require.NotEqual(t, p1, p2, "B's dep is a new entry")
+	require.NotEqual(t, r1, r2, "and so is B's root, over it")
+	for _, n := range []uint64{p2, r2} {
+		run, ok := cloud.EntryRun(n)
+		require.True(t, ok)
+		require.Equal(t, CacheID("cache-b"), run.Cache, "entry %d is B's run", n)
+	}
+	retired := func(cloud *Cache, when string) {
+		t.Helper()
+		require.Equal(t, []uint64{p2}, cloud.EquivalentEntries(pRecipe.String()), "%s: a lookup of the dep finds B's alone", when)
+		require.Equal(t, []uint64{r2}, cloud.EquivalentEntries(rRecipe.String()), "%s: a lookup of the root finds B's alone", when)
+		class, ok := cloud.EntryClassEntries(r1)
+		require.True(t, ok, "%s: A's root stays for what names it", when)
+		require.Equal(t, []uint64{r1}, class.Entries, "%s: and is no class mate of B's", when)
+		av, err := cloud.AvailablePart(r1, testLiveOffer().Address, 0)
+		require.NoError(t, err)
+		require.Equal(t, PartStored, av.State, "%s: A's root keeps its content", when)
+	}
+	retired(cloud, "after the merge")
+	require.NoError(t, cloud.Close(ctx))
+
+	ctx, cloud = storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	retired(cloud, "after a restart")
+}
+
+// A stored record with content isn't replaced: the first run stored stays,
+// and a later engine's own run of it lands on it, its part refused.
+func TestALaterRunDoesntReplaceARecordWithContent(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
+	for _, n := range []uint64{r1, p1} {
+		stored, _, err := cloud.SetStoredPart(ctx, n, storedPartRunOf(t, cloud, n), testLiveOffer(), 0)
+		require.NoError(t, err)
+		require.True(t, stored)
+	}
+	reply, r2, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Zero(t, reply.Rows.RunsReplaced)
+	require.Equal(t, []uint64{r1, p1}, []uint64{r2, p2}, "B's records land on A's entries")
+	var run RunName
+	for _, value := range reply.Values {
+		if value.Number == p1 {
+			run = value.Run
+		}
+	}
+	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p1, Run: run, Part: testLiveOffer()}})
+	require.NoError(t, err)
+	require.Equal(t, []StoredPartResult{{OtherRun: true}}, got)
 }

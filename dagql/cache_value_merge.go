@@ -536,11 +536,15 @@ type MergeReply struct {
 // were computed over another run of an input than the one the cache stores
 // (countOverOtherRunLocked), by whether the two runs of those inputs are
 // shown equal by content digest, shown different, or can't be compared
-// because one side names none.
+// because one side names none; and the stored runs the merge replaced
+// (replaceRunsLocked): the entries whose record had no content that a
+// sender's own run replaced (RunsReplaced), and the entries over them it
+// retired besides those its records retired (RetiredOver).
 type MergeRowCounts struct {
 	Held, Kept, Created, Stored, Replaced, Retired                int
 	KeptWithHolding, KeptTaught                                   int
 	OverOtherRunEqual, OverOtherRunDifferent, OverOtherRunUnknown int
+	RunsReplaced, RetiredOver                                     int
 }
 
 // count counts one decided row.
@@ -1704,12 +1708,17 @@ type mergeRow struct {
 // valueMergeCommit is a merge decided and checked, ready to change the cache.
 type valueMergeCommit struct {
 	// overOtherRun counts the records installed over another run of an
-	// input (countOverOtherRunLocked), for the reply.
+	// input (countOverOtherRunLocked) and the runs replaced
+	// (replaceRunsLocked), for the reply.
 	overOtherRun MergeRowCounts
-	prep         *valueMergePrep
-	from         CacheID
-	rows         []*mergeRow
-	byOrdinal    map[uint64]*mergeRow
+	// retireOver are, on the Cloud, the entries over a replaced run that no
+	// row of the merge retires itself (replaceRunsLocked): the commit
+	// retires them.
+	retireOver []*sharedResult
+	prep       *valueMergePrep
+	from       CacheID
+	rows       []*mergeRow
+	byOrdinal  map[uint64]*mergeRow
 	// byNumber maps each row's entry number to the entry it lands on, and
 	// installed each entry that takes a record to the row it takes.
 	byNumber  map[sharedResultID]*sharedResult
@@ -1825,6 +1834,13 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 			c.decideMergeRowLocked(row, commit.targets.of(c, prep, row.ordinal), now, sharedResultID(prep.firstID+row.ordinal-1))
 		}
 	}
+	commit.overOtherRun, commit.retireOver = MergeRowCounts{}, nil
+	if c.blobBacked {
+		for _, row := range commit.rows {
+			row.run = c.mergeRunLocked(prep.from, row.value, prep.senderImported[row.ordinal])
+		}
+		c.replaceRunsLocked(commit, func(row *mergeRow) bool { return best[row.plan.recipe.String()] == row })
+	}
 	for _, row := range commit.rows {
 		b := best[row.plan.recipe.String()]
 		if b == row {
@@ -1836,9 +1852,6 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 		row.keptExpired = b.keptExpired || b.action.installs() && b.expired
 	}
 	if c.blobBacked {
-		for _, row := range commit.rows {
-			row.run = c.mergeRunLocked(prep.from, row.value, prep.senderImported[row.ordinal])
-		}
 		c.countOverOtherRunLocked(commit)
 	}
 }
@@ -2744,6 +2757,11 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 		origin.committedAt = time.Now().UnixNano()
 	}
 
+	// The entries over a replaced run that no row retires itself
+	// (replaceRunsLocked).
+	for _, res := range commit.retireOver {
+		c.retireResultLocked(res)
+	}
 	// The values.
 	for _, row := range commit.rows {
 		switch row.action {

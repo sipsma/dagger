@@ -88,9 +88,15 @@ func (c *Cache) resultInUseLocked(res *sharedResult) bool {
 
 // retireResultLocked takes res out of the recipe index. It stays registered
 // and keeps serving the users it has; being expired, it is never a lookup
-// candidate again. Requires egraphMu.
+// candidate again. On the Cloud, where a later run retires a value that
+// hasn't expired (replaceRunsLocked), it is marked so (runReplaced).
+// Requires egraphMu.
 func (c *Cache) retireResultLocked(res *sharedResult) {
 	c.unindexRecipesLocked(res)
+	if c.blobBacked && !res.runReplaced {
+		res.runReplaced = true
+		c.markEntryLocked(res.id)
+	}
 }
 
 // replacedValue is what an in-place replacement leaves for its publication
@@ -277,6 +283,16 @@ func (c *Cache) indexRestoredEntries(indexed map[sharedResultID]struct{}) error 
 	defer c.egraphMu.Unlock()
 	for i, res := range rows {
 		c.indexRecipeLocked(recipes[i], res)
+	}
+	if c.blobBacked {
+		// The Cloud indexes every entry but one a later run replaced or
+		// retired with it (replaceRunsLocked): a restored entry its recipe's
+		// index didn't name is one, and stays apart.
+		for id, res := range c.resultsByID {
+			if _, ok := indexed[id]; !ok {
+				res.runReplaced = true
+			}
+		}
 	}
 	return nil
 }

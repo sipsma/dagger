@@ -82,6 +82,124 @@ func (c *Cache) EntryRun(number uint64) (RunName, bool) {
 	return c.runOfLocked(res), true
 }
 
+// A stored record whose run left no content is replaced by a later run that
+// is whole from it up (replaceRunsLocked). Refusing every other run's bytes
+// alone would leave such a record without content for good: any later run's
+// content is another run's. So a merge from an engine that ran the record's
+// call itself takes its place, as an engine's own cache takes an expired
+// value's (cache_current_entry.go): the old entry is retired, and every
+// entry over it with it, whatever content those hold, since they were made
+// over the old run; the sender's records register beside them as the
+// recipes' current entries. A retired entry leaves the recipe index and is
+// no lookup's, offer's or class mate's again (runReplaced). It keeps its
+// value and stored parts for what names it already.
+
+// replaceRunsLocked decides, on the Cloud, the stored runs commit's merge
+// replaces. A best row (isBest) replaces the entry it lands on when the
+// sender computed the row itself, the entry holds a value of another run,
+// and that value's stored record has no content (storedWithoutContentLocked).
+// Every entry over a replaced one is retired with it: a row of the merge
+// that lands on one, of another run than it holds, takes a new entry
+// (mergeRetire); the commit retires the others (retireOver). Its counts go
+// to commit.overOtherRun. Requires egraphMu.
+func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRow) bool) {
+	var replaced []*sharedResult
+	for _, row := range commit.rows {
+		cur := row.target
+		// Only a live record is replaced here: an expired one the merge
+		// replaces as it does today (decideMergeRowLocked).
+		if !isBest(row) || row.action != mergeKeep || row.expired || row.value.Held != "" || commit.prep.senderImported[row.ordinal] || cur == nil || cur.runReplaced {
+			continue
+		}
+		if cur.noValueLocked() || c.runOfLocked(cur) == row.run || !c.storedWithoutContentLocked(cur) {
+			continue
+		}
+		replaced = append(replaced, cur)
+	}
+	if len(replaced) == 0 {
+		return
+	}
+	over := entriesOverLocked(c, replaced)
+	for _, row := range commit.rows {
+		cur := row.target
+		if !isBest(row) || cur == nil || row.expired {
+			continue
+		}
+		if _, ok := over[cur.id]; !ok || c.runOfLocked(cur) == row.run {
+			continue
+		}
+		row.action, row.res = mergeRetire, &sharedResult{id: sharedResultID(commit.prep.firstID + row.ordinal - 1)}
+		delete(over, cur.id)
+	}
+	commit.overOtherRun.RunsReplaced = len(replaced)
+	commit.overOtherRun.RetiredOver = len(over)
+	commit.retireOver = make([]*sharedResult, 0, len(over))
+	for _, res := range over {
+		commit.retireOver = append(commit.retireOver, res)
+	}
+	slices.SortFunc(commit.retireOver, compareSharedResults)
+}
+
+// entriesOverLocked returns from and every entry that depends on one of
+// them, directly or through others, by number. Requires egraphMu.
+func entriesOverLocked(c *Cache, from []*sharedResult) map[sharedResultID]*sharedResult {
+	over := make(map[sharedResultID]*sharedResult, len(from))
+	queue := slices.Clone(from)
+	for _, res := range from {
+		over[res.id] = res
+	}
+	for len(queue) > 0 {
+		res := queue[0]
+		queue = queue[1:]
+		for parentID := range res.depParents {
+			if _, seen := over[parentID]; seen {
+				continue
+			}
+			parent := c.resultsByID[parentID]
+			if parent == nil || parent.runReplaced {
+				continue
+			}
+			over[parentID] = parent
+			queue = append(queue, parent)
+		}
+	}
+	return over
+}
+
+// storedWithoutContentLocked reports whether res's stored record declares or
+// proves a part besides its metadata, and the cache stores none of its
+// parts but metadata: a run whose content no engine can fetch. Requires
+// egraphMu.
+func (c *Cache) storedWithoutContentLocked(res *sharedResult) bool {
+	for _, part := range res.storedPartsLocked() {
+		if part.address().Part != "metadata" {
+			return false
+		}
+	}
+	parts, ok := c.recordPartsLocked(res)
+	if !ok {
+		return false
+	}
+	for _, part := range parts.declared {
+		if part.address.Part != "metadata" {
+			return true
+		}
+	}
+	if parts.complete != nil {
+		for _, address := range parts.complete.addresses() {
+			if address.Part != "metadata" {
+				return true
+			}
+		}
+	}
+	for _, part := range parts.mapped {
+		if part.Address.Part != "metadata" {
+			return true
+		}
+	}
+	return false
+}
+
 // otherRunOfRecipeLocked reports whether a and b are two runs of one recipe:
 // a recipe names both, and they hold different runs. Results of different
 // recipes that the cache holds equivalent stay interchangeable, by their

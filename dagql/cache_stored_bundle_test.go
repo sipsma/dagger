@@ -641,11 +641,15 @@ func scribbleTestValue(v reflect.Value, seen map[uintptr]bool) {
 
 // storedPartServiceTestCloud merges a second copy of R, from cache-b, into
 // storedBundleTestCloud's Cloud. Its record depends on a service entry S that
-// R's doesn't: R keeps its own record, and only cache-b's holding keeps S. It
-// returns the numbers of R and S.
+// R's doesn't: R keeps its own record, which has its content so that
+// cache-b's run doesn't replace it (replaceRunsLocked), and only cache-b's
+// holding keeps S. It returns the numbers of R and S.
 func storedPartServiceTestCloud(t *testing.T) (context.Context, *Cache, uint64, uint64) {
 	t.Helper()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "first")
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
 	bctx, b, bsrv := transferTestCache(t)
 	br := persistedListTestResult(t, bctx, b, bsrv, "bundle-root", &transferTestValue{Text: "second"})
 	bs := persistedListTestResult(t, bctx, b, bsrv, "different-service", &transferTestValue{Text: "service"})
