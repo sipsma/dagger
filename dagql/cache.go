@@ -244,12 +244,7 @@ type persistedEdge struct {
 // 26: a module object's content digest holds its type. Older stores took
 // objects of two types with equal fields as one result, and a load of one
 // could be served the other, so they are wiped on import.
-//
-// 27: the Cloud's stored records name the run that made them (RunName), and
-// the Cloud stores a part only on a record of the part's run. Older Cloud
-// stores name none, so they would hold every record as no engine's run;
-// they are wiped on import.
-const cachePersistenceSchemaVersion = "27"
+const cachePersistenceSchemaVersion = "26"
 
 // blobBackedStoreFormat names the format a blob-backed cache saves its stored
 // records in (encodeStoredRow), on top of the schema: it saves in a format of
@@ -258,7 +253,12 @@ const cachePersistenceSchemaVersion = "27"
 //
 // 2: a stored record's saved row carries the parts its record proves
 // complete (storedRowHeader.Complete).
-const blobBackedStoreFormat = "compressed-records-2"
+//
+// 3: a stored record's saved row names the run that made it (RunName),
+// whether that run ran, and whether it is an image entry's. Older Cloud
+// stores name none, so they would hold every record as no engine's run;
+// they are wiped on import.
+const blobBackedStoreFormat = "compressed-records-3"
 
 // persistenceSchemaVersion is the schema version the cache saves under, and
 // restores only from.
@@ -3308,7 +3308,9 @@ type sharedResult struct {
 	// runRan marks, on the Cloud, a stored record whose own run reported a
 	// part besides its metadata complete: the holding the run names did,
 	// or the record proves one (ownRunRanLocked). imageEntry marks one an
-	// engine's image ships (PreparedValueMerge.ImageEntries). Both go with
+	// engine's image ships with its content (PreparedValueMerge.ImageEntries):
+	// its run is the image's, which every engine of the image holds. Both go
+	// with
 	// the value, and a later run replaces only a record that ran and isn't
 	// an image entry's (replaceRunsLocked). Guarded by egraphMu.
 	runRan, imageEntry bool

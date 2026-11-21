@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/opencontainers/go-digest"
 )
@@ -109,14 +110,14 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 	for _, row := range commit.rows {
 		cur := row.target
 		// Only a live record is replaced here: an expired one the merge
-		// replaces as it does today (decideMergeRowLocked). The sender's
-		// own run of an image entry replaces nothing.
-		if !isBest(row) || row.action != mergeKeep || row.expired || row.value.Held != "" || commit.prep.senderImported[row.ordinal] || row.imageEntry || cur == nil || cur.runReplaced {
+		// replaces as it does today (decideMergeRowLocked). A row the
+		// sender imported, an image entry's among them, replaces nothing.
+		if !isBest(row) || row.action != mergeKeep || row.expired || row.value.Held != "" || commit.prep.senderImported[row.ordinal] || cur == nil || cur.runReplaced {
 			continue
 		}
 		// Only a record whose own run ran, with its content not stored, is
-		// replaced: a record whose run never ran is a recipe, and an image
-		// entry's run is the image's.
+		// replaced: a record whose run never ran is a recipe, and the run of
+		// an image entry whose content the image ships is the image's.
 		if cur.noValueLocked() || cur.imageEntry || c.runOfLocked(cur) == row.run || !c.storedWithoutContentLocked(cur) || !c.ownRunRanLocked(cur) {
 			continue
 		}
@@ -126,6 +127,15 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 		return
 	}
 	over := entriesOverLocked(c, replaced)
+	for _, row := range commit.rows {
+		if _, ok := over[row.target.idOrZero()]; ok && row.value.Held != "" {
+			// A held row stands for the record it lands on, which the
+			// replacement would retire: it carries no record to install
+			// in its place. The merge replaces nothing; a later merge of
+			// the run's records whole does.
+			return
+		}
+	}
 	for _, row := range commit.rows {
 		cur := row.target
 		if !isBest(row) || cur == nil || row.expired {
@@ -146,19 +156,17 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 	slices.SortFunc(commit.retireOver, compareSharedResults)
 }
 
-// adoptRunLocked gives res's stored record run, the run of a part being
-// stored onto it, when the record's own run never ran: a record learned at
-// a call whose step its engine never evaluated is a recipe, which no run's
-// content can mix with. It doesn't when the record's run ran
-// (ownRunRanLocked), stores content of its own, is an image entry's, or
-// has over it a stored record its own engine made whose own run ran:
-// running a step evaluates its inputs, so that engine's run of res
-// happened, though no row said so, and a value of it over another run's
-// record would mix the two. A record of that engine over res that never ran
-// itself, such as a list over its lazy items, says nothing of it. Nothing
-// is retired: nothing over a recipe was built from its content. It reports
-// whether res took run. Requires egraphMu for writing.
-func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) bool {
+// canAdoptRunLocked reports whether res's stored record may take the run of
+// a part being stored onto it: its own run never ran, so the record is a
+// recipe, which no run's content can mix with. It may not when the record's
+// run ran (ownRunRanLocked), it stores content of its own, it is an image
+// entry's, or a stored record over it that its own engine made ran
+// (ownEngineRanOverLocked): running a step evaluates its inputs, so that
+// engine's run of res happened, though no row said so, and a value of it
+// over another run's record would mix the two. A record of that engine over
+// res that never ran itself, such as a list over its lazy items, says
+// nothing of it. Requires egraphMu.
+func (c *Cache) canAdoptRunLocked(res *sharedResult) bool {
 	if !c.blobBacked || res.run == nil || res.imageEntry || c.ownRunRanLocked(res) {
 		return false
 	}
@@ -167,18 +175,24 @@ func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) bool {
 			return false
 		}
 	}
-	if c.ownEngineRanOverLocked(res) {
-		return false
-	}
+	return !c.ownEngineRanOverLocked(res)
+}
+
+// adoptRunLocked gives res's stored record run, the run of a part just
+// stored onto it, which canAdoptRunLocked allowed. Nothing is retired:
+// nothing over a recipe was built from its content. Requires egraphMu for
+// writing.
+func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) {
 	adopted := run
 	res.run, res.runRan = &adopted, true
 	c.markEntryLocked(res.id)
-	return true
 }
 
 // ownEngineRanOverLocked reports whether a stored record over res, directly
-// or through others of the same engine, was made by res's own engine and
-// its own run ran. Requires egraphMu.
+// or through any others, was made by res's own engine and its own run ran.
+// A record of another engine in between doesn't stop the walk: an engine's
+// record over it can land on another engine's entry, as an equal input
+// does. It walks every record over res once. Requires egraphMu.
 func (c *Cache) ownEngineRanOverLocked(res *sharedResult) bool {
 	engine := res.run.Cache
 	seen := map[sharedResultID]bool{res.id: true}
@@ -192,10 +206,10 @@ func (c *Cache) ownEngineRanOverLocked(res *sharedResult) bool {
 			}
 			seen[parentID] = true
 			parent := c.resultsByID[parentID]
-			if parent == nil || parent.run == nil || parent.run.Cache != engine || parent.noValueLocked() {
+			if parent == nil {
 				continue
 			}
-			if c.ownRunRanLocked(parent) {
+			if parent.run != nil && parent.run.Cache == engine && !parent.noValueLocked() && c.ownRunRanLocked(parent) {
 				return true
 			}
 			queue = append(queue, parent)
@@ -204,14 +218,15 @@ func (c *Cache) ownEngineRanOverLocked(res *sharedResult) bool {
 	return false
 }
 
-// metadataPartKey is the metadata part's address key (partAddressKey).
-const metadataPartKey = `{"part":"metadata"}`
+// metadataPartField is the metadata part's field in an address key
+// (partAddressKey), at any output path.
+const metadataPartField = `"part":"metadata"`
 
 // ranPartsLocked reports whether h reports a part complete besides its
 // metadata: its cache ran the step. Requires egraphMu.
 func ranPartsLocked(h *holding) bool {
 	for _, part := range h.parts {
-		if part.state >= heldPartComplete && handleString(part.key) != metadataPartKey {
+		if part.state >= heldPartComplete && !strings.Contains(handleString(part.key), metadataPartField) {
 			return true
 		}
 	}
@@ -247,19 +262,47 @@ func (c *Cache) noteRunRanLocked(entry *sharedResult, key HolderKey, h *holding)
 // run never evaluated its step is a recipe, whatever another engine did with
 // the same entry. Requires egraphMu.
 func (c *Cache) ownRunRanLocked(res *sharedResult) bool {
-	if res.runRan {
-		return true
-	}
-	parts, ok := c.recordPartsLocked(res)
-	if !ok || parts.complete == nil {
+	return res.runRan || c.recordProvesContentLocked(res)
+}
+
+// recordProvesContentLocked reports whether res's stored record proves a
+// part besides its metadata complete, whether the Cloud holds the record
+// whole or compressed. Requires egraphMu.
+func (c *Cache) recordProvesContentLocked(res *sharedResult) bool {
+	if res.stored != nil {
+		_, _, complete, err := res.storedFactsLocked()
+		if err != nil || complete == nil {
+			return false
+		}
+		for _, address := range complete.addresses() {
+			if address.Part != "metadata" {
+				return true
+			}
+		}
 		return false
 	}
-	for _, address := range parts.complete.addresses() {
-		if address.Part != "metadata" {
+	rec, err := c.storedRecordLocked(res)
+	if err != nil {
+		return false
+	}
+	probes, err := describeMemoPartRecord(rec, payloadMemos{})
+	if err != nil {
+		return false
+	}
+	for _, probe := range probes {
+		if probe.LocalComplete && probe.Descriptor.Address.Part != "metadata" {
 			return true
 		}
 	}
 	return false
+}
+
+// idOrZero is res's number, or 0 for no entry.
+func (res *sharedResult) idOrZero() sharedResultID {
+	if res == nil {
+		return 0
+	}
+	return res.id
 }
 
 // entriesOverLocked returns from and every entry that depends on one of
@@ -324,22 +367,6 @@ func (c *Cache) storedWithoutContentLocked(res *sharedResult) bool {
 		}
 	}
 	return false
-}
-
-// otherRunOfRecipeLocked reports whether a and b are two runs of one recipe:
-// a recipe names both, and they hold different runs. Results of different
-// recipes that the cache holds equivalent stay interchangeable, by their
-// content or their calls, as on one cache; two runs of one recipe don't
-// lend each other parts (cache_run.go). Requires egraphMu.
-func (c *Cache) otherRunOfRecipeLocked(a, b *sharedResult) bool {
-	shared := false
-	for _, key := range a.recipeKeys {
-		if slices.Contains(b.recipeKeys, key) {
-			shared = true
-			break
-		}
-	}
-	return shared && c.runOfLocked(a) != c.runOfLocked(b)
 }
 
 // countOverOtherRunLocked counts, on a blob-backed cache, the records a merge

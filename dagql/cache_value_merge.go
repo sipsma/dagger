@@ -186,9 +186,11 @@ func (p *PreparedValueMerge) Unretained(ordinals ...TransferOrdinal) {
 
 // ImageEntries marks the bundle's rows, by ordinal, that its sender's image
 // ships, on the Cloud: a remote cache service knows them from the engine's
-// hello. Their stored records are image entries' (sharedResult.imageEntry),
-// which a later run never replaces, and their sender's own run of one
-// replaces nothing (replaceRunsLocked). Call it before CommitValueMerge.
+// hello. A stored record of one whose record proves a part complete, an
+// image result whose content the image ships, is an image entry's
+// (sharedResult.imageEntry): its run is the image's, never replaced nor
+// adopted. One the image ships as a record alone is a recipe until an
+// engine runs it, as any other. Call it before CommitValueMerge.
 func (p *PreparedValueMerge) ImageEntries(ordinals ...TransferOrdinal) {
 	if p.imageRows == nil {
 		p.imageRows = map[uint64]bool{}
@@ -2981,7 +2983,6 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 		run := row.run
 		res.run = &run
 		res.runRan = c.runHoldingRanLocked(run)
-		res.imageEntry = row.imageEntry
 	}
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil
@@ -3025,6 +3026,10 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 	if c.blobBacked {
 		// On the Cloud, an export that stores a value uses it.
 		touchSharedResultLastUsed(res, time.Now().UnixNano())
+		// An image entry is the image's run only when the image ships its
+		// content: its record proves a part complete. One the image ships
+		// as a record alone is a recipe until an engine runs it.
+		res.imageEntry = row.imageEntry && c.recordProvesContentLocked(res)
 	}
 	res.transferRevision++
 	if c.resultsByID[res.id] == res {
