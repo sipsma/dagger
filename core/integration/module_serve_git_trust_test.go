@@ -230,6 +230,15 @@ func serveGitTrustRepo(ctx context.Context, t *testctx.T, c *dagger.Client, cont
 	return "http://" + fields[0] + "/repo.git"
 }
 
+// serveGitTrustNonceFor is serveGitTrustNonceSource marked with the test's
+// name, so the caller it makes is a module of its own. A declaring module's
+// call keys on its module, its arguments and its declared clients, not its
+// session, so two parallel subtests that built the same caller would share
+// their nonce's cached result, and one would see the other's.
+func serveGitTrustNonceFor(t *testctx.T) string {
+	return serveGitTrustNonceSource + "\n// " + t.Name() + "\n"
+}
+
 // serveGitTrustPrivateRepo serves a repository that requires credentials,
 // holding a hello module and another module, and returns its URL by IP.
 func serveGitTrustPrivateRepo(ctx context.Context, t *testctx.T, c *dagger.Client) string {
@@ -328,7 +337,7 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 		nonce := daggerCallAt("caller", "nonce", "--address="+hello)
 		digest := daggerQuery(`{currentWorkspace{moduleSource(path: "/modules/caller"){digest}}}`)
 
-		ctr := hostCaller(hello).WithNewFile("modules/caller/nonce.go", serveGitTrustNonceSource)
+		ctr := hostCaller(hello).WithNewFile("modules/caller/nonce.go", serveGitTrustNonceFor(t))
 		first := run(ctr, "1", nonce)
 		require.Regexp(t, `^[0-9]+\s*$`, first)
 		sourceDigest := run(ctr, "2", digest)
@@ -345,7 +354,7 @@ func (ModuleLoadingSuite) TestServeModuleDeclaredGitClient(ctx context.Context, 
 				WithNewFile("dagger.toml", serveGitTrustWorkspaceConfig(hello)).
 				WithNewFile("modules/caller/dagger.json", serveTreeCallerManifest).
 				WithNewFile("modules/caller/main.go", serveGitTrustCallerSource).
-				WithNewFile("modules/caller/nonce.go", serveGitTrustNonceSource).
+				WithNewFile("modules/caller/nonce.go", serveGitTrustNonceFor(t)).
 				With(daggerCallAt("caller", "nonce", "--address="+hello))
 		}
 		first, err := serveGitTrustBase(t, connect(ctx, t), repoURL).With(withNonce).Stdout(ctx)
