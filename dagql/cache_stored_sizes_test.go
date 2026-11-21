@@ -177,7 +177,12 @@ func TestStoredSizesChooseCallsInTheBundlesOrder(t *testing.T) {
 			for _, dep := range []AnyResult{inner, c} {
 				require.NoError(t, b.AddExplicitDependency(bctx, r, dep, "test"))
 			}
-			_, err := cloud.MergeValues(test.ctx, "cache-b", exportTestBundle(t, bctx, b, r))
+			// Inner has its content, so cache-b's run of it lands on it
+			// rather than replacing it (replaceRunsLocked).
+			stored, _, err := cloud.SetStoredPart(test.ctx, test.number, storedPartRunOf(t, cloud, test.number), testLiveOffer(), 0)
+			require.NoError(t, err)
+			require.True(t, stored)
+			_, err = cloud.MergeValues(test.ctx, "cache-b", exportTestBundle(t, bctx, b, r))
 			require.NoError(t, err)
 			_, err = cloud.MergeValues(test.ctx, "cache-b", exportTestBundle(t, bctx, b, receiverB))
 			require.NoError(t, err)

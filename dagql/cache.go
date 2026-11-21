@@ -3300,6 +3300,11 @@ type sharedResult struct {
 	// entry with no stored record. It goes with the value. Guarded by
 	// egraphMu.
 	run *RunName
+	// runReplaced marks, on the Cloud, an entry a later run replaced or
+	// retired with the one it replaced (replaceRunsLocked): it is out of
+	// the recipe index, and no lookup, offer or class mate reaches it again;
+	// it keeps serving what names it already. Guarded by egraphMu.
+	runReplaced bool
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in

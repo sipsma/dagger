@@ -873,7 +873,7 @@ func (c *Cache) storedPartDonorLocked(res *sharedResult, key string, now int64) 
 	for root := range c.outputEqClassRootsLocked(res.id) {
 		for id := range c.outputEqClassResults[root] {
 			member := c.resultsByID[id]
-			if member == nil || member == res || c.resultExpiredAtLocked(member, now) || c.otherRunOfRecipeLocked(member, res) {
+			if member == nil || member == res || c.resultExpiredAtLocked(member, now) || member.runReplaced || res.runReplaced || c.otherRunOfRecipeLocked(member, res) {
 				continue
 			}
 			if _, ok := member.storedParts[key]; ok && (best == nil || member.id < best.id) {
