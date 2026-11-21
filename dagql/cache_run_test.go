@@ -16,8 +16,8 @@ func ownRun(from CacheID, value TransferredValue) RunName {
 }
 
 // The Cloud stores a part only on an entry whose record is the run the part
-// came from: the first run it stores of a recipe wins, and a second engine's
-// own run of it can't put its bytes beside the first run's record.
+// came from: the first run it stores of a recipe that ran wins, and a second
+// engine's own run of it can't put its bytes beside the first run's record.
 func TestSetStoredPartTakesOnlyTheEntrysRun(t *testing.T) {
 	t.Parallel()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
@@ -29,6 +29,8 @@ func TestSetStoredPartTakesOnlyTheEntrysRun(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, ownRun("cache-a", bundle.Values[0]), run, "the entry holds the run of the engine that made it")
 	require.Equal(t, run, reply.Values[0].Run, "the reply names it")
+	// A's own engine ran the step: its record is a run, not a recipe.
+	replaceTestRan(t, ctx, cloud, number)
 
 	// Engine B ran the recipe itself and exports its own run: its record
 	// lands on A's entry, which keeps A's record.
@@ -432,4 +434,62 @@ func TestALaterRunNeverReplacesAnImageEntry(t *testing.T) {
 	reply, _, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
 	require.Zero(t, reply.Rows.RunsReplaced, "an image entry's record isn't replaced")
 	require.Equal(t, p1, p2)
+}
+
+// A stored record whose own run never ran is a recipe: a part of another
+// run, one that ran, is stored onto it, and the record takes that run.
+// Nothing is retired. A record with a stored record over it from its own
+// engine, whose run did happen though no row said so, and an image entry's
+// record keep refusing it.
+func TestARecipeRecordTakesTheRunOfTheFirstPartStored(t *testing.T) {
+	t.Parallel()
+	partOf := func(t *testing.T, cloud *Cache, number uint64, run RunName) StoredPartResult {
+		t.Helper()
+		got, _, err := cloud.SetStoredParts(t.Context(), []StoredPartWrite{{Number: number, Run: run, Part: testLiveOffer()}})
+		require.NoError(t, err)
+		return got[0]
+	}
+	later := RunName{Cache: "cache-b", Number: 9}
+
+	t.Run("recipe", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud := storedPartTestCache(t, WithBlobStore())
+		_, r, p := replaceTestRun(t, ctx, cloud, "cache-other")
+		// The root over it is another engine's: nothing of p's own run.
+		cloud.egraphMu.Lock()
+		cloud.resultsByID[sharedResultID(r)].run = &RunName{Cache: "cache-third", Number: 1}
+		cloud.egraphMu.Unlock()
+		require.Equal(t, StoredPartResult{Stored: true}, partOf(t, cloud, p, later), "stored onto the recipe")
+		run, ok := cloud.EntryRun(p)
+		require.True(t, ok)
+		require.Equal(t, later, run, "the record takes the part's run")
+		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, p, RunName{Cache: "cache-c", Number: 4}), "and keeps it")
+	})
+	t.Run("built over by its own engine", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud := storedPartTestCache(t, WithBlobStore())
+		_, _, p := replaceTestRun(t, ctx, cloud, "cache-a")
+		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, p, later), "cache-a's root over it says cache-a's run of it happened")
+	})
+	t.Run("ran", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud := storedPartTestCache(t, WithBlobStore())
+		bundle, _ := mergeTestSource(t, "root", "value")
+		reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+		require.NoError(t, err)
+		n := reply.Imported()[0].ResultID
+		replaceTestRan(t, ctx, cloud, n)
+		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, n, later))
+	})
+	t.Run("image entry", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud := storedPartTestCache(t, WithBlobStore())
+		bundle, _ := mergeTestSource(t, "root", "value")
+		prepared, err := cloud.PrepareValueMerge(ctx, "cache-a", bundle)
+		require.NoError(t, err)
+		prepared.ImageEntries(bundle.Values[0].Ordinal)
+		reply, err := cloud.CommitValueMerge(ctx, prepared)
+		require.NoError(t, err)
+		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, reply.Imported()[0].ResultID, later))
+	})
 }
