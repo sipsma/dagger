@@ -465,11 +465,18 @@ func TestARecipeRecordTakesTheRunOfTheFirstPartStored(t *testing.T) {
 		require.Equal(t, later, run, "the record takes the part's run")
 		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, p, RunName{Cache: "cache-c", Number: 4}), "and keeps it")
 	})
-	t.Run("built over by its own engine", func(t *testing.T) {
+	t.Run("its own engine's record over it ran", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud := storedPartTestCache(t, WithBlobStore())
+		_, r, p := replaceTestRun(t, ctx, cloud, "cache-a")
+		replaceTestRan(t, ctx, cloud, r)
+		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, p, later), "cache-a's root over it ran, so cache-a's run of it happened")
+	})
+	t.Run("its own engine's record over it never ran", func(t *testing.T) {
 		t.Parallel()
 		ctx, cloud := storedPartTestCache(t, WithBlobStore())
 		_, _, p := replaceTestRun(t, ctx, cloud, "cache-a")
-		require.Equal(t, StoredPartResult{OtherRun: true}, partOf(t, cloud, p, later), "cache-a's root over it says cache-a's run of it happened")
+		require.Equal(t, StoredPartResult{Stored: true}, partOf(t, cloud, p, later), "a recipe over a recipe says nothing of it")
 	})
 	t.Run("ran", func(t *testing.T) {
 		t.Parallel()
