@@ -703,3 +703,21 @@ func TestAKeptUnderMarkGoesWithItsLastStoredParentsEdge(t *testing.T) {
 	_, ok := s.cloud.EntryRun(second)
 	require.False(t, ok, "released at cache-b's end")
 }
+
+// A stored entry is carried whole when a stored bundle of it would carry it,
+// not withhold it over a run stored only in part. A lookup asks it of a
+// class's stored entries, to answer with one whose chain is whole.
+func TestStoredWholeSaysWhichEntriesABundleCarries(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bStep)
+	second := secondRunTestNumber(bundle, reply, s.bStep)
+	aRun := runTestRan(t, s.cloud, s.first).Run
+	withholdTestRan(t, s.cctx, s.cloud, s.first, HolderKey{Cache: aRun.Cache, Number: aRun.Number}, aRun.Replacements, false)
+	bStep := s.bStep.cacheSharedResult()
+	runTestEvaluated(t, s.cctx, s.cloud, HolderKey{Cache: "cache-b", Number: uint64(bStep.id)}, bStep.replacements, true)
+	stored, _, err := s.cloud.SetStoredPart(s.cctx, second, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	require.Equal(t, []bool{false, true, false}, s.cloud.StoredWhole([]uint64{s.first, second, 99999}), "the first run ran and stores nothing; the second is whole; no such entry")
+}
