@@ -2697,8 +2697,11 @@ type Cache struct {
 	testBatchAnswered func(i int)
 	testBatchGaveWay  func()
 	// batchClock is the clock a batch read's holds of egraphMu are timed by
-	// (batchHold), time.Now when nil.
-	batchClock func() time.Time
+	// (batchHold), time.Now when nil; batchWriterTook, nil but in tests, is
+	// when the latest writer took egraphMu by that clock, in place of
+	// egraphMu's own record (wcprof.RWMutex.WriterTook).
+	batchClock      func() time.Time
+	batchWriterTook func() time.Time
 
 	// testRecordPayloadPreparing runs as a merge starts preparing the
 	// record of an ordinal with its payload; an error refuses that record.
