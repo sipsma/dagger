@@ -3,6 +3,8 @@ package dagql
 import (
 	"slices"
 	"strings"
+
+	"github.com/opencontainers/go-digest"
 )
 
 // runPartsLocked returns the parts of res's run: every part besides its
@@ -100,31 +102,6 @@ func (c *Cache) newWithholdBuild(held *HeldBy, nowUnix int64) *withholdBuild {
 	return &withholdBuild{c: c, held: held, now: nowUnix, memo: map[sharedResultID]sharedResultID{}, reach: map[sharedResultID][]CacheID{}}
 }
 
-// keptRootsLocked returns, in order, the roots a bundle of them keeps, and
-// adds each one it withholds to out, with the entry that withholds it and
-// why (withheldLocked). Requires egraphMu.
-func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundleResult) []*sharedResult {
-	c := w.c
-	kept := make([]*sharedResult, 0, len(roots))
-	for _, res := range roots {
-		if withheld, by := w.withheldLocked(res); withheld {
-			out.Withheld = append(out.Withheld, uint64(res.id))
-			out.WithheldOn = append(out.WithheldOn, uint64(by))
-			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
-			switch {
-			case w.recipientHoldsOtherRunLocked(c.resultsByID[by]):
-				why = "otherRun"
-			case w.overFoldedRunLocked(c.resultsByID[by]):
-				why = "overFoldedRun"
-			}
-			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
-			continue
-		}
-		kept = append(kept, res)
-	}
-	return kept
-}
-
 // keptStoredRootsLocked returns the entries of roots that a bundle of them
 // keeps (keptRootsLocked): a walk that prices or lists what such a bundle
 // carries walks only these. A root the cache has no value for is none.
@@ -188,6 +165,99 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	}
 	w.memo[res.id] = by
 	return by != 0, by
+}
+
+// keptRootsLocked returns, in order, the roots the bundle keeps, and adds
+// each one it withholds to out, with the entry that withholds it and why:
+// the rule (withheldLocked), then, so that only roots the bundle keeps
+// count as carried, another run of a step the bundle carries
+// (otherRunCarriedLocked). Requires egraphMu.
+func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundleResult) []*sharedResult {
+	c := w.c
+	kept := make([]*sharedResult, 0, len(roots))
+	carried := &carriedRuns{entries: map[sharedResultID]bool{}, runs: map[digest.Digest]RunName{}}
+	for _, res := range roots {
+		if withheld, by := w.withheldLocked(res); withheld {
+			out.Withheld = append(out.Withheld, uint64(res.id))
+			out.WithheldOn = append(out.WithheldOn, uint64(by))
+			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
+			switch {
+			case w.recipientHoldsOtherRunLocked(c.resultsByID[by]):
+				why = "otherRun"
+			case w.overFoldedRunLocked(c.resultsByID[by]):
+				why = "overFoldedRun"
+			}
+			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
+			continue
+		}
+		if withheld, by := w.otherRunCarriedLocked(carried, res); withheld {
+			out.Withheld = append(out.Withheld, uint64(res.id))
+			out.WithheldOn = append(out.WithheldOn, uint64(by))
+			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/otherRun")
+			continue
+		}
+		kept = append(kept, res)
+	}
+	return kept
+}
+
+// carriedRuns is what a bundle carries of the steps that can differ: the
+// entries of the roots it keeps, and the run it carries of each recipe.
+type carriedRuns struct {
+	entries map[sharedResultID]bool
+	runs    map[digest.Digest]RunName
+}
+
+// otherRunCarriedLocked reports whether the closure of root, a root the
+// bundle would keep after the roots it has kept (carried), brings it a run
+// of a step of which the bundle, or the closure itself, carries another run,
+// and the entry that does. An engine decides each recipe once: a bundle
+// with two runs of a step lands the second run's values over the first
+// run's entry (mergeKeep), with no error, as it would over a run the engine
+// already held (recipientHoldsOtherRunLocked). The first run a bundle
+// carries stays. When the closure brings no other run, the bundle carries
+// it. The closure is the one the rule walks (storedClosureChildrenLocked).
+// Requires egraphMu.
+func (w *withholdBuild) otherRunCarriedLocked(carried *carriedRuns, root *sharedResult) (bool, sharedResultID) {
+	seen := map[sharedResultID]bool{}
+	runs := map[digest.Digest]RunName{}
+	stack := []*sharedResult{root}
+	for len(stack) > 0 {
+		res := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[res.id] || carried.entries[res.id] {
+			continue
+		}
+		seen[res.id] = true
+		if res.run != nil && w.c.entryCanDifferLocked(res) {
+			recipes := slices.Clip(res.recipeKeys)
+			if res.secondRunOf != "" {
+				recipes = append(recipes, res.secondRunOf)
+			}
+			for _, recipe := range recipes {
+				run, ok := carried.runs[recipe]
+				if !ok {
+					run, ok = runs[recipe]
+				}
+				if ok && run != *res.run {
+					return true, res.id
+				}
+				runs[recipe] = *res.run
+			}
+		}
+		for _, id := range storedClosureChildrenLocked(res) {
+			if child := w.c.resultsByID[id]; child != nil {
+				stack = append(stack, child)
+			}
+		}
+	}
+	for id := range seen {
+		carried.entries[id] = true
+	}
+	for recipe, run := range runs {
+		carried.runs[recipe] = run
+	}
+	return false, 0
 }
 
 // recipientHoldsOtherRunLocked reports whether the bundle's recipient holds
