@@ -1822,6 +1822,13 @@ type RemoteHoldingInfo struct {
 	// FollowsFromInputs and CallRow are the holding's word on the
 	// declaration, as a call row's description set it (Declares).
 	FollowsFromInputs, CallRow bool
+	// SecondRun reports that the holding's entry is a second run of its
+	// recipe, kept beside the recipe's current entry (secondRunOf), and
+	// KeptUnder that a stored entry that is its recipe's current entry
+	// stands over it, through second runs only (keptUnder): only such a
+	// second run's own content is needed, and it outlives its engine. A
+	// write that changes either names the entry (RemoteChange.Entries).
+	SecondRun, KeptUnder bool
 }
 
 // RemoteEntryInfo returns what the cache holds for the entry of one holding,
@@ -2084,6 +2091,9 @@ type EntryFacts struct {
 	// reports them.
 	RunParts      []PersistedPartAddress
 	RunPartsKnown bool
+	// SecondRun and KeptUnder are the entry's, as RemoteHoldingInfo
+	// reports them.
+	SecondRun, KeptUnder bool
 }
 
 // EntriesFacts returns, for each of numbers the cache has an entry for, in
