@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/opencontainers/go-digest"
 )
@@ -75,6 +76,25 @@ func (c *Cache) noteSecondRunContentLocked(key HolderKey, entry *sharedResult, r
 	entry.runRan = runRanByOffer
 	c.markEntryLocked(entry.id)
 	return true
+}
+
+// holdingReportedContentLocked reports whether the holding key, at count
+// replacements, has a part besides its metadata complete: its engine holds
+// content of the step, whether it ran it or installed an offer. A merge
+// that keeps the engine's run apart reads it, when the engine's report of
+// installed content came before its export (noteSecondRunContentLocked).
+// Requires egraphMu.
+func (c *Cache) holdingReportedContentLocked(key HolderKey, replacements uint64) bool {
+	_, h := c.holdingLocked(key)
+	if h == nil || h.replacements != replacements {
+		return false
+	}
+	for _, part := range h.parts {
+		if part.state == heldPartComplete && !strings.Contains(part.key.Value(), metadataPartField) {
+			return true
+		}
+	}
+	return false
 }
 
 // ReleaseSecondRuns releases, on the Cloud, what the engine cache cache kept

@@ -2955,6 +2955,11 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 		if c.blobBacked && row.action.installs() {
 			row.run, row.runRan = c.mergeRunLocked(commit.prep, row)
 			row.parts = commit.prep.partFacts[row.ordinal]
+			if row.action == mergeBeside && row.runRan == runNotRan && c.holdingReportedContentLocked(HolderKey{Cache: commit.from, Number: row.value.SenderNumber}, row.value.SenderReplacements) {
+				// Its engine reported the step's content, from an offer,
+				// before this export came (noteSecondRunContentLocked).
+				row.runRan = runRanByOffer
+			}
 		}
 		switch row.action {
 		case mergeKeep:
