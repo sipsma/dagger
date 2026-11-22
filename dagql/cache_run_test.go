@@ -1777,3 +1777,35 @@ func TestAPartAnswerForAHoldingOfAnotherRunSaysSo(t *testing.T) {
 	cloud.NoteRunContent(pA, run, true)
 	require.Equal(t, PartUnavailable, ask(b), "once A's content won't come, B's whole run may replace it")
 }
+
+// The sender whose run replaces a record has its holding moved to the entry
+// its own record is installed on: what it holds is its run, not the retired
+// one.
+func TestAReplacingSendersHoldingMovesToItsOwnRecord(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRan(t, ctx, cloud, pA)
+	// B's engine holds the step before its export, on A's entry.
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "cache-b root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "cache-b dep"})
+	transferTestDependency(e, ectx, r, p)
+	key := HolderKey{Cache: "cache-b", Number: uint64(p.cacheSharedResult().id)}
+	_, err := cloud.AttachRemoteHolding(ctx, key, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	before, ok := cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.Equal(t, pA, before, "B's holding sits on A's entry")
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", withContent(t, exportTestBundle(t, ectx, e, r), p))
+	require.NoError(t, err)
+	require.Equal(t, 1, reply.Rows.RunsReplaced)
+	after, ok := cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.NotEqual(t, pA, after, "B's holding moved off A's retired entry")
+	run, ok := entryRunName(cloud, after)
+	require.True(t, ok)
+	require.Equal(t, CacheID("cache-b"), run.Cache, "to B's own record")
+}

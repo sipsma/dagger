@@ -963,18 +963,22 @@ func (c *Cache) entryContentLocked(res *sharedResult) digest.Digest {
 }
 
 // holderOfOtherRunLocked reports whether the holding holder, of res's
-// entry, is of another run than res's stored record, not shown equal to it
-// by content, while the record neither takes another run's part
+// entry, ran its value itself, a run other than res's stored record's, not
+// shown equal to it by content, while the record neither takes another run's part
 // (canAdoptRunLocked) nor may be replaced by holder's run
 // (replaceableLocked): what holder's engine would upload for the entry, the
 // store refuses. A holding the cache doesn't have, or an entry that names no
 // run, isn't. Requires egraphMu.
 func (c *Cache) holderOfOtherRunLocked(res *sharedResult, holder HolderKey, nowUnix int64) bool {
-	if !c.blobBacked || res.run == nil {
+	// An expired record is replaced in place by the next run's merge
+	// (decideMergeRowLocked): any run may give it its content.
+	if !c.blobBacked || res.run == nil || c.resultExpiredAtLocked(res, nowUnix) {
 		return false
 	}
 	_, h := c.holdingLocked(holder)
-	if h == nil {
+	// A holding that didn't run its value itself took the Cloud's copy:
+	// what it uploads is the record's own run (UploadRun).
+	if h == nil || !c.holdingRanLocked(holder, h.replacements) {
 		return false
 	}
 	run := RunName{Cache: holder.Cache, Number: holder.Number, Replacements: h.replacements}
