@@ -203,6 +203,28 @@ func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundle
 	return kept
 }
 
+// recipientHoldsFoldedRunLocked reports whether the recipient still holds
+// its own run of res's step that the Cloud keeps folded under res: an
+// unexpired holding of res at that run's number and replacement count. A
+// holding it has since been served res's own run by is another number.
+// Requires egraphMu.
+func (w *withholdBuild) recipientHoldsFoldedRunLocked(res *sharedResult) bool {
+	if w.held.Not[uint64(res.id)] {
+		return false
+	}
+	for _, run := range res.foldedRuns {
+		if run.Cache != w.held.Cache {
+			continue
+		}
+		for _, ref := range res.cacheHolderRefsLocked(run.Cache) {
+			if ref.key.Number == run.Number && ref.h.replacements == run.Replacements && (ref.h.expiresAtUnix == 0 || ref.h.expiresAtUnix > w.now) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // carriedRuns is what a bundle carries of the steps that can differ: the
 // entries of the roots it keeps, and the run it carries of each recipe.
 type carriedRuns struct {
@@ -268,8 +290,8 @@ func (w *withholdBuild) otherRunCarriedLocked(roots ...*sharedResult) (bool, sha
 
 // recipientHoldsOtherRunLocked reports whether the bundle's recipient holds
 // another run of res's step: the recipient answered so (HeldBy.OtherRun), or
-// res can differ and the recipient's own run of it is folded under res
-// (foldedRuns) while it holds res, or it holds another entry of one of res's recipes
+// res can differ and the recipient still holds its own run of it, folded
+// under res (recipientHoldsFoldedRunLocked), or it holds another entry of one of res's recipes
 // (entriesOfRecipeLocked) whose run isn't res's. A value over res
 // would land on the recipient's own run of the step, whose entry its merge
 // keeps (mergeKeep), with no error. What the Cloud knows of the recipient's
@@ -284,9 +306,7 @@ func (w *withholdBuild) recipientHoldsOtherRunLocked(res *sharedResult) bool {
 		return true
 	case res.run == nil || !w.c.entryCanDifferLocked(res):
 		return false
-	case slices.ContainsFunc(res.foldedRuns, func(run RunName) bool { return run.Cache == w.held.Cache }) && w.held.heldLocked(res, w.now):
-		// The recipient ran the step itself, its run is folded here, and it
-		// still holds it.
+	case w.recipientHoldsFoldedRunLocked(res):
 		return true
 	}
 	recipes := slices.Clip(res.recipeKeys)

@@ -257,6 +257,18 @@ func TestAStoredBundleWithholdsAValueOverAStepTheRecipientRanItself(t *testing.T
 	got, err = cloud.StoredBundle(cctx, []uint64{r}, now, &HeldBy{Cache: CacheID(b.Identity().ID)})
 	require.NoError(t, err)
 	require.Empty(t, got.Withheld, "b dropped its own run")
+
+	// Then b is served a's run: its new holding is of the run the entry
+	// stores, not of b's own folded one.
+	served := HolderKey{Cache: bKey.Cache, Number: bKey.Number + 1000}
+	_, err = cloud.AttachRemoteHolding(cctx, served, RemoteHolding{Recipe: secondRunTestRecipe(t, cloud, p)})
+	require.NoError(t, err)
+	held, ok := cloud.HolderEntry(served)
+	require.True(t, ok)
+	require.Equal(t, p, held)
+	got, err = cloud.StoredBundle(cctx, []uint64{r}, now, &HeldBy{Cache: CacheID(b.Identity().ID)})
+	require.NoError(t, err)
+	require.Empty(t, got.Withheld, "b holds a's run now")
 }
 
 // A bundle sends a step its recipient holds as a held row, which lands on
