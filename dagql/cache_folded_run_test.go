@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
+
+	"github.com/dagger/dagger/dagql/call"
 )
 
 // Two engines each run a step that can give different bytes. The second
@@ -119,4 +122,73 @@ func containsUint64(xs []uint64, x uint64) bool {
 		}
 	}
 	return false
+}
+
+// Two engines' runs of a step under different recipes, which an extra
+// digest joins into one class though their bytes differ. The second engine
+// builds a result only it makes over its run, whose own content the Cloud
+// doesn't store, while the first's is stored whole. The result must not be
+// answered with the first run's content borrowed across the class.
+func TestAResultIsNotAnsweredOverAClassMatesRun(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	bridge := call.ExtraDigest{Digest: digest.FromString("bridged-step"), Label: "aux"}
+
+	actx, a, asrv := transferTestCache(t)
+	fromA := CacheID(a.Identity().ID)
+	sA := persistedListTestResult(t, actx, a, asrv, "class-step-a", &transferTestValue{Text: "a's bytes"})
+	bridged(t, a, sA, bridge)
+	exportedA := exportTestBundle(t, actx, a, sA)
+	replyA, err := cloud.MergeValues(ctx, fromA, exportedA)
+	require.NoError(t, err)
+	sANumber := cloudNumberOf(t, exportedA, replyA, sA)
+
+	bctx, b, bsrv := transferTestCache(t)
+	fromB := CacheID(b.Identity().ID)
+	sB := persistedListTestResult(t, bctx, b, bsrv, "class-step-b", &transferTestValue{Text: "b's bytes"})
+	bridged(t, b, sB, bridge)
+	top := persistedListTestResult(t, bctx, b, bsrv, "class-top", &transferTestValue{Text: "built over b's bytes"})
+	transferTestDependency(b, bctx, top, sB)
+	exportedB := exportTestBundle(t, bctx, b, top)
+	replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
+	require.NoError(t, err)
+	sBNumber := cloudNumberOf(t, exportedB, replyB, sB)
+	tNumber := cloudNumberOf(t, exportedB, replyB, top)
+	require.NotEqual(t, sANumber, sBNumber, "two recipes, two entries")
+
+	cloud.egraphMu.RLock()
+	joined := false
+	for root := range cloud.outputEqClassRootsLocked(sharedResultID(sBNumber)) {
+		if _, ok := cloud.outputEqClassResults[root][sharedResultID(sANumber)]; ok {
+			joined = true
+		}
+	}
+	cloud.egraphMu.RUnlock()
+	require.True(t, joined, "the extra digest joins the two runs in one class")
+
+	for _, run := range []struct {
+		number uint64
+		key    HolderKey
+	}{{sANumber, HolderKey{Cache: fromA, Number: uint64(sA.cacheSharedResult().id)}}, {sBNumber, HolderKey{Cache: fromB, Number: uint64(sB.cacheSharedResult().id)}}} {
+		withholdTestRan(t, ctx, cloud, run.number, run.key, 0, false)
+	}
+	stored, _, err := cloud.SetStoredPart(ctx, sANumber, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored, "a's run is stored whole; b's isn't")
+
+	built, err := cloud.StoredBundle(ctx, []uint64{tNumber}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Contains(t, built.Withheld, tNumber, "T waits for b's own run to be stored")
+	require.Equal(t, []uint64{sBNumber}, built.WithheldOn)
+}
+
+// bridged makes res's step one that can differ, and gives its frame extra.
+func bridged(t *testing.T, c *Cache, res AnyResult, extra call.ExtraDigest) {
+	t.Helper()
+	c.egraphMu.Lock()
+	defer c.egraphMu.Unlock()
+	frame := res.cacheSharedResult().loadResultCall().clone()
+	frame.FollowsFromInputs = false
+	frame.ExtraDigests = append(frame.ExtraDigests, extra)
+	res.cacheSharedResult().storeResultCall(frame)
 }
