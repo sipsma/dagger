@@ -3327,6 +3327,13 @@ type sharedResult struct {
 	// engine with no download address for any part, has been logged as run
 	// again (logRecordRunForWantOfOffers).
 	recipeRunLogged atomic.Bool
+	// recipeRanHere is set once the entry's value, a record another cache
+	// or the engine's image gave it, has had its recipe run on this cache:
+	// an operation of the value ran (runLazyTask), or its call ran again for
+	// a part no source supplied (runCallForPart). From then on what the entry
+	// holds is a run of this cache's own (computedHereLocked), and an image
+	// entry is exported as any other (FromImageNotRun).
+	recipeRanHere atomic.Bool
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in
@@ -6122,6 +6129,7 @@ func (c *Cache) runLazyTask(ctx context.Context, res AnyResult, shared *sharedRe
 		g.attempt = attempt
 		shared.lazyMu.Unlock()
 		if spec == nil && lazyEval != nil && storedPart == "" {
+			shared.noteRecipeRunHere()
 			c.logRecordRunForWantOfOffers(stackCtx, shared)
 		}
 

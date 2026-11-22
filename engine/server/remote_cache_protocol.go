@@ -135,7 +135,7 @@ func (a *RemoteCacheAdapter) Export(ctx context.Context, req protocol.Export, kn
 			skipped = append(skipped, protocol.SkippedRoot{Number: number, Reason: protocol.SkipGone})
 		case err != nil:
 			return err
-		case a.cache.FromImage(res):
+		case a.cache.FromImageNotRun(res):
 			skipped = append(skipped, protocol.SkippedRoot{Number: number, Reason: protocol.SkipRefused, Message: dagql.ErrFromImage.Error()})
 		default:
 			roots = append(roots, heldRoot{number: number, result: res})
@@ -150,9 +150,9 @@ func (a *RemoteCacheAdapter) Export(ctx context.Context, req protocol.Export, kn
 		case errors.Is(err, dagql.ErrUnknownEntry):
 		case err != nil:
 			return err
-		case a.cache.FromImage(res):
-			// An entry the image ships exports no part, whether or not the
-			// image ships that part (dagql.ErrFromImage).
+		case a.cache.FromImageNotRun(res):
+			// An entry the image ships exports no part until its recipe has
+			// run on this engine (dagql.ErrFromImage).
 		default:
 			outputs = append(outputs, dagql.SelectedValueOutput{Result: res, Address: output.Address})
 		}

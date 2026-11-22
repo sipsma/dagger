@@ -170,6 +170,52 @@ func TestRemoteCacheAdapterExportRefusesImageEntries(t *testing.T) {
 	require.Equal(t, 1, calls)
 }
 
+// An image ships the records of its results' closures without their parts,
+// so an engine that needs one of those values runs its recipe itself. What
+// the entry then holds is that engine's own run: the export takes it as a
+// root, with its part, as any entry the engine made. An entry whose value
+// the image ships is still refused.
+func TestRemoteCacheAdapterExportsAnImageEntryRunHere(t *testing.T) {
+	src := newAdapterTestEngine(t)
+	base := src.file(t, "image-base")
+	shipped, _ := src.publishFile(t, "image-shipped", base)
+	require.NoError(t, src.cache.Evaluate(src.ctx, shipped))
+	dir := t.TempDir()
+	require.NoError(t, src.cache.ExportImageBundle(src.ctx, []dagql.SelectedValueOutput{{Result: shipped, Address: snapshotPart}}, exportRefConfig, testImageDir{dir}))
+	raw, err := os.ReadFile(filepath.Join(dir, schema.EngineImageBundleFile))
+	require.NoError(t, err)
+	var bundle dagql.ValueBundle
+	require.NoError(t, json.Unmarshal(raw, &bundle))
+	require.Len(t, bundle.Values, 2, "the shipped file and the record it was made over")
+	require.Len(t, bundle.Outputs, 1, "a part for the shipped file alone")
+
+	e := newAdapterTestEngine(t)
+	require.NoError(t, e.cache.SetImageContent(dir))
+	reply, err := e.cache.MergeValues(e.ctx, dagql.ImageCacheID, bundle)
+	require.NoError(t, err)
+	require.Len(t, reply.Roots, 1)
+	shippedNumber := reply.Roots[0].Number
+	ran := e.file(t, "image-base")
+	require.True(t, e.cache.FromImage(ran), "the lookup finds the image's record")
+	require.NoError(t, e.cache.Evaluate(e.ctx, ran), "its recipe runs here")
+
+	req := protocol.Export{
+		Roots:   []uint64{shippedNumber, entryNumber(t, ran)},
+		Outputs: []protocol.ExportOutput{{Number: shippedNumber, Address: snapshotPart}, {Number: entryNumber(t, ran), Address: snapshotPart}},
+	}
+	calls := 0
+	err = e.adapter.Export(e.ctx, req, nil, func(_ context.Context, exp remotecache.Export) error {
+		calls++
+		require.Equal(t, []protocol.SkippedRoot{{Number: shippedNumber, Reason: protocol.SkipRefused, Message: dagql.ErrFromImage.Error()}}, exp.Skipped)
+		require.NotNil(t, exp.Bundle)
+		require.Equal(t, []uint64{entryNumber(t, ran)}, bundleRoots(exp.Bundle))
+		require.Len(t, exp.Bundle.Outputs, 1, "the part the engine made")
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+}
+
 // A prune never deletes what the engine's image ships: after a prune of
 // everything, a call of the image's root is a hit, with nothing recomputed,
 // while a result the engine made itself is gone.

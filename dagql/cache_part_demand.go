@@ -784,6 +784,18 @@ func (c *Cache) logRecordRunForWantOfOffers(ctx context.Context, row *sharedResu
 		"recipe", recipe.String())
 }
 
+// noteRecipeRunHere records that res's recipe runs on this cache
+// (sharedResult.recipeRanHere) when res holds a record another cache or the
+// engine's image gave it. An entry the cache computed is its own run already.
+func (res *sharedResult) noteRecipeRunHere() {
+	res.payloadMu.RLock()
+	imported := res.imported
+	res.payloadMu.RUnlock()
+	if imported {
+		res.recipeRanHere.Store(true)
+	}
+}
+
 // runCallForPart runs again the call that made res, for res's part key that
 // no source supplies and no operation of res makes: another engine sent the
 // value without the part, and its offer of the part is gone or failed. From
@@ -829,6 +841,8 @@ func (c *Cache) runCallForPart(ctx context.Context, res AnyResult, key string) e
 		"kept_parts", kept,
 		"merged_dependents", dependents,
 		"merged_dependents_more", more)
+	// The part res takes from the call's run is this cache's own run of it.
+	row.noteRecipeRunHere()
 	ran, err := srv.LoadTypeReplayable(ctx, id)
 	if err != nil {
 		return fmt.Errorf("run call for part %s: %w", key, err)

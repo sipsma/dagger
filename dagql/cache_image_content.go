@@ -211,10 +211,13 @@ type imageBlobReader struct {
 
 func (r imageBlobReader) Size() int64 { return r.size }
 
-// ErrFromImage refuses to export an entry the engine image ships: every engine
-// built from the image has its record, so the Cloud carries only what engines
-// made. Its parts are never exported either, whether or not the image ships
-// them (ImageEntries).
+// ErrFromImage refuses to export, as a root or as a selected output, an entry
+// the engine image ships whose recipe hasn't run on this engine
+// (FromImageNotRun): every engine built from the image has its record, so the
+// Cloud carries only what engines made. Once an engine has run its recipe,
+// what the entry holds is that engine's own run, exported as any other. A
+// part of an image entry can still go as a prefix of another part's chain,
+// which stores the run its consumer was built over.
 var ErrFromImage = errors.New("the engine image ships this entry")
 
 // FromImage reports whether the engine image ships result: the image's merge
@@ -230,6 +233,20 @@ func (c *Cache) FromImage(result AnyResult) bool {
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
 	return fromImageLocked(res)
+}
+
+// FromImageNotRun reports whether the engine image ships result and its
+// recipe hasn't run on this engine (sharedResult.recipeRanHere): an export
+// refuses such an entry (ErrFromImage).
+func (c *Cache) FromImageNotRun(result AnyResult) bool {
+	if result == nil {
+		return false
+	}
+	res := result.cacheSharedResult()
+	if res == nil || res.recipeRanHere.Load() {
+		return false
+	}
+	return c.FromImage(result)
 }
 
 // fromImageLocked is FromImage for res. Requires egraphMu.

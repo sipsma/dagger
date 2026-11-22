@@ -32,9 +32,11 @@ import (
 // from another needs runs named by the service, which this rule doesn't do.
 
 // computedHereLocked reports whether res holds a value this cache computed
-// itself: one its own call made, evaluated or still lazy, and not a record a
-// merge or a restore gave it. An entry a merge is still creating is no entry
-// of the cache's yet. Requires egraphMu.
+// itself: one its own call made, evaluated or still lazy, or a record a
+// merge, a restore or the engine's image gave it whose recipe has since run
+// here (sharedResult.recipeRanHere), since what it holds is then a run of
+// this cache's own. An entry a merge is still creating is no entry of the
+// cache's yet. Requires egraphMu.
 func (c *Cache) computedHereLocked(res *sharedResult) bool {
 	if res == nil || c.resultsByID[res.id] != res || res.noValueLocked() {
 		return false
@@ -42,7 +44,7 @@ func (c *Cache) computedHereLocked(res *sharedResult) bool {
 	res.payloadMu.RLock()
 	imported := res.imported
 	res.payloadMu.RUnlock()
-	return !imported
+	return !imported || res.recipeRanHere.Load()
 }
 
 // incomingCall is the call of row's record as the merge prepared it: after
