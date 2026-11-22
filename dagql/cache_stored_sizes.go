@@ -262,6 +262,13 @@ func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *Hel
 			if chosen != nil && withhold != nil && withhold.callOverWithheldLocked(chosen) {
 				continue
 			}
+			// Nor one whose added inputs would bring another run of a step
+			// the bundle carries (storedBundleCallsLocked).
+			if chosen != nil && withhold != nil {
+				if other, _ := withhold.otherRunCarriedLocked(add...); other {
+					continue
+				}
+			}
 			for _, input := range add {
 				walk.visit(input)
 				if list != nil {
