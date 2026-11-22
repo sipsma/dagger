@@ -313,8 +313,8 @@ func TestGitTreeFollowsFromItsInputsWithoutGitDir(t *testing.T) {
 	}{
 		{"without .git", []dagql.NamedInput{{Name: "discardGitDir", Value: dagql.Boolean(true)}}, true},
 		{"without .git, tags asked", []dagql.NamedInput{{Name: "discardGitDir", Value: dagql.Boolean(true)}, {Name: "includeTags", Value: dagql.Boolean(true)}}, true},
-		{"with .git", nil, false},
-		{"with .git and tags", []dagql.NamedInput{{Name: "includeTags", Value: dagql.Boolean(true)}}, false},
+		{"with .git", nil, true},
+		{"with .git and tags", []dagql.NamedInput{{Name: "includeTags", Value: dagql.Boolean(true)}}, true},
 	} {
 		var tree dagql.ObjectResult[*core.Directory]
 		require.NoError(t, srv.Select(ctx, ref, &tree, dagql.Selector{Field: "tree", Args: tc.args}), tc.name)

@@ -2653,10 +2653,11 @@ func (s *gitSchema) commitTreeCacheKey(ctx context.Context, parent dagql.ObjectR
 // doesn't: its pack's bytes differ from run to run, though git reads the same
 // objects from them, and its tags, with includeTags, are those the
 // repository has when it's fetched, which no hash in its key addresses.
-// Whether a tree with .git and no tags follows, as git reads it, is still to
-// be decided; this is the strict form.
+// The engine's own cache counts two trees of one commit as the same, .git
+// or not, and so does this form, for a trial: every tree follows. The
+// strict form, a tree that keeps .git can differ, is the alternative to it.
 func gitTreeFollowsFromInputs(keepsGitDir bool) bool {
-	return !keepsGitDir
+	return true
 }
 
 func canonicalGitTreeArgs(req *dagql.CallRequest, repoDiscardsGitDir, discardGitDir bool, depth int, includeTags bool) {
