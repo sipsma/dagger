@@ -279,3 +279,131 @@ func TestAFoldIsDecidedWhenTheSendersRunIsKnown(t *testing.T) {
 		})
 	}
 }
+
+// A step that follows from its inputs carries a folded run up: engine b's M,
+// a function of b's own run of S, is kept onto a's M as S is kept onto a's
+// S, and only S is a step that can differ. A result b builds over its M
+// stands over b's run of S, and isn't answered over a's. Where b was served
+// a's S, its M and the result over it are over a's content, and the result
+// is answered.
+func TestAFoldedRunReachesThroughAStepThatFollowsFromItsInputs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		ranOwn   bool
+		withheld bool
+	}{
+		{"b ran S itself", true, true},
+		{"b was served a's S", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			foldedThroughTest(t, tc.ranOwn, tc.withheld)
+		})
+	}
+}
+
+func foldedThroughTest(t *testing.T, ranOwn, withheld bool) {
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+
+	actx, a, asrv := transferTestCache(t)
+	fromA := CacheID(a.Identity().ID)
+	sA := persistedListTestResult(t, actx, a, asrv, "through-step", &transferTestValue{Text: "a's bytes"})
+	canDiffer(t, a, sA)
+	mA := persistedListTestResult(t, actx, a, asrv, "through-middle", &transferTestValue{Text: "over a's bytes"})
+	transferTestDependency(a, actx, mA, sA)
+	exportedA := exportTestBundle(t, actx, a, mA)
+	replyA, err := cloud.MergeValues(ctx, fromA, exportedA)
+	require.NoError(t, err)
+	sNumber := cloudNumberOf(t, exportedA, replyA, sA)
+	mNumber := cloudNumberOf(t, exportedA, replyA, mA)
+	withholdTestRan(t, ctx, cloud, sNumber, HolderKey{Cache: fromA, Number: uint64(sA.cacheSharedResult().id)}, 0, false)
+	stored, _, err := cloud.SetStoredPart(ctx, sNumber, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+
+	bctx, b, bsrv := transferTestCache(t)
+	fromB := CacheID(b.Identity().ID)
+	sB := persistedListTestResult(t, bctx, b, bsrv, "through-step", &transferTestValue{Text: "b's bytes"})
+	canDiffer(t, b, sB)
+	mB := persistedListTestResult(t, bctx, b, bsrv, "through-middle", &transferTestValue{Text: "over b's bytes"})
+	transferTestDependency(b, bctx, mB, sB)
+	top := persistedListTestResult(t, bctx, b, bsrv, "through-top", &transferTestValue{Text: "T"})
+	transferTestDependency(b, bctx, top, mB)
+	exportedB := exportTestBundle(t, bctx, b, top)
+	replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
+	require.NoError(t, err)
+	require.Equal(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "b's S is kept onto a's")
+	require.Equal(t, mNumber, cloudNumberOf(t, exportedB, replyB, mB), "and b's M onto a's")
+	tNumber := cloudNumberOf(t, exportedB, replyB, top)
+	foldedRunTestHolding(t, ctx, cloud, sNumber, HolderKey{Cache: fromB, Number: uint64(sB.cacheSharedResult().id)}, ranOwn)
+
+	built, err := cloud.StoredBundle(ctx, []uint64{tNumber}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	if withheld {
+		require.Contains(t, built.Withheld, tNumber, "T stands over b's run of S, through b's M")
+	} else {
+		require.NotContains(t, built.Withheld, tNumber, "T stands over a's S, which b was served")
+	}
+}
+
+// One bundle carries an engine's expired run of a step, S₁, kept for a
+// result T built over it, and its replacement S₂ of the same recipe. The
+// Cloud, which holds nothing of the step, creates an entry for S₂, the
+// recipe's best record, and keeps S₁ onto it. T, built over S₁, isn't
+// answered over S₂'s content once the Cloud learns S₁ ran.
+func TestAFoldOntoAnEntryTheSameMergeCreatesIsJudged(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	bctx, b, bsrv := transferTestCache(t)
+	from := CacheID(b.Identity().ID)
+	s1 := persistedListTestResult(t, bctx, b, bsrv, "replaced-step", &transferTestValue{Text: "first run"})
+	canDiffer(t, b, s1)
+	top := persistedListTestResult(t, bctx, b, bsrv, "replaced-top", &transferTestValue{Text: "T over the first run"})
+	transferTestDependency(b, bctx, top, s1)
+	bundle := exportTestBundle(t, bctx, b, top)
+
+	// S₂: the same record from another entry of b's, unexpired, as b's
+	// replacement run; S₁ has expired.
+	var s1Row *TransferredValue
+	for i := range bundle.Values {
+		if bundle.Values[i].SenderNumber == uint64(s1.cacheSharedResult().id) {
+			s1Row = &bundle.Values[i]
+		}
+	}
+	require.NotNil(t, s1Row)
+	s2 := *s1Row
+	s2.Ordinal = TransferOrdinal(len(bundle.Values) + 1)
+	s2.SenderNumber = 9999
+	s2.Record.ResultID = 9999
+	s2.Record.Envelope.ResultID = 9999
+	s1Row.ExpiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	bundle.Values = append(bundle.Values, s2)
+	bundle.Roots = append(bundle.Roots, TransferredRoot{Ordinal: s2.Ordinal})
+
+	reply, err := cloud.MergeValues(ctx, from, bundle)
+	require.NoError(t, err)
+	tNumber := cloudNumberOf(t, bundle, reply, top)
+	var sNumber uint64
+	for _, value := range reply.Values {
+		if value.Ordinal == s2.Ordinal {
+			sNumber = value.Number
+		}
+	}
+	require.NotZero(t, sNumber)
+	require.Equal(t, sNumber, cloudNumberOf(t, bundle, reply, s1), "S₁ is kept onto the entry created for S₂")
+	cloud.egraphMu.RLock()
+	run := *cloud.resultsByID[sharedResultID(sNumber)].run
+	cloud.egraphMu.RUnlock()
+	require.Equal(t, uint64(9999), run.Number, "the entry names S₂'s run")
+	withholdTestRan(t, ctx, cloud, sNumber, HolderKey{Cache: from, Number: 9999}, 0, false)
+	stored, _, err := cloud.SetStoredPart(ctx, sNumber, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	// b's run S₁ ran: its holding of the entry reports it.
+	foldedRunTestHolding(t, ctx, cloud, sNumber, HolderKey{Cache: from, Number: uint64(s1.cacheSharedResult().id)}, true)
+
+	built, err := cloud.StoredBundle(ctx, []uint64{tNumber}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Contains(t, built.Withheld, tNumber, "T is built over S₁, not S₂")
+}
