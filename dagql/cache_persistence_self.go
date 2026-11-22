@@ -64,11 +64,10 @@ type PersistedResultEnvelope struct {
 	// (lightStoredEnvelope).
 	Run    *RunName `json:"run,omitempty"`
 	RunRan uint8    `json:"runRan,omitempty"`
-	// FoldedRuns are, in the Cloud's saved records, the engines whose own
-	// runs the entry keeps folded under another run's record
-	// (sharedResult.foldedRuns), which restore takes back onto the entry as
-	// it does Run.
-	FoldedRuns []CacheID `json:"foldedRuns,omitempty"`
+	// FoldedRuns are, in the Cloud's saved records, the runs the entry keeps
+	// folded under another run's record (sharedResult.foldedRuns), which
+	// restore takes back onto the entry as it does Run.
+	FoldedRuns []RunName `json:"foldedRuns,omitempty"`
 	Version    int       `json:"version"`
 	Kind       string    `json:"kind"`
 	// TypeName identifies the GraphQL value type of object and scalar

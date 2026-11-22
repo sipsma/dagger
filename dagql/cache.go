@@ -3324,14 +3324,14 @@ type sharedResult struct {
 	// them in this cache. Guarded by egraphMu.
 	runRan runRanBy
 	run    *RunName
-	// foldedRuns are, on the Cloud, the engine caches whose own run of this
-	// entry's step, one that can differ, the Cloud keeps under this entry,
-	// though the entry's stored record is another run (addFoldedRunLocked):
+	// foldedRuns are, on the Cloud, the runs of this entry's step, one that
+	// can differ, that engines ran themselves and the Cloud keeps under this
+	// entry, though its stored record is another run (addFoldedRunLocked):
 	// what such an engine built over its run names this entry, whose content
-	// it wasn't built over, and the withholding rule withholds it
-	// (overFoldedRunLocked). They go with the entry through replacement and
-	// saves. Guarded by egraphMu.
-	foldedRuns []CacheID
+	// it wasn't built over, and the withholding rule withholds what that
+	// engine built over the entry (overFoldedRunLocked). They go with the
+	// entry through replacement and saves. Guarded by egraphMu.
+	foldedRuns []RunName
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in

@@ -144,7 +144,12 @@ func (w *withholdBuild) foldedReachLocked(res *sharedResult) []CacheID {
 	}
 	// A cycle is the walk's to report; inside one, nothing is reached yet.
 	w.reach[res.id] = nil
-	reach := slices.Clone(res.foldedRuns)
+	var reach []CacheID
+	for _, run := range res.foldedRuns {
+		if !slices.Contains(reach, run.Cache) {
+			reach = append(reach, run.Cache)
+		}
+	}
 	if !w.c.entryCanDifferLocked(res) {
 		for _, id := range storedClosureChildrenLocked(res) {
 			if child := w.c.resultsByID[id]; child != nil {
@@ -185,18 +190,18 @@ func (c *Cache) noteFoldedRowLocked(prep *valueMergePrep, row *mergeRow) {
 		ran = by != runNotRan
 	}
 	if ran && run != *target.run {
-		c.addFoldedRunLocked(target, run.Cache)
+		c.addFoldedRunLocked(target, run)
 	}
 }
 
-// addFoldedRunLocked notes that res keeps cache's own run folded under
+// addFoldedRunLocked notes that res keeps run, an engine's own, folded under
 // another run's record, marks res changed, and reports whether it was new.
 // Requires egraphMu for writing.
-func (c *Cache) addFoldedRunLocked(res *sharedResult, cache CacheID) bool {
-	if slices.Contains(res.foldedRuns, cache) {
+func (c *Cache) addFoldedRunLocked(res *sharedResult, run RunName) bool {
+	if slices.Contains(res.foldedRuns, run) {
 		return false
 	}
-	res.foldedRuns = append(res.foldedRuns, cache)
+	res.foldedRuns = append(res.foldedRuns, run)
 	c.markEntryLocked(res.id)
 	return true
 }
