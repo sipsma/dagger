@@ -61,7 +61,14 @@ func WithNestedClientServer(
 	wcprof.Link(ctx, wcprof.LinkKindNestedClient, 0, 0, nestedClientMetadata.ClientID, 0)
 
 	httpSrv := &http.Server{
-		ReadHeaderTimeout: 10 * time.Second,
+		// NOTE: no ReadHeaderTimeout (gosec G112). net/http arms it on a
+		// connection as soon as it is accepted, before its first request, and
+		// closes the connection without a reply once it passes. The client's
+		// pool keeps connections it dialed and has not used yet (see
+		// serveNestedClient), so it can hand a request one just as the server
+		// closes it, and the request fails with EOF: net/http does not retry a
+		// POST. The server's only peer is this engine's own client, over
+		// loopback.
 		Handler: http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 			telemetry.Propagator.Inject(ctx, propagation.HeaderCarrier(req.Header))
 			query.ServeHTTPToNestedClient(resp, req, transport, nestedClientMetadata, parentClientID, inertAttachables, moduleContext, fnCall)
