@@ -470,3 +470,94 @@ func TestCacheReportsPartsReadUnderANestedClientsRequest(t *testing.T) {
 		{ResultID: id(uncachedUnderCached), Part: partsTestPartFS, Session: session, Caller: cached},
 	}, sessionReads)
 }
+
+// A read carries the outermost call above it that is neither uncached nor
+// session-bound: the call whose run is the earliest a next engine knows the
+// read will come. Under two cached calls, it is the outer one. Under a
+// session-bound call at the session's top, whose recipe names the session,
+// it is the cached call below it, whether that call is made in the
+// session-bound call's own resolver or in a nested client's request it
+// answers.
+func TestCacheReportsTheOutermostCallAPartReadWaitsFor(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var reported []PartRead
+	ctx := cacheTestContext(t.Context())
+	c, err := NewCache(ctx, "", nil, nil, WithPartReadReport(func(reads []PartRead) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, reads...)
+	}))
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, c)
+	t.Cleanup(func() { assert.NilError(t, c.CloseDiscardingPersistence()) })
+	session := cacheTestSessionID(t, ctx)
+	srv := cacheTestPartsServer(t)
+
+	top := ctx
+	underTwo := newPartsReadTestValue(t, c, ctx, "read-under-two-cached-calls", nil)
+	underSessionBound := newPartsReadTestValue(t, c, ctx, "read-under-a-cached-call-under-a-session-bound-call", nil)
+	acrossRequest := newPartsReadTestValue(t, c, ctx, "read-under-a-cached-call-in-a-request-under-a-session-bound-call", nil)
+	call := func(ctx context.Context, field string, sessionBound, uncached bool, fn func(context.Context) error) {
+		t.Helper()
+		frame := &ResultCall{Kind: ResultCallKindField, Type: NewResultCallType((&cacheTestPartsObject{}).Type()), Field: field}
+		if sessionBound {
+			arg, err := resultCallArgFromInput(ctx, PerSessionInput.Name, NewString(session), false)
+			assert.NilError(t, err)
+			frame.ImplicitInputs = []*ResultCallArg{arg}
+		}
+		_, err := c.GetOrInitCall(ctx, session, srv, &CallRequest{ResultCall: frame, DoNotCache: uncached, CacheReported: !uncached}, func(ctx context.Context) (AnyResult, error) {
+			if err := fn(ctx); err != nil {
+				return nil, err
+			}
+			return NewObjectResultForCall(&cacheTestPartsObject{resolveFn: partsTestDirectResolve}, srv, frame)
+		})
+		assert.NilError(t, err)
+	}
+	read := func(name string, value ObjectResult[*cacheTestPartsObject]) func(context.Context) error {
+		return func(ctx context.Context) error {
+			call(ctx, name, false, true, func(ctx context.Context) error {
+				return c.EvaluateParts(ctx, value, partsTestPartFS)
+			})
+			return nil
+		}
+	}
+	var outer, helper, helperAcross digest.Digest
+	call(ctx, "outer-cached", false, false, func(ctx context.Context) error {
+		outer = CallerRecipe(ctx)
+		call(ctx, "inner-cached", false, false, read("uncached-under-two", underTwo))
+		return nil
+	})
+	call(ctx, "session-bound-top", true, false, func(ctx context.Context) error {
+		call(ctx, "helper", false, false, func(ctx context.Context) error {
+			helper = CallerRecipe(ctx)
+			return read("uncached-under-the-helper", underSessionBound)(ctx)
+		})
+		// A nested client's request, from the session's context, carrying
+		// the session-bound call's recipe and read scope.
+		nested := ContextWithReadScope(ContextWithCallerRecipe(top, CallerRecipe(ctx)), CurrentReadScope(ctx))
+		call(nested, "helper-across", false, false, func(ctx context.Context) error {
+			helperAcross = CallerRecipe(ctx)
+			return read("uncached-under-the-helper-across", acrossRequest)(ctx)
+		})
+		return nil
+	})
+	assert.Assert(t, outer != "" && helper != "" && helperAcross != "")
+	c.partReads.flush()
+
+	id := func(r ObjectResult[*cacheTestPartsObject]) uint64 { return uint64(r.cacheSharedResult().id) }
+	mu.Lock()
+	defer mu.Unlock()
+	var sessionReads []PartRead
+	for _, read := range reported {
+		if read.Session != "" {
+			read.At = time.Time{}
+			sessionReads = append(sessionReads, read)
+		}
+	}
+	assert.DeepEqual(t, []PartRead{
+		{ResultID: id(underTwo), Part: partsTestPartFS, Session: session, Caller: outer},
+		{ResultID: id(underSessionBound), Part: partsTestPartFS, Session: session, Caller: helper},
+		{ResultID: id(acrossRequest), Part: partsTestPartFS, Session: session, Caller: helperAcross},
+	}, sessionReads)
+}
