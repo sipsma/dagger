@@ -133,7 +133,7 @@ func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress, nowUn
 	}
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
-	return c.availablePartLocked(number, key, nowUnix)
+	return c.availablePartLocked(number, key, nowUnix, false)
 }
 
 // PartQuery is a part of an entry a reader asks about (AvailableParts).
@@ -185,7 +185,7 @@ func (c *Cache) AvailableParts(queries []PartQuery, nowUnix int64) []PartAnswer 
 	defer c.egraphMu.RUnlock()
 	for i, q := range queries {
 		if out[i].Err == nil {
-			out[i].PartAvailability, out[i].Err = c.availablePartLocked(q.Number, keys[i], nowUnix)
+			out[i].PartAvailability, out[i].Err = c.availablePartLocked(q.Number, keys[i], nowUnix, q.ByEntry)
 		}
 		if c.testBatchAnswered != nil {
 			c.testBatchAnswered(i)
@@ -220,13 +220,14 @@ func (c *Cache) giveWayLocked() {
 }
 
 // availablePartLocked is AvailablePart's answer for the part key of the
-// entry numbered number. Requires egraphMu.
-func (c *Cache) availablePartLocked(number uint64, key string, nowUnix int64) (PartAvailability, error) {
+// entry numbered number, or, byEntry, the entry's alone (PartQuery.ByEntry).
+// Requires egraphMu.
+func (c *Cache) availablePartLocked(number uint64, key string, nowUnix int64, byEntry bool) (PartAvailability, error) {
 	res := c.resultsByID[sharedResultID(number)]
 	if res == nil {
 		return PartAvailability{}, fmt.Errorf("available part of %d: %w", number, ErrUnknownEntry)
 	}
-	av, held := c.heldPartLocked(res, key, nowUnix)
+	av, held := c.heldPartLocked(res, key, nowUnix, byEntry)
 	if held {
 		return av, nil
 	}
@@ -234,7 +235,7 @@ func (c *Cache) availablePartLocked(number uint64, key string, nowUnix int64) (P
 	// neither, whatever uploads. The count is read a part at a time, so a
 	// reader counting an upload never waits for a batch of answers.
 	c.uploadsMu.Lock()
-	donor, uploading := c.classUploadLocked(res, key)
+	donor, uploading := c.classUploadLocked(res, key, byEntry)
 	c.uploadsMu.Unlock()
 	if uploading {
 		av.State, av.Donor = PartUploading, uint64(donor)
@@ -246,15 +247,20 @@ func (c *Cache) availablePartLocked(number uint64, key string, nowUnix int64) (P
 // holders alone, a stored copy or a record that marks it absent, and whether
 // one answered: when none does, the answer is unavailable, with the moment
 // time alone may change it, and an upload in progress is the caller's to
-// count (classUploadLocked). Requires egraphMu.
-func (c *Cache) heldPartLocked(res *sharedResult, key string, nowUnix int64) (PartAvailability, bool) {
+// count (classUploadLocked). byEntry, res alone answers (PartQuery.ByEntry).
+// Requires egraphMu.
+func (c *Cache) heldPartLocked(res *sharedResult, key string, nowUnix int64, byEntry bool) (PartAvailability, bool) {
 	// Only the part's holders in the class answer for it: the members that
 	// store it, or whose stored record marks it absent (holdsPartLocked).
 	// Whether a member holds it is asked first: most members of a large class
 	// hold nothing, and the checks after it walk a member's holdings.
 	candidates := []*sharedResult{res}
 	var others []sharedResultID
-	for root := range c.outputEqClassRootsLocked(res.id) {
+	var roots map[eqClassID]struct{}
+	if !byEntry {
+		roots = c.outputEqClassRootsLocked(res.id)
+	}
+	for root := range roots {
 		for id := range c.outputEqClassResults[root] {
 			other := c.resultsByID[id]
 			if other == nil || other == res || !other.holdsPartLocked(key) || other.noValueLocked() || c.resultExpiredAtLocked(other, nowUnix) {
@@ -303,9 +309,10 @@ func (c *Cache) heldPartLocked(res *sharedResult, key string, nowUnix int64) (Pa
 // (StartPartUploads), whether or not it stores a value or has expired: an
 // upload counts for its class as its reader's claim does. A caller that
 // decides by the answer, as a start that counts an upload only where none is
-// in progress (StartPartUploads), decides under the same take of uploadsMu. Requires egraphMu
-// and uploadsMu.
-func (c *Cache) classUploadLocked(res *sharedResult, key string) (sharedResultID, bool) {
+// in progress (StartPartUploads), decides under the same take of uploadsMu.
+// byEntry, res alone counts (PartQuery.ByEntry). Requires egraphMu and
+// uploadsMu.
+func (c *Cache) classUploadLocked(res *sharedResult, key string, byEntry bool) (sharedResultID, bool) {
 	if len(c.uploads) == 0 {
 		return 0, false
 	}
@@ -317,6 +324,9 @@ func (c *Cache) classUploadLocked(res *sharedResult, key string) (sharedResultID
 		}
 	}
 	consider(res.id)
+	if byEntry {
+		return donor, found
+	}
 	for root := range c.outputEqClassRootsLocked(res.id) {
 		for id := range c.outputEqClassResults[root] {
 			if c.resultsByID[id] != nil {

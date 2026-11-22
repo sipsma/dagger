@@ -33,8 +33,9 @@ type PartStart struct {
 // reader's claim on the part, which the cache counts until the reader ends it
 // (EndPartUploads). One upload serves a class, so a second for any of its
 // entries is refused, the answer naming the entry that uploads it
-// (PartStart.UploadedBy). A part the cache can't answer, as one of an entry
-// it doesn't have, isn't started.
+// (PartStart.UploadedBy); a part asked of its entry alone (PartQuery.ByEntry)
+// counts the entry's own holdings and uploads only. A part the cache can't
+// answer, as one of an entry it doesn't have, isn't started.
 //
 // Each part is answered as AvailableParts answers it at nowUnix, in the
 // order of starts, so a part's answer counts the batch's starts of the parts
@@ -105,13 +106,13 @@ func (c *Cache) startPartLocked(q PartStartQuery, key string, nowUnix int64, out
 		out.Err = fmt.Errorf("start part upload of %d: %w", q.Number, ErrUnknownEntry)
 		return nil
 	}
-	av, held := c.heldPartLocked(res, key, nowUnix)
+	av, held := c.heldPartLocked(res, key, nowUnix, q.ByEntry)
 	out.PartAvailability = av
 	if held && av.State == PartStored {
 		return nil
 	}
 	c.uploadsMu.Lock()
-	if donor, uploading := c.classUploadLocked(res, key); uploading {
+	if donor, uploading := c.classUploadLocked(res, key, q.ByEntry); uploading {
 		out.UploadedBy = uint64(donor)
 		if !held {
 			out.State, out.Donor = PartUploading, uint64(donor)
