@@ -374,7 +374,9 @@ func (a *partPrefetchAhead) release(ctx context.Context) {
 // partOfferAccepted queues an offer the cache just attached for prefetch: a
 // job in each lane its blobs take. It never blocks.
 func (c *Cache) partOfferAccepted(ctx context.Context, row *sharedResult, key string, offer *partOffer) {
-	p := c.partPrefetch(ctx)
+	// Trial arm, not for landing: fetch nothing ahead. The prefetcher never
+	// starts, so no offer is downloaded or imported before its install.
+	var p *partPrefetcher
 	if p == nil || offer == nil {
 		return
 	}
