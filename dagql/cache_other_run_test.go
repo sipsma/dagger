@@ -125,3 +125,70 @@ func TestAStoredBundleWithholdsAValueOverARunTheRecipientHoldsAnotherOf(t *testi
 	require.NoError(t, err)
 	require.Empty(t, got.Withheld, "another engine holds no other run of it")
 }
+
+// secondRunTestFollows makes the Cloud's entry number's record say that its
+// step follows from its inputs.
+func secondRunTestFollows(t *testing.T, cloud *Cache, number uint64) {
+	t.Helper()
+	cloud.egraphMu.Lock()
+	defer cloud.egraphMu.Unlock()
+	res := cloud.resultsByID[sharedResultID(number)]
+	require.NotNil(t, res)
+	if call := res.loadResultCall(); call != nil {
+		frame := call.clone()
+		frame.FollowsFromInputs = true
+		res.storeResultCall(frame)
+	}
+	if res.stored != nil {
+		res.stored.follows = true
+	}
+	require.False(t, cloud.entryCanDifferLocked(res))
+}
+
+// A bundle for an engine that holds one run of a step withholds what was
+// built over another run of it, before any merge has to refuse it: the
+// engine would keep its own run (mergeKeep) and land the value over it.
+// The value goes to an engine that holds that run, or no run of the step,
+// and to anyone once the step follows from its inputs.
+func TestAStoredBundleWithholdsAValueOverAnotherRunOfAStepItsRecipientHolds(t *testing.T) {
+	t.Parallel()
+	for _, follows := range []bool{false, true} {
+		t.Run(map[bool]string{false: "can differ", true: "follows from its inputs"}[follows], func(t *testing.T) {
+			t.Parallel()
+			s := newSecondRunTestSetup(t)
+			bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+			second := secondRunTestNumber(bundle, reply, s.bStep)
+			root := secondRunTestNumber(bundle, reply, s.bRoot)
+			require.NotZero(t, root)
+			require.NotEqual(t, s.first, second, "cache-b's run is an entry of its own")
+			// cache-c's own call row of the step lands on the recipe's
+			// current entry: it holds the first run.
+			cKey := HolderKey{Cache: "cache-c", Number: 1}
+			_, err := s.cloud.AttachRemoteHolding(s.cctx, cKey, RemoteHolding{Recipe: s.recipe})
+			require.NoError(t, err)
+			held, ok := s.cloud.HolderEntry(cKey)
+			require.True(t, ok)
+			require.Equal(t, s.first, held, "cache-c holds the first run")
+			if follows {
+				secondRunTestFollows(t, s.cloud, s.first)
+				secondRunTestFollows(t, s.cloud, second)
+			}
+
+			now := time.Now().Unix()
+			got, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, now, &HeldBy{Cache: "cache-c"})
+			require.NoError(t, err)
+			if follows {
+				require.Empty(t, got.Withheld, "another run of a step that follows from its inputs is the same")
+			} else {
+				require.Equal(t, []uint64{root}, got.Withheld)
+				require.Equal(t, []uint64{second}, got.WithheldOn)
+				require.Equal(t, []string{"second-run-step/otherRun"}, got.WithheldOnField)
+			}
+			for _, cache := range []CacheID{"cache-b", "cache-d"} {
+				got, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, now, &HeldBy{Cache: cache})
+				require.NoError(t, err)
+				require.Empty(t, got.Withheld, "%s holds no other run of the step", cache)
+			}
+		})
+	}
+}
