@@ -391,8 +391,10 @@ func TestAnEnginesEndReleasesItsSecondRunsThatNothingStoredStandsOver(t *testing
 	require.False(t, secondRetained, "a second run has no retention of its own")
 	require.True(t, firstRetained)
 
-	_, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
+	released, _, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
 	require.NoError(t, err)
+	require.Equal(t, 2, released.Dropped, "the chain of two second runs")
+	require.Positive(t, released.Held, "the release says how long it held the cache")
 	for _, number := range []uint64{secondOver, secondBase} {
 		_, ok := s.cloud.EntryRun(number)
 		require.False(t, ok, "entry %d's value is dropped", number)
@@ -412,11 +414,11 @@ func TestAnEnginesEndLeavesALiveEnginesSecondRuns(t *testing.T) {
 	known := NewKnownRows()
 	bundle, reply := secondRunTestExport(t, s.bctx, s.b, known, s.cloud, s.cctx, "cache-b", s.bStep)
 	second := secondRunTestNumber(bundle, reply, s.bStep)
-	_, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-a", func(id CacheID) bool { return id == "cache-b" })
+	_, _, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-a", func(id CacheID) bool { return id == "cache-b" })
 	require.NoError(t, err)
 	_, ok := s.cloud.EntryRun(second)
 	require.True(t, ok, "cache-b still runs")
-	_, err = s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
+	_, _, err = s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
 	require.NoError(t, err)
 	_, ok = s.cloud.EntryRun(second)
 	require.False(t, ok, "released at cache-b's end")
@@ -569,7 +571,7 @@ func TestASecondRunsRootExportedAgainKeepsNoRetention(t *testing.T) {
 	require.False(t, retained, "the second run has no retention of its own")
 	require.True(t, firstRetained)
 
-	_, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
+	_, _, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
 	require.NoError(t, err)
 	_, ok := s.cloud.EntryRun(second)
 	require.False(t, ok, "released at cache-b's end")
@@ -696,7 +698,7 @@ func TestAKeptUnderMarkGoesWithItsLastStoredParentsEdge(t *testing.T) {
 	require.Equal(t, 1, again.Rows.Replaced, "the expired result is replaced in place")
 	require.False(t, secondRunTestFacts(t, s.cloud, second).KeptUnder, "nothing stored stands over the second run")
 
-	_, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
+	_, _, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
 	require.NoError(t, err)
 	_, ok := s.cloud.EntryRun(second)
 	require.False(t, ok, "released at cache-b's end")

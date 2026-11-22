@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 )
@@ -141,23 +142,35 @@ func (c *Cache) keptUnderByParentLocked(res *sharedResult) bool {
 // still build over it. A recipe's
 // current entry is never touched. The entries left with no owner at all are
 // collected. Only a blob-backed cache keeps second runs.
-func (c *Cache) ReleaseSecondRuns(ctx context.Context, cache CacheID, live func(CacheID) bool) (RemoteChange, error) {
+func (c *Cache) ReleaseSecondRuns(ctx context.Context, cache CacheID, live func(CacheID) bool) (ReleasedSecondRuns, RemoteChange, error) {
 	c.egraphMu.Lock()
+	held := time.Now()
 	var change RemoteChange
-	collect, rerr := c.releaseSecondRunsLocked(ctx, cache, live)
+	collect, dropped, rerr := c.releaseSecondRunsLocked(ctx, cache, live)
 	releases, err := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), collect)
 	rerr = errors.Join(rerr, err)
 	c.takeChangesLocked(&change)
+	released := ReleasedSecondRuns{Dropped: dropped, Collected: len(collect), Held: time.Since(held)}
 	c.egraphMu.Unlock()
-	return change, errors.Join(rerr, runOnReleaseFuncs(ctx, releases))
+	return released, change, errors.Join(rerr, runOnReleaseFuncs(ctx, releases))
+}
+
+// ReleasedSecondRuns is what one ReleaseSecondRuns did: the second runs whose
+// value it dropped, the entries it left with no owner and collected, and how
+// long it held the cache's lock for writing, the cascade and the collection
+// in one hold.
+type ReleasedSecondRuns struct {
+	Dropped, Collected int
+	Held               time.Duration
 }
 
 // releaseSecondRunsLocked is ReleaseSecondRuns' cascade. It returns the
-// entries it left with no owner. Requires egraphMu for writing.
-func (c *Cache) releaseSecondRunsLocked(ctx context.Context, cache CacheID, live func(CacheID) bool) ([]*sharedResult, error) {
+// entries it left with no owner, and how many values it dropped. Requires
+// egraphMu for writing.
+func (c *Cache) releaseSecondRunsLocked(ctx context.Context, cache CacheID, live func(CacheID) bool) ([]*sharedResult, int, error) {
 	state := c.remoteCaches[cache]
 	if !c.blobBacked || state == nil {
-		return nil, nil
+		return nil, 0, nil
 	}
 	var queue []*sharedResult
 	for _, id := range state.entries {
@@ -168,6 +181,7 @@ func (c *Cache) releaseSecondRunsLocked(ctx context.Context, cache CacheID, live
 	slices.SortFunc(queue, compareSharedResults)
 	var (
 		collect []*sharedResult
+		dropped int
 		rerr    error
 	)
 	for len(queue) > 0 {
@@ -185,12 +199,13 @@ func (c *Cache) releaseSecondRunsLocked(ctx context.Context, cache CacheID, live
 		}
 		deps, err := c.dropValueLocked(ctx, res)
 		rerr = errors.Join(rerr, err)
+		dropped++
 		queue = append(queue, deps...)
 		if res.incomingOwnershipCount.Load() == 0 {
 			collect = append(collect, res)
 		}
 	}
-	return collect, rerr
+	return collect, dropped, rerr
 }
 
 // entriesOfRecipeLocked returns, on the Cloud, every entry of recipe: the
