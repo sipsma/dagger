@@ -683,7 +683,10 @@ type valueMergePrep struct {
 	// (PreparedValueMerge.ImageEntries), and computedRows those it evaluated
 	// itself (PreparedValueMerge.ComputedRows), by ordinal.
 	imageRows, computedRows map[uint64]bool
-	bundle                  ValueBundle
+	// contentRows are, on the Cloud, the rows whose content besides
+	// metadata the bundle carries as outputs, by ordinal (contentRowsOf).
+	contentRows map[uint64]bool
+	bundle      ValueBundle
 	// unretained are the bundle's roots the commit gives no retention edge
 	// (PreparedValueMerge.Unretained).
 	unretained map[TransferOrdinal]bool
@@ -832,10 +835,14 @@ func (c *Cache) checkValueMerge(from CacheID, input ValueBundle) (*valueMergePre
 		return nil, err
 	}
 	// The Cloud drops the parts below, but checks those on held rows against
-	// its own copies of the rows when it commits (staleHeldPartsLocked).
+	// its own copies of the rows when it commits (staleHeldPartsLocked). The
+	// rows whose content the bundle carries are noted first: a run replaces
+	// another's record only with its content (replaceRunsLocked).
 	var heldParts map[uint64][]TransferredOutput
+	var contentRows map[uint64]bool
 	if c.blobBacked {
 		heldParts = heldRowOutputs(bundle)
+		contentRows = contentRowsOf(bundle)
 	}
 	c.embedMergedParts(&bundle)
 	var recordBytes map[uint64]int64
@@ -847,7 +854,7 @@ func (c *Cache) checkValueMerge(from CacheID, input ValueBundle) (*valueMergePre
 		}
 		recordBytes = map[uint64]int64{}
 	}
-	prep := &valueMergePrep{lockWaits: &graphLockWaits{}, payloadPreparing: c.testRecordPayloadPreparing, from: from, bundle: bundle, order: order, index: map[uint64]*TransferredValue{}, plans: map[uint64]transferIdentityPlan{}, records: map[uint64]PersistedRecord{}, refs: map[uint64][]uint64{}, recordBytes: recordBytes, completeParts: map[uint64][]string{}, held: map[uint64]bool{}, heldParts: heldParts}
+	prep := &valueMergePrep{lockWaits: &graphLockWaits{}, payloadPreparing: c.testRecordPayloadPreparing, from: from, bundle: bundle, order: order, index: map[uint64]*TransferredValue{}, plans: map[uint64]transferIdentityPlan{}, records: map[uint64]PersistedRecord{}, refs: map[uint64][]uint64{}, recordBytes: recordBytes, completeParts: map[uint64][]string{}, held: map[uint64]bool{}, heldParts: heldParts, contentRows: contentRows}
 	prep.rows = make(map[uint64]uint64, len(prep.bundle.Values))
 	for i := range prep.bundle.Values {
 		row := &prep.bundle.Values[i]
@@ -1958,6 +1965,22 @@ func (c *Cache) staleHeldRowsLocked(prep *valueMergePrep, targets mergeTargets, 
 	}
 	slices.Sort(stale)
 	return stale
+}
+
+// contentRowsOf returns the bundle's rows that it carries an output of a part
+// besides metadata for, by ordinal.
+func contentRowsOf(bundle ValueBundle) map[uint64]bool {
+	var rows map[uint64]bool
+	for _, output := range bundle.Outputs {
+		if output.Address.Part == "metadata" {
+			continue
+		}
+		if rows == nil {
+			rows = map[uint64]bool{}
+		}
+		rows[uint64(output.Ordinal)] = true
+	}
+	return rows
 }
 
 // heldRowOutputs returns the bundle's outputs on its held rows, by ordinal.

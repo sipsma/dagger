@@ -2,7 +2,9 @@ package dagql
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -221,6 +223,27 @@ func TestCloudCountsRecordsOverAnotherRunOfAnInput(t *testing.T) {
 	}
 }
 
+// withContent puts, on bundle's rows of results, an output of their snapshot
+// part: the export carries the run's content of them.
+func withContent(t *testing.T, bundle ValueBundle, results ...AnyResult) ValueBundle {
+	t.Helper()
+	out := bundle
+	out.Outputs = slices.Clone(bundle.Outputs)
+	for _, res := range results {
+		found := false
+		for _, v := range bundle.Values {
+			if v.SenderNumber != uint64(res.cacheSharedResult().id) {
+				continue
+			}
+			part := storedPruneTestPart("snapshot", map[string]int64{fmt.Sprintf("content-%d-%s", v.SenderNumber, t.Name()): 10})
+			out.Outputs = append(out.Outputs, TransferredOutput{Ordinal: v.Ordinal, Address: part.Address, State: "completed", Value: &part.Value, Chain: &part.Chain, Owner: &part.Owner})
+			found = true
+		}
+		require.True(t, found, "the bundle carries entry %d", res.cacheSharedResult().id)
+	}
+	return out
+}
+
 // replaceTestRun exports a run of P and of R over it from an engine cache of
 // its own, P's and R's values naming the run, and merges it into cloud as
 // from. It returns the merge's reply and the Cloud's numbers for R and P.
@@ -230,7 +253,7 @@ func replaceTestRun(t *testing.T, ctx context.Context, cloud *Cache, from CacheI
 	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
 	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
 	transferTestDependency(e, ectx, r, p)
-	bundle := exportTestBundle(t, ectx, e, r)
+	bundle := withContent(t, exportTestBundle(t, ectx, e, r), r, p)
 	reply, err := cloud.MergeValues(ctx, from, bundle)
 	require.NoError(t, err)
 	var rNumber, pNumber uint64
@@ -643,7 +666,7 @@ func heldTestRun(t *testing.T, ctx context.Context, cloud *Cache) (*Cache, AnyRe
 	r := persistedListTestResult(t, bctx, b, bsrv, "replace-root", &transferTestValue{Text: "b root"})
 	p := persistedListTestResult(t, bctx, b, bsrv, "replace-dep", &transferTestValue{Text: "b dep"})
 	transferTestDependency(b, bctx, r, p)
-	full := exportTestBundle(t, bctx, b, r)
+	full := withContent(t, exportTestBundle(t, bctx, b, r), r, p)
 	reply, err := cloud.MergeValues(ctx, "cache-b", full)
 	require.NoError(t, err)
 	return b, p, r, full, reply
@@ -696,7 +719,7 @@ func TestAHeldRowOfAnEnginesOwnRunOverARunWithoutContentIsStale(t *testing.T) {
 
 	// With P in full and R held over it, R's held row lands on A's record
 	// over P, which the replacement would retire: stale too.
-	both := exportTestBundle(t, bctxOf(t, b), b, r, p)
+	both := withContent(t, exportTestBundle(t, bctxOf(t, b), b, r, p), r, p)
 	reply, err = cloud.MergeValues(ctx, "cache-b", engineHeldTestBundle(t, b, both, r))
 	require.NoError(t, err)
 	require.False(t, reply.Committed)
@@ -773,4 +796,74 @@ func TestAHeldRowOverARunWithContentIsntStale(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, reply.Stale)
 	require.True(t, reply.Committed)
+}
+
+// Two engines that both ran a step and left no content don't replace each
+// other's records: a run replaces another's record only with its content of
+// the step, which its export carries. Once one exports it, its run replaces
+// the other's, once.
+func TestTwoRunsWithoutContentDontReplaceEachOther(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	export := func(from CacheID, content bool) MergeReply {
+		t.Helper()
+		ectx, e, esrv := transferTestCache(t)
+		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
+		p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
+		transferTestDependency(e, ectx, r, p)
+		bundle := exportTestBundle(t, ectx, e, r)
+		if content {
+			bundle = withContent(t, bundle, p)
+		}
+		reply, err := cloud.MergeValues(ctx, from, bundle)
+		require.NoError(t, err)
+		return reply
+	}
+	first := export("cache-a", false)
+	var pA uint64
+	for _, v := range first.Values {
+		if len(v.Deps) == 0 {
+			pA = v.Number
+		}
+	}
+	require.NotZero(t, pA)
+	replaceTestRan(t, ctx, cloud, pA)
+	second := export("cache-b", false)
+	require.Zero(t, second.Rows.RunsReplaced, "B brings no content of the step: nothing to replace A's with")
+	require.Empty(t, second.Stale)
+	third := export("cache-c", true)
+	require.Equal(t, 1, third.Rows.RunsReplaced, "C brings its content: its run replaces A's, once")
+}
+
+// A holding's executed call describes the value it computed. Once the
+// engine's entry takes another value in place, an imported one, the
+// holding's new value isn't computed: its held row of it isn't stale, and its
+// full resend wouldn't replace anything, so it would only be sent again.
+func TestAnExecutedCallDescribesOnlyTheValueItComputed(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	b, p, _, full, _ := heldTestRun(t, ctx, cloud)
+	replaceTestRan(t, ctx, cloud, pA)
+	heldTestComputed(t, ctx, cloud, b, p)
+	key := HolderKey{Cache: "cache-b", Number: uint64(p.cacheSharedResult().id)}
+	// B's entry takes an imported value in place: its replacement count
+	// moves on.
+	_, _, err := cloud.ApplyHeldValueState(ctx, key, HeldValueState{Replacements: 1})
+	require.NoError(t, err)
+	cloud.egraphMu.RLock()
+	_, h := cloud.holdingLocked(key)
+	executed := h.executed
+	cloud.egraphMu.RUnlock()
+	require.False(t, executed, "the computation was the replaced value's")
+
+	held := engineHeldTestBundle(t, b, full, p)
+	for i := range held.Values {
+		if held.Values[i].SenderNumber == key.Number {
+			held.Values[i].SenderReplacements = 1
+		}
+	}
+	reply, err := cloud.MergeValues(ctx, "cache-b", held)
+	require.NoError(t, err)
+	require.Empty(t, reply.Stale, "B's imported value isn't its own run")
 }

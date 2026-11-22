@@ -117,6 +117,13 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 		if !isBest(row) || row.action != mergeKeep || row.expired || commit.prep.senderImported[row.ordinal] || cur == nil {
 			continue
 		}
+		// A run replaces another's record only with its own content of the
+		// step, which this export carries: without it, it gains nothing over
+		// the record it would replace, and two runs that both left no
+		// content would replace each other's records in turn.
+		if !commit.prep.contentRows[row.ordinal] {
+			continue
+		}
 		if row.value.Held != "" {
 			// A held row of the sender's own run, which it computed, would
 			// replace the record if it came in full: its sender believes

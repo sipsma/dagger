@@ -502,10 +502,6 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		h.typeName = internString(desc.TypeName)
 		c.markHoldingLocked(key)
 	}
-	if desc.Executed && !h.executed {
-		h.executed = true
-		c.markHoldingLocked(key)
-	}
 	touchSharedResultLastUsed(entry, desc.UsedAtUnixNano)
 	candidates := c.applyHeldValueStateLocked(ctx, state, key, entry, h, HeldValueState{
 		Replacements:  desc.Replacements,
@@ -513,6 +509,13 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		ExpiresAtUnix: desc.ExpiresAtUnix,
 		ContentDigest: desc.ContentDigest,
 	}, parts, nil)
+	// An executed call computed the value at its replacement count: the
+	// holding's, once the state above is applied, or an older one, which it
+	// doesn't describe.
+	if desc.Executed && !h.executed && desc.Replacements == h.replacements {
+		h.executed = true
+		c.markHoldingLocked(key)
+	}
 	change.Candidates = append(change.Candidates, candidates...)
 	return change
 }
@@ -796,6 +799,9 @@ func (c *Cache) applyHeldValueStateLocked(ctx context.Context, state *remoteCach
 		h.parts = nil
 		h.expiresAtUnix = 0
 		h.contentDigest = unique.Handle[string]{}
+		// The computation it noted was the replaced value's: the new
+		// value's is unknown until a row of it says it executed.
+		h.executed = false
 		kept := make(map[uint64]struct{}, len(obs.Deps))
 		for _, number := range obs.Deps {
 			kept[number] = struct{}{}
