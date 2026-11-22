@@ -258,6 +258,7 @@ func TestHoldingFactsOnAStoredEntry(t *testing.T) {
 			Number: held.Number, Stored: true, StoredExpiresAtUnix: info.StoredExpiresAtUnix,
 			TypeName: h.TypeName, ExpiresAtUnix: h.ExpiresAtUnix, Retained: h.Retained, RetentionExpiresAtUnix: h.RetentionExpiresAtUnix,
 			Replacements: h.Replacements, Executed: h.Executed, Deps: h.Deps, UnknownDeps: h.UnknownDeps, Parts: h.Parts,
+			RunParts: info.RunParts, RunPartsKnown: info.RunPartsKnown,
 		}, facts, "%v", k)
 	}
 }

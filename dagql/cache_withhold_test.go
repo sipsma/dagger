@@ -141,6 +141,42 @@ func TestStoredBundleWithholdsAValueOverARunStoredInPart(t *testing.T) {
 	})
 }
 
+// The parts of a run are the ones its stored record declares, besides its
+// metadata: the rule withholds over a run until the entry stores each, and
+// selection reads the same parts, on the entry's facts and its holdings', to
+// store the run whole. They don't change with what the entry stores, or with
+// the record's compression.
+func TestARunsPartsAreTheOnesItsRecordDeclares(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, _, p, key, replacements := withholdTestCloud(t, false)
+	withholdTestRan(t, ctx, cloud, p, key, replacements, false)
+	want := []PersistedPartAddress{testLiveOffer().Address}
+	check := func(when string) {
+		t.Helper()
+		info, ok := cloud.EntryInfo(p)
+		require.True(t, ok)
+		require.True(t, info.RunPartsKnown, when)
+		require.Equal(t, want, info.RunParts, when)
+		facts, ok := cloud.HoldingFacts(key)
+		require.True(t, ok)
+		require.True(t, facts.RunPartsKnown, when)
+		require.Equal(t, want, facts.RunParts, when)
+		held, ok := cloud.RemoteHoldingInfo(key)
+		require.True(t, ok)
+		require.Equal(t, want, held.RunParts, when)
+		entries := cloud.EntriesFacts([]uint64{p})
+		require.Len(t, entries, 1)
+		require.Equal(t, want, entries[0].RunParts, when)
+	}
+	check("stored in part")
+	stored, _, err := cloud.SetStoredPart(ctx, p, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	check("stored whole")
+	storedTestCompress(cloud)
+	check("compressed")
+}
+
 // A call goes with its input, which an engine installs from the bundle: a
 // call whose input's run ran and is stored only in part isn't sent, though
 // the value it reaches, which isn't over that input, still is. So too where
