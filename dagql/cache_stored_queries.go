@@ -21,7 +21,8 @@ func (c *Cache) EquivalentEntries(dig string) []uint64 {
 	}
 	var numbers []uint64
 	for id := range c.outputEqClassResults[c.eqClassRootLocked(classID)] {
-		if c.resultsByID[id] != nil {
+		// An entry a later run replaced is no lookup's (runReplaced).
+		if res := c.resultsByID[id]; res != nil && !res.runReplaced {
 			numbers = append(numbers, uint64(id))
 		}
 	}
@@ -61,7 +62,7 @@ func (c *Cache) TermEntries(self digest.Digest, inputs []digest.Digest) []uint64
 		}
 		seen[root] = struct{}{}
 		for id := range c.outputEqClassResults[root] {
-			if c.resultsByID[id] != nil {
+			if res := c.resultsByID[id]; res != nil && !res.runReplaced {
 				numbers = append(numbers, uint64(id))
 			}
 		}

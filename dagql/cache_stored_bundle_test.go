@@ -73,7 +73,7 @@ func storedBundleTestEntry(c *Cache, number uint64) *sharedResult {
 func TestStoredBundleCarriesTheClosureAndItsOwnParts(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "root")
-	stored, _, err := cloud.SetStoredPart(ctx, r, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	_, err = cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-x", Number: 3}, holdingOf("holdings-only"))
@@ -126,7 +126,7 @@ func TestStoredBundleBorrowsFromAnUnexpiredMember(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
 	member := storedBundleTestClassMember(t, ctx, cloud, r, "bundle-member")
-	stored, _, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 
@@ -149,7 +149,7 @@ func TestStoredBundleBorrowsAtTheReadersClock(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
 	member := storedBundleTestClassMember(t, ctx, cloud, r, "bundle-member")
-	stored, _, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	expiresAt := time.Now().Add(time.Hour).Unix()
@@ -190,7 +190,7 @@ func TestStoredBundleBorrowsThroughThePlacementRule(t *testing.T) {
 		part := testLiveOffer()
 		part.Value.Services = []TransferredServiceBinding{{ServiceResultID: tc.service, Hostname: "svc"}}
 		part.Owner.DependencyIDs = []uint64{tc.service}
-		stored, _, err := cloud.SetStoredPart(ctx, member, part, 0)
+		stored, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), part, 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		got, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
@@ -220,7 +220,7 @@ func TestStoredBundleNeverMixesAReplacement(t *testing.T) {
 	t.Parallel()
 	for range 50 {
 		ctx, cloud, r, _ := storedBundleTestCloud(t, "old")
-		stored, _, err := cloud.SetStoredPart(ctx, r, testLiveOffer(), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		mergeTestExpire(cloud, storedBundleTestEntry(cloud, r))
@@ -375,7 +375,7 @@ func TestStoredBundleAfterARestore(t *testing.T) {
 	p := persistedListTestResult(t, actx, a, asrv, "restored-dep", &transferTestValue{Text: "dep"})
 	transferTestDependency(a, actx, r, p)
 	root := storedPersistenceTestMerge(t, ctx, cloud, exportTestBundle(t, actx, a, r))[0]
-	stored, _, err := cloud.SetStoredPart(ctx, root, storedBenchPart(1), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, root, storedPartRunOf(t, cloud, root), storedBenchPart(1), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	before, err := cloud.StoredBundle(ctx, []uint64{root}, time.Now().Unix(), nil)
@@ -577,7 +577,7 @@ func TestStoredBundleIsTheCallersCopy(t *testing.T) {
 	require.NoError(t, err)
 	r := reply.Imported()[0].ResultID
 	part := storedBenchPart(1)
-	stored, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), part, 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	first, err := cloud.StoredBundle(ctx, []uint64{r}, time.Now().Unix(), nil)
@@ -641,11 +641,15 @@ func scribbleTestValue(v reflect.Value, seen map[uintptr]bool) {
 
 // storedPartServiceTestCloud merges a second copy of R, from cache-b, into
 // storedBundleTestCloud's Cloud. Its record depends on a service entry S that
-// R's doesn't: R keeps its own record, and only cache-b's holding keeps S. It
-// returns the numbers of R and S.
+// R's doesn't: R keeps its own record, which has its content so that
+// cache-b's run doesn't replace it (replaceRunsLocked), and only cache-b's
+// holding keeps S. It returns the numbers of R and S.
 func storedPartServiceTestCloud(t *testing.T) (context.Context, *Cache, uint64, uint64) {
 	t.Helper()
 	ctx, cloud, r, p := storedBundleTestCloud(t, "first")
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
 	bctx, b, bsrv := transferTestCache(t)
 	br := persistedListTestResult(t, bctx, b, bsrv, "bundle-root", &transferTestValue{Text: "second"})
 	bs := persistedListTestResult(t, bctx, b, bsrv, "different-service", &transferTestValue{Text: "service"})
@@ -700,7 +704,7 @@ func storedPartTestDeps(c *Cache, number uint64) []uint64 {
 func TestStoredPartKeepsTheEntriesItNames(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, service := storedPartServiceTestCloud(t)
-	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartNaming(service), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), storedPartNaming(service), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.NoError(t, cloud.VerifyPoolMeasure(), "the pool's kept measure follows the dependency the part adds")
@@ -728,7 +732,7 @@ func TestStoredPartKeepsTheEntriesItNames(t *testing.T) {
 func TestStoredPartDependenciesGoWithTheValue(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, service := storedPartServiceTestCloud(t)
-	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartNaming(service), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), storedPartNaming(service), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	_, _, err = cloud.CollectRemoteHoldings(ctx, cloud.ReleaseRemoteCache(ctx, "cache-b").Candidates, nil)
@@ -769,7 +773,7 @@ func TestSetStoredPartRefusesWhatItCannotDependOn(t *testing.T) {
 		{"the entry itself", r, storedPartNaming(r)},
 	} {
 		deps := storedPartTestDeps(cloud, tc.entry)
-		stored, _, err := cloud.SetStoredPart(ctx, tc.entry, tc.part, 0)
+		stored, _, err := cloud.SetStoredPart(ctx, tc.entry, storedPartRunOf(t, cloud, tc.entry), tc.part, 0)
 		require.NoError(t, err, tc.name)
 		require.False(t, stored, tc.name)
 		cloud.egraphMu.RLock()

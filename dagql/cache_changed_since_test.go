@@ -138,7 +138,7 @@ func TestChangedSinceAStoredBundle(t *testing.T) {
 		t.Parallel()
 		ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 		before := changedSinceTestBuild(t, cloud, r)
-		stored, _, err := cloud.SetStoredPart(ctx, r, testLiveOffer(), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		require.Equal(t, []uint64{r}, changedSinceTestRebuild(t, cloud, before, r))
@@ -150,7 +150,7 @@ func TestChangedSinceAStoredBundle(t *testing.T) {
 		t.Parallel()
 		ctx, cloud, r, p := storedBundleTestCloud(t, "root")
 		before := changedSinceTestBuild(t, cloud, r)
-		stored, _, err := cloud.SetStoredPart(ctx, p, testLiveOffer(), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, p, storedPartRunOf(t, cloud, p), testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		require.Equal(t, []uint64{p}, changedSinceTestRebuild(t, cloud, before, r))
@@ -164,7 +164,7 @@ func TestChangedSinceAStoredBundle(t *testing.T) {
 		changedSinceTestJoined(t, cloud, r, member)
 		before := changedSinceTestBuild(t, cloud, r)
 		require.Empty(t, before.Bundle.Outputs)
-		stored, _, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		require.Equal(t, []uint64{r}, changedSinceTestRebuild(t, cloud, before, r), "the build now borrows the member's part")
@@ -174,7 +174,7 @@ func TestChangedSinceAStoredBundle(t *testing.T) {
 		t.Parallel()
 		ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
 		part := storedBenchPart(1)
-		stored, _, err := cloud.SetStoredPart(ctx, r, part, 0)
+		stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), part, 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		before := changedSinceTestBuild(t, cloud, r)
@@ -279,7 +279,7 @@ func TestChangedSinceAStoredBundle(t *testing.T) {
 		ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
 		other := storedPruneTestRoot(t, ctx, cloud, "changed-since-other")
 		before := changedSinceTestBuild(t, cloud, r)
-		stored, _, err := cloud.SetStoredPart(ctx, other, testLiveOffer(), 0)
+		stored, _, err := cloud.SetStoredPart(ctx, other, storedPartRunOf(t, cloud, other), testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		require.True(t, changedSinceTestOne(t, cloud, other, before.Position))
@@ -301,7 +301,7 @@ func TestChangedSinceALaterBundle(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
 	first := changedSinceTestBuild(t, cloud, r)
-	stored, _, err := cloud.SetStoredPart(ctx, r, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, r, storedPartRunOf(t, cloud, r), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	second := changedSinceTestBuild(t, cloud, r)
@@ -385,7 +385,7 @@ func TestStampCausesNameTheWrite(t *testing.T) {
 	ctx, cloud, r, _ := storedBundleTestCloud(t, "root")
 	member := storedBundleTestClassMember(t, ctx, cloud, r, "stamp-cause-member")
 	changedSinceTestJoined(t, cloud, r, member)
-	stored, _, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.Equal(t, map[string]int{"part stored": 1}, cloud.StampCauses([]uint64{member}))
@@ -411,7 +411,7 @@ func stampTestMember(t *testing.T, ctx context.Context, cloud *Cache, field stri
 	reply, err := cloud.MergeValues(ctx, "cache-b", bundle)
 	require.NoError(t, err)
 	member := reply.Imported()[0].ResultID
-	ok, _, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+	ok, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 	return member
@@ -487,7 +487,7 @@ func narrowTestMember(t *testing.T, ctx context.Context, cloud *Cache, field str
 	require.NoError(t, err)
 	member := reply.Imported()[0].ResultID
 	if stored {
-		ok, _, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+		ok, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}
@@ -584,7 +584,7 @@ func narrowTestUnretained(t *testing.T, ctx context.Context, cloud *Cache, sende
 	require.Len(t, reply.Roots, 1)
 	member := reply.Roots[0].Number
 	if stored {
-		ok, _, err := cloud.SetStoredPart(ctx, member, testLiveOffer(), 0)
+		ok, _, err := cloud.SetStoredPart(ctx, member, storedPartRunOf(t, cloud, member), testLiveOffer(), 0)
 		require.NoError(t, err)
 		require.True(t, ok)
 	}

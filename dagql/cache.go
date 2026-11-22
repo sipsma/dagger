@@ -254,10 +254,10 @@ const cachePersistenceSchemaVersion = "26"
 // 2: a stored record's saved row carries the parts its record proves
 // complete (storedRowHeader.Complete).
 //
-// 3: a stored record's saved row names the run that made it (RunName) and
-// whether, and how, the Cloud learned that run ran its step. Older Cloud
-// stores name none, so every record would read as no run's; they are wiped
-// on import.
+// 3: a stored record's saved row names the run that made it (RunName),
+// whether, and how, the Cloud learned that run ran its step, and whether it
+// is an image entry's. Older Cloud stores name none, so every record would
+// read as no run's; they are wiped on import.
 const blobBackedStoreFormat = "compressed-records-3"
 
 // persistenceSchemaVersion is the schema version the cache saves under, and
@@ -3318,6 +3318,15 @@ type sharedResult struct {
 	// them in this cache. Guarded by egraphMu.
 	runRan runRanBy
 	run    *RunName
+	// runReplaced marks, on the Cloud, an entry a later run replaced or
+	// retired with the one it replaced (replaceRunsLocked): it is out of
+	// the recipe index, and no lookup, offer or class mate reaches it again;
+	// it keeps serving what names it already. imageEntry marks a stored
+	// record an engine's image ships with its content
+	// (PreparedValueMerge.ImageEntries): its run is the image's, which every
+	// engine of the image holds, and a later run never replaces it. Both go
+	// with the value. Guarded by egraphMu.
+	runReplaced, imageEntry bool
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in

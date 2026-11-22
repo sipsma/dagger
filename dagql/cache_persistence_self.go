@@ -59,13 +59,15 @@ type PersistedResultEnvelope struct {
 	StoredParts []PersistedPartOffer `json:"storedParts,omitempty"`
 	// Run and RunRan are, in the Cloud's saved records, the run its stored
 	// record names and how the Cloud learned that run ran (sharedResult.run
-	// and runRan): restore takes them back onto the entry. An engine saves
-	// neither, and no record sent to another cache carries them
+	// and runRan), and ImageEntry whether an engine's image ships it
+	// (sharedResult.imageEntry): restore takes them back onto the entry. An
+	// engine saves none, and no record sent to another cache carries them
 	// (lightStoredEnvelope).
-	Run     *RunName `json:"run,omitempty"`
-	RunRan  uint8    `json:"runRan,omitempty"`
-	Version int      `json:"version"`
-	Kind    string   `json:"kind"`
+	Run        *RunName `json:"run,omitempty"`
+	RunRan     uint8    `json:"runRan,omitempty"`
+	ImageEntry bool     `json:"imageEntry,omitempty"`
+	Version    int      `json:"version"`
+	Kind       string   `json:"kind"`
 	// TypeName identifies the GraphQL value type of object and scalar
 	// envelopes.
 	TypeName string `json:"typeName,omitempty"`

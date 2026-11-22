@@ -295,7 +295,7 @@ func TestCloudStoresAnUploadOnAHeldRowNamingAHeldRow(t *testing.T) {
 	require.True(t, ok, "the named held row lands on an entry")
 	part := PersistedPartOffer{Address: output.Address, Value: *output.Value, Chain: *output.Chain, Owner: PersistedOfferOwner{DependencyIDs: []uint64{svcNumber}}}
 	part.Value.Services = []TransferredServiceBinding{{ServiceResultID: svcNumber, Hostname: "svc"}}
-	stored, _, err := cloud.SetStoredPart(cctx, numbers[outOrdinal], part, 0)
+	stored, _, err := cloud.SetStoredPart(cctx, numbers[outOrdinal], storedPartRunOf(t, cloud, numbers[outOrdinal]), part, 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	_, deps = cloudEntryOfRecipe(t, cloud, engine, out)
@@ -424,7 +424,10 @@ func TestCloudHeldRowAcceptsWhatItWouldOnceTelemetryNamedTheHolding(t *testing.T
 		return outcome{rows: reply.Rows, entry: after.id, holder: cloud.holderEntriesForTest()[HolderKey{Cache: "engine", Number: childNumber}]}
 	}
 	named, unnamed := run(t, true), run(t, false)
-	require.Equal(t, MergeRowCounts{Held: 1, Created: 1}, named.rows, "the held row stores nothing over the other engine's run")
+	// The root is created over the engine's own run of the child, which the
+	// Cloud holds as the other engine's run, and neither names a content
+	// digest: it is counted as such (countOverOtherRunLocked).
+	require.Equal(t, MergeRowCounts{Held: 1, Created: 1, OverOtherRunUnknown: 1}, named.rows, "the held row stores nothing over the other engine's run")
 	require.Equal(t, named.rows, unnamed.rows, "both commit the same rows")
 	require.Equal(t, named.entry, named.holder)
 	require.Equal(t, unnamed.entry, unnamed.holder, "the engine's holding sits on the entry of the row's recipe either way")

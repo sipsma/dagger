@@ -408,7 +408,7 @@ func TestMergeValuesReplacesAnExpiredCloudRecord(t *testing.T) {
 	first, err := cloud.MergeValues(ctx, "cache-a", bundle)
 	require.NoError(t, err)
 	number := first.Imported()[0].ResultID
-	stored, _, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, number, storedPartRunOf(t, cloud, number), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.NoError(t, cloud.VerifyPoolMeasure())
@@ -1414,7 +1414,7 @@ func TestMergeValuesKeepsAnExpiredDependencysStoredPart(t *testing.T) {
 	reply, err := cloud.MergeValues(ctx, "cache-a", first)
 	require.NoError(t, err)
 	number := numberOf(reply, firstP)
-	stored, _, err := cloud.SetStoredPart(ctx, number, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, number, storedPartRunOf(t, cloud, number), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 

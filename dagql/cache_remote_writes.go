@@ -60,6 +60,9 @@ func (w *RemoteWrites) AttachRemoteHolding(ctx context.Context, key HolderKey, d
 	if err != nil {
 		return RemoteChange{}, err
 	}
+	if err := w.c.checkHoldingEntryLocked(key, desc); err != nil {
+		return RemoteChange{}, err
+	}
 	return w.c.attachRemoteHoldingLocked(ctx, key, desc, parts, kept), nil
 }
 
@@ -157,6 +160,11 @@ func (w *RemoteWrites) ApplyHeldValueState(ctx context.Context, key HolderKey, o
 	}
 	change, found := w.c.applyHeldValueStateOfLocked(ctx, key, obs, parts, offered)
 	return change, found, nil
+}
+
+// HasEntry is Cache.HasEntry, in the hold.
+func (w *RemoteWrites) HasEntry(number uint64) bool {
+	return w.c.resultsByID[sharedResultID(number)] != nil
 }
 
 // EntryRecipe is Cache.EntryRecipe, in the hold.
