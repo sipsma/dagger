@@ -316,9 +316,15 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 	for _, row := range commit.rows {
 		cur := row.target
 		// Only a live record is replaced here: an expired one the merge
-		// replaces as it does today (decideMergeRowLocked). A row the
-		// sender imported, an image entry's among them, replaces nothing.
-		if !isBest(row) || row.action != mergeKeep || row.expired || commit.prep.senderImported[row.ordinal] || cur == nil {
+		// replaces as it does today (decideMergeRowLocked). A copy the
+		// sender imported, an image entry's among them, replaces nothing;
+		// one it imported and then ran itself, its holding running its
+		// value at the row's count (holdingRanLocked), is its own run, which
+		// may.
+		if !isBest(row) || row.action != mergeKeep || row.expired || cur == nil {
+			continue
+		}
+		if commit.prep.senderImported[row.ordinal] && !c.holdingRanLocked(HolderKey{Cache: commit.prep.from, Number: row.value.SenderNumber}, row.value.SenderReplacements) {
 			continue
 		}
 		// A run replaces another's record only with its whole content of
@@ -555,9 +561,12 @@ func (c *Cache) NoteRunContent(number uint64, run RunName, wontCome bool) Remote
 
 // NoteCacheGone notes, on the Cloud, that the content of every run of
 // engine cache cache that its stored records name, and that no stored part
-// besides metadata nor upload in progress holds, won't come: its engine's
-// connection ended (sharedResult.runWontCome). It names those entries and
-// their classes, and reports a change a save writes.
+// besides metadata holds, won't come: its engine's connection ended
+// (sharedResult.runWontCome). An upload in progress doesn't keep the note
+// away: its mark doesn't say whose run it is, and this engine's own ends
+// with its connection. The replacement still waits for any upload to end
+// (storedWithoutContentLocked). It names those entries and their classes,
+// and reports a change a save writes.
 func (c *Cache) NoteCacheGone(cache CacheID) RemoteChange {
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
@@ -572,7 +581,7 @@ func (c *Cache) NoteCacheGone(cache CacheID) RemoteChange {
 		if entry == nil || entry.run == nil || entry.runWontCome || entry.run.Cache != cache || entry.run.Number != number {
 			continue
 		}
-		if !c.storedWithoutContentLocked(entry) {
+		if !c.storesNoContentLocked(entry) {
 			continue
 		}
 		entry.runWontCome = true
@@ -781,9 +790,13 @@ func entriesOverLocked(c *Cache, from []*sharedResult) map[sharedResultID]*share
 // gives back): a run whose content no engine can fetch, nor is on its way.
 // Requires egraphMu.
 func (c *Cache) storedWithoutContentLocked(res *sharedResult) bool {
-	if c.uploadingAny(res.id) {
-		return false
-	}
+	return !c.uploadingAny(res.id) && c.storesNoContentLocked(res)
+}
+
+// storesNoContentLocked reports whether res's stored record declares or
+// proves a part of content, and the cache stores none of its parts but
+// metadata, whatever uploads are in progress. Requires egraphMu.
+func (c *Cache) storesNoContentLocked(res *sharedResult) bool {
 	for _, part := range res.storedPartsLocked() {
 		if part.address().Part != "metadata" {
 			return false
