@@ -7043,9 +7043,8 @@ type partReadScope struct {
 type partReadScopeCtx struct{}
 
 // readScope is the scope of a part read made under ctx. A context no call has
-// scoped is at the session's top when no cached call encloses it, and is
-// otherwise a client's request made under a cached call, such as a module
-// function's.
+// scoped is at the session's top when no cached call encloses it, and
+// otherwise counts as the cached call it names (CallerRecipe).
 func readScope(ctx context.Context) partReadScope {
 	if scope, ok := ctx.Value(partReadScopeCtx{}).(partReadScope); ok {
 		return scope
@@ -7057,6 +7056,36 @@ func readScope(ctx context.Context) partReadScope {
 // withReadScope is ctx with its part reads scoped as scope.
 func withReadScope(ctx context.Context, scope partReadScope) context.Context {
 	return context.WithValue(ctx, partReadScopeCtx{}, scope)
+}
+
+// ReadScope is what the part reads made under a context count as, for a
+// nested client to carry from the call its requests are made under to those
+// requests, across the client's boundary, which a Go context value doesn't
+// cross: a module function's call, or the call of an exec whose process
+// calls back in. It is carried beside the call's recipe (CallerRecipe),
+// which can't stand for it: a session-bound or uncached call names itself or
+// the call above it there, while its reads count under the nearest call
+// above it that is neither (partReadScope). The zero ReadScope carries
+// nothing.
+type ReadScope struct {
+	scope partReadScope
+	ok    bool
+}
+
+// CurrentReadScope is what the part reads made under ctx count as, for the
+// requests of a nested client made under it to carry (ContextWithReadScope).
+func CurrentReadScope(ctx context.Context) ReadScope {
+	return ReadScope{scope: readScope(ctx), ok: true}
+}
+
+// ContextWithReadScope is ctx with its part reads counted as scope, which
+// CurrentReadScope took under the call a nested client's request is made
+// under. The zero ReadScope leaves ctx as it is.
+func ContextWithReadScope(ctx context.Context, scope ReadScope) context.Context {
+	if !scope.ok {
+		return ctx
+	}
+	return withReadScope(ctx, scope.scope)
 }
 
 // outsideCountedReads is ctx for the evaluation of a result a read reads: the
