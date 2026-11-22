@@ -13,10 +13,11 @@ import (
 // that made it, and keeps whether that run ran the step: a record the Cloud
 // learns from an engine's call row declares its parts pending, since the call
 // returns its lazy result before the step runs, and is a recipe until the
-// engine runs it. Engines keep no runs and send none: the Cloud names a
-// record's run from what a merge already carries (mergeRunLocked), and learns
-// that it ran from the run's own holding (noteHoldingRanLocked). Nothing in
-// this cache decides by either; ownRunRanLocked and EntryRun read them.
+// engine runs it. Engines send no runs: the Cloud names a record's run from
+// what a merge already carries (mergeRunLocked), and learns that it ran from
+// the run's own holding (noteHoldingRanLocked). The Cloud sends each value's
+// run with it, and an engine keeps it to refuse a value over another run of
+// a step it holds (otherRunRowsLocked).
 //
 // RunName names a run by the entry that made it, in the engine cache that ran
 // the work: that cache, the entry's number there, and the entry's replacement
@@ -56,8 +57,9 @@ const (
 	runRanByOffer
 )
 
-// savedRunLocked returns a copy of the run res's stored record names, for a
-// save: nil on an engine, which keeps none. Requires egraphMu.
+// savedRunLocked returns a copy of the run res's record names, for a save
+// or a bundle: on an engine, the run the Cloud sent it with, or nil for its
+// own. Requires egraphMu.
 func savedRunLocked(res *sharedResult) *RunName {
 	if res.run == nil {
 		return nil
@@ -194,7 +196,7 @@ func (c *Cache) EntryRun(number uint64) (EntryRun, bool) {
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
 	res := c.resultsByID[sharedResultID(number)]
-	if res == nil || res.run == nil || res.noValueLocked() {
+	if !c.blobBacked || res == nil || res.run == nil || res.noValueLocked() {
 		return EntryRun{}, false
 	}
 	return EntryRun{Run: *res.run, Ran: c.ownRunRanLocked(res)}, true

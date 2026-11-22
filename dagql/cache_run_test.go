@@ -59,12 +59,12 @@ func TestTheCloudsStoredRecordNamesItsRun(t *testing.T) {
 
 	sent, err := cloud.StoredBundle(ctx, []uint64{number}, time.Now().Unix(), nil)
 	require.NoError(t, err)
-	require.NotContains(t, string(mustTransferJSON(t, sent.Bundle.Values)), `"run"`, "the Cloud sends no run")
+	require.Equal(t, &run, sent.Bundle.Values[0].Run, "the Cloud sends the record's run, for an engine's refusal of another run (otherRunRowsLocked)")
 	bctx, b, _ := transferTestCache(t)
 	breply, err := b.MergeValues(bctx, cloudCacheID, sent.Bundle)
 	require.NoError(t, err)
 	_, ok := b.EntryRun(breply.Values[0].Number)
-	require.False(t, ok, "an engine names no run")
+	require.False(t, ok, "an engine answers no entry's run: only the Cloud's stored records name one")
 }
 
 // A record an engine imported is the run of the Cloud entry its holding of

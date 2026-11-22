@@ -406,6 +406,13 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 			c.egraphMu.Unlock()
 			return c.staleMergeReply(stale.ordinals), nil
 		}
+		var other *mergeOtherRunError
+		if errors.As(err, &other) {
+			c.egraphMu.Unlock()
+			reply := c.staleMergeReply(nil)
+			reply.OtherRun = other.ordinals
+			return reply, nil
+		}
 		if errors.Is(err, errMergeNeedsFullPrep) {
 			c.egraphMu.Unlock()
 			waited := prep.lockWaits
@@ -498,6 +505,11 @@ type MergeReply struct {
 	// A merge with stale rows commits nothing: the reply has only them, and
 	// the generation and clock.
 	Stale []TransferOrdinal
+	// OtherRun are, on an engine, the rows of steps that can differ which
+	// merge would keep onto the engine's own value of another run
+	// (otherRunRowsLocked). A merge with such rows commits nothing: the reply
+	// has only them, and the generation and clock, as with Stale.
+	OtherRun []TransferOrdinal
 	// CommitHold is how long the commit held egraphMu, from taking it to
 	// releasing it, and LockWait how long the commit waited to take it.
 	CommitHold time.Duration
@@ -1803,6 +1815,9 @@ func (c *Cache) planValueMergeLocked(ctx context.Context, from CacheID, prep *va
 	c.decideMergeRowsLocked(commit)
 	if stale := c.otherRunHeldRowsLocked(commit); len(stale) > 0 {
 		return nil, &mergeStaleError{ordinals: stale}
+	}
+	if other := c.otherRunRowsLocked(commit); len(other) > 0 {
+		return nil, &mergeOtherRunError{ordinals: other}
 	}
 	// Everything after the decisions reads the payloads and parts of the
 	// records merge installs, which a light record doesn't have: the cache
@@ -3286,6 +3301,11 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 	if c.blobBacked && row.run != (RunName{}) {
 		run := row.run
 		res.run, res.runRan = &run, row.runRan
+	} else if row.value.Run != nil {
+		// On an engine, a record the Cloud sent is the run the Cloud names
+		// for it (engineRunLocked).
+		run := *row.value.Run
+		res.run = &run
 	}
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil

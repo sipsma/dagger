@@ -47,7 +47,11 @@ func (p *partProtection) release(ctx context.Context) error {
 }
 
 type PreparedReadyPart struct {
-	cache             *Cache
+	cache *Cache
+	// evaluated marks a part the engine evaluated itself, not one a source
+	// served: its install makes the receiver's value the engine's own run
+	// (engineRunLocked).
+	evaluated         bool
 	receiver          *sharedResult
 	source            *PartSourceLease
 	permit            *PartPermit
@@ -711,6 +715,9 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 	}
 
 	token.installed.Store(installed)
+	if p.evaluated && !c.blobBacked {
+		row.run = nil
+	}
 	return &ReadyPartReceipt{cache: c, receiver: row, task: token}, PartInstalled, nil
 }
 func (c *Cache) FinishReadyPart(ctx context.Context, receipt *ReadyPartReceipt) (rerr error) {

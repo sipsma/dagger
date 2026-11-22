@@ -179,6 +179,8 @@ type storedSizeMiss struct {
 	body  *storedBody
 	parts *partFacts
 	call  *ResultCall
+	// run is the run the bundle sends with the value (TransferredValue.Run).
+	run *RunName
 	// The value state its size depends on.
 	deps               []uint64
 	dependencyRevision uint64
@@ -442,7 +444,7 @@ func storedValueMeasuredLocked(res *sharedResult) (int64, bool) {
 // storedSizeMissLocked reads the value state of res that its size depends on.
 // Requires egraphMu.
 func storedSizeMissLocked(res *sharedResult) storedSizeMiss {
-	miss := storedSizeMiss{res: res, env: res.persistedEnvelope, body: res.stored, parts: res.partFacts, call: res.loadResultCall(), dependencyRevision: res.dependencyOwnershipRevision, replacements: res.replacements, expiresAtUnix: res.expiresAtUnix}
+	miss := storedSizeMiss{res: res, env: res.persistedEnvelope, body: res.stored, parts: res.partFacts, call: res.loadResultCall(), run: savedRunLocked(res), dependencyRevision: res.dependencyOwnershipRevision, replacements: res.replacements, expiresAtUnix: res.expiresAtUnix}
 	for dep := range res.deps {
 		miss.deps = append(miss.deps, uint64(dep))
 	}
@@ -466,7 +468,7 @@ func (c *Cache) measureStoredValue(miss storedSizeMiss) (storedSizeMeasure, erro
 	if c.testStoredSizeMeasure != nil {
 		c.testStoredSizeMeasure()
 	}
-	value := TransferredValue{Ordinal: TransferOrdinal(miss.res.id), SenderNumber: uint64(miss.res.id), SenderReplacements: miss.replacements, DependencyIDs: miss.deps, ExpiresAtUnix: miss.expiresAtUnix}
+	value := TransferredValue{Ordinal: TransferOrdinal(miss.res.id), SenderNumber: uint64(miss.res.id), SenderReplacements: miss.replacements, DependencyIDs: miss.deps, ExpiresAtUnix: miss.expiresAtUnix, Run: miss.run}
 	var kept *storedTransferRecord
 	var bytes int64
 	if miss.body != nil {

@@ -99,7 +99,9 @@ func cloudRecords(t *testing.T, cloud *dagql.Cache, root uint64) []string {
 	require.Empty(t, got.NoValue)
 	var records []string
 	for _, value := range got.Bundle.Values {
-		value.SenderNumber, value.SenderReplacements = 0, 0
+		// The sender's numbers, and the run the Cloud names for the record,
+		// are the Cloud's own: two Clouds hold the same record under others.
+		value.SenderNumber, value.SenderReplacements, value.Run = 0, 0, nil
 		data, err := json.Marshal(value)
 		require.NoError(t, err)
 		records = append(records, string(data))

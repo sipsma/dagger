@@ -96,6 +96,11 @@ type TransferredValue struct {
 	// held rows to an engine (StoredBundle's HeldBy), with no dependencies
 	// and no outputs, and an engine sends them to the Cloud in an export.
 	Held digest.Digest `json:"held,omitempty"`
+	// Run is, on a value a blob-backed cache sends, the run its stored record
+	// names (RunName). An engine keeps it with the value it installs, and
+	// refuses a merge that would keep a value of another run of a step it
+	// holds (otherRunRowsLocked).
+	Run *RunName `json:"run,omitempty"`
 	// Parts are, on a value a blob-backed cache sends, the parts its record
 	// proves complete and those it declares absent or pending, as the cache
 	// worked them out when it stored the record: a receiver reads them here
@@ -161,6 +166,7 @@ func (v TransferredValue) storedJSON() (storedValueJSON, error) {
 		DependencyIDs:      v.DependencyIDs,
 		ExpiresAtUnix:      v.ExpiresAtUnix,
 		Held:               v.Held,
+		Run:                v.Run,
 		Parts:              v.Parts,
 	}, nil
 }
@@ -192,6 +198,7 @@ type storedValueJSON struct {
 	DependencyIDs      []uint64         `json:"dependencyIDs,omitempty"`
 	ExpiresAtUnix      int64            `json:"expiresAtUnix,omitempty"`
 	Held               digest.Digest    `json:"held,omitempty"`
+	Run                *RunName         `json:"run,omitempty"`
 
 	Parts *TransferredRecordParts `json:"parts,omitempty"`
 }

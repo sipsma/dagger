@@ -78,7 +78,7 @@ func (c *Cache) prepareEvaluatedParts(ctx context.Context, res AnyResult, demand
 	if err != nil {
 		return nil, err
 	}
-	p := &PreparedReadyPart{cache: c, original: original, beforeSyncCleanup: cleanup, source: &PartSourceLease{cache: c, sessionID: session}}
+	p := &PreparedReadyPart{cache: c, original: original, beforeSyncCleanup: cleanup, source: &PartSourceLease{cache: c, sessionID: session}, evaluated: true}
 	defer func() {
 		if rerr != nil {
 			rerr = errors.Join(rerr, p.Release(ctx))

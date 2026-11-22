@@ -3318,10 +3318,12 @@ type sharedResult struct {
 	// entry that ran it, set when a merge installs the record
 	// (mergeRunLocked). runRan is how the Cloud learned that run ran its step,
 	// or runNotRan for a record that is a recipe as far as it knows
-	// (noteHoldingRanLocked, ownRunRanLocked). Both go with the value, and
-	// neither is sent to an engine: run is nil on an engine, which keeps no
-	// runs, and on a Cloud entry with no stored record. Nothing decides by
-	// them in this cache. Guarded by egraphMu.
+	// (noteHoldingRanLocked, ownRunRanLocked). Both go with the value. On an
+	// engine, run is the run the Cloud named for a record it sent
+	// (TransferredValue.Run), and nil for a value the engine computed or
+	// evaluated itself, its own run (engineRunLocked); runRan is unused
+	// there. run is nil on a Cloud entry with no stored record. Guarded by
+	// egraphMu.
 	runRan runRanBy
 	run    *RunName
 	// foldedRuns are, on the Cloud, the runs of this entry's step, one that
