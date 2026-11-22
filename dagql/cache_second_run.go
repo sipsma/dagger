@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/opencontainers/go-digest"
@@ -108,6 +109,52 @@ func (c *Cache) releaseSecondRunsLocked(ctx context.Context, cache CacheID, live
 		}
 	}
 	return collect, rerr
+}
+
+// restoreSecondRuns marks, on a restored Cloud, its second runs, which the
+// saved store doesn't name: a restored entry that stores a record and that
+// its recipe's index didn't name when it was saved (indexed) is a second
+// run of its own recipe, since the Cloud keeps no other value beside a
+// current entry. Then each restored current entry that stores a record
+// marks the second runs it stands over kept under it. Deriving a recipe
+// reads other entries' frames under egraphMu, so the recipes are derived
+// first, as indexRestoredEntries does.
+func (c *Cache) restoreSecondRuns(indexed map[sharedResultID]struct{}) error {
+	if !c.blobBacked {
+		return nil
+	}
+	c.egraphMu.RLock()
+	var rows []*sharedResult
+	for id, res := range c.resultsByID {
+		if _, ok := indexed[id]; !ok && res.hasOwnValueLocked() {
+			rows = append(rows, res)
+		}
+	}
+	c.egraphMu.RUnlock()
+	slices.SortFunc(rows, compareSharedResults)
+	recipes := make([]digest.Digest, len(rows))
+	for i, res := range rows {
+		frame := res.loadResultCall()
+		if frame == nil {
+			return fmt.Errorf("restore second run %d: missing call frame", res.id)
+		}
+		recipe, err := frame.deriveRecipeDigest(c)
+		if err != nil {
+			return fmt.Errorf("restore second run %d: %w", res.id, err)
+		}
+		recipes[i] = recipe
+	}
+	c.egraphMu.Lock()
+	defer c.egraphMu.Unlock()
+	for i, res := range rows {
+		res.secondRunOf = recipes[i]
+	}
+	for id := range indexed {
+		if res := c.resultsByID[id]; res != nil && res.hasOwnValueLocked() {
+			c.markKeptUnderLocked(res)
+		}
+	}
+	return nil
 }
 
 // entriesOfRecipeLocked returns, on the Cloud, every entry of recipe: the
