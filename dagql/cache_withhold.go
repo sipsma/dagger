@@ -68,8 +68,9 @@ func (c *Cache) runNotStoredWholeLocked(res *sharedResult) bool {
 // that can differ (entryCanDifferLocked), whose run ran
 // (ownRunRanLocked), and that stores that run only in part
 // (runNotStoredWholeLocked); or an entry an engine built over its own run of
-// a step the Cloud keeps folded under another run's record
-// (overFoldedRunLocked), whose closure names content it wasn't built over. A value over such a step goes out only with the
+// a step the Cloud keeps folded under another run's record, directly or
+// through steps that follow from their inputs (overFoldedRunLocked), whose
+// closure names content it wasn't built over. A value over such a step goes out only with the
 // run whole: an engine that took it and then ran the step itself, for want
 // of its content, would hold one run's values over another run's bytes. The
 // closure is the one a bundle walks (storedClosureChildrenLocked), whatever
@@ -79,6 +80,10 @@ type withholdBuild struct {
 	// memo has, for each entry read, the first entry of its closure found
 	// that withholds it, or 0.
 	memo map[sharedResultID]sharedResultID
+	// reach has, for each entry read, the engines whose own runs are folded
+	// at it or below it through entries that follow from their inputs
+	// (foldedReachLocked).
+	reach map[sharedResultID][]CacheID
 }
 
 // withheldLocked reports whether the bundle withholds res, and the entry it
@@ -91,7 +96,7 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	// A cycle is the walk's to report; inside one, nothing is withheld yet.
 	w.memo[res.id] = 0
 	var by sharedResultID
-	if w.c.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
+	if w.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
 		by = res.id
 	}
 	for _, id := range storedClosureChildrenLocked(res) {
@@ -109,19 +114,50 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 }
 
 // overFoldedRunLocked reports whether res, a record of an engine's run,
-// stands directly over an entry that keeps that engine's own run folded
-// under another run's record (sharedResult.foldedRuns): the engine built res
-// over its run, which the closure doesn't name. Requires egraphMu.
-func (c *Cache) overFoldedRunLocked(res *sharedResult) bool {
+// stands over that engine's own run of a step the Cloud keeps folded under
+// another run's record (sharedResult.foldedRuns): its closure, followed
+// down through entries that follow from their inputs, reaches an entry that
+// keeps that engine's run folded. An entry that follows from its inputs is
+// the run of its inputs, so an engine's copy of it over its own run of a
+// step below is that run too; an entry that can differ is a run of its own,
+// whose foldedRuns answer for it, and the walk stops there. Requires
+// egraphMu.
+func (w *withholdBuild) overFoldedRunLocked(res *sharedResult) bool {
 	if res.run == nil {
 		return false
 	}
 	for _, id := range storedClosureChildrenLocked(res) {
-		if child := c.resultsByID[id]; child != nil && slices.Contains(child.foldedRuns, res.run.Cache) {
+		if child := w.c.resultsByID[id]; child != nil && slices.Contains(w.foldedReachLocked(child), res.run.Cache) {
 			return true
 		}
 	}
 	return false
+}
+
+// foldedReachLocked returns the engines whose own runs are folded at res or
+// below it through entries that follow from their inputs: res's own
+// foldedRuns and, unless res can differ, its closure children's. Requires
+// egraphMu.
+func (w *withholdBuild) foldedReachLocked(res *sharedResult) []CacheID {
+	if reach, ok := w.reach[res.id]; ok {
+		return reach
+	}
+	// A cycle is the walk's to report; inside one, nothing is reached yet.
+	w.reach[res.id] = nil
+	reach := slices.Clone(res.foldedRuns)
+	if !w.c.entryCanDifferLocked(res) {
+		for _, id := range storedClosureChildrenLocked(res) {
+			if child := w.c.resultsByID[id]; child != nil {
+				for _, cache := range w.foldedReachLocked(child) {
+					if !slices.Contains(reach, cache) {
+						reach = append(reach, cache)
+					}
+				}
+			}
+		}
+	}
+	w.reach[res.id] = reach
+	return reach
 }
 
 // noteFoldedRowLocked notes, on the Cloud, a row of prep's merge kept onto

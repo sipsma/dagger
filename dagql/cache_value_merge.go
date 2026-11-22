@@ -2830,9 +2830,6 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			row.run, row.runRan = c.mergeRunLocked(commit.prep, row)
 			row.parts = commit.prep.partFacts[row.ordinal]
 		}
-		if c.blobBacked && row.action == mergeKeep {
-			c.noteFoldedRowLocked(commit.prep, row)
-		}
 		switch row.action {
 		case mergeKeep:
 			continue
@@ -2899,6 +2896,16 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 		res.dependencyOwnershipRevision++
 		if err := c.bindMergedFrameLocked(res, row.action == mergeReplace || row.action == mergeStore); err != nil {
 			errs = errors.Join(errs, err)
+		}
+	}
+	// A kept row's sender's run is judged against the run its entry's
+	// record names once every record is installed: an entry this merge
+	// created or replaced names its fresh record's run now.
+	if c.blobBacked {
+		for _, row := range commit.rows {
+			if row.action == mergeKeep {
+				c.noteFoldedRowLocked(commit.prep, row)
+			}
 		}
 	}
 	// Requirements are recomputed one level deep, so dependencies first: in

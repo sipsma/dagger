@@ -242,14 +242,14 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 			rootEntries = append(rootEntries, res)
 		}
 	}
-	withhold := &withholdBuild{c: c, memo: map[sharedResultID]sharedResultID{}}
+	withhold := &withholdBuild{c: c, memo: map[sharedResultID]sharedResultID{}, reach: map[sharedResultID][]CacheID{}}
 	kept := make([]*sharedResult, 0, len(rootEntries))
 	for _, res := range rootEntries {
 		if withheld, by := withhold.withheldLocked(res); withheld {
 			out.Withheld = append(out.Withheld, uint64(res.id))
 			out.WithheldOn = append(out.WithheldOn, uint64(by))
 			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
-			if c.overFoldedRunLocked(c.resultsByID[by]) {
+			if withhold.overFoldedRunLocked(c.resultsByID[by]) {
 				why = "overFoldedRun"
 			}
 			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
