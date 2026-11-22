@@ -616,7 +616,7 @@ type storedRowPart struct {
 func encodeStoredRow(header *PersistedResultEnvelope, body *storedBody, parts *partFacts) ([]byte, error) {
 	h := storedRowHeader{Envelope: *lightStoredEnvelope(header), EnvelopeBytes: body.envelopeBytes, Refs: body.refs}
 	h.Envelope.StoredParts = header.StoredParts
-	h.Envelope.Run, h.Envelope.RunRan = header.Run, header.RunRan
+	h.Envelope.Run, h.Envelope.RunRan, h.Envelope.OverFoldedRun = header.Run, header.RunRan, header.OverFoldedRun
 	for _, part := range parts.declaredParts() {
 		h.Parts = append(h.Parts, storedRowPart{Address: part.address, State: part.state, Kind: part.kind})
 	}

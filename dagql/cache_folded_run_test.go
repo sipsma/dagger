@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,10 +13,21 @@ import (
 // folds the second's run of the step into the first's entry, since their
 // recipe is the same, so T's record names that entry. A third engine asking
 // for T must not be answered over the first engine's run: T was built over
-// the second's.
+// the second's. That holds across a save of the Cloud's records, whole or
+// compressed, and a restart.
 func TestAResultOverAFoldedRunIsNotAnsweredOverAnotherRun(t *testing.T) {
 	t.Parallel()
-	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	for _, saved := range []string{"unsaved", "saved whole", "saved compressed"} {
+		t.Run(saved, func(t *testing.T) {
+			t.Parallel()
+			foldedRunTest(t, saved)
+		})
+	}
+}
+
+func foldedRunTest(t *testing.T, saved string) {
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
 
 	// Engine a runs the step S and exports it.
 	actx, a, asrv := transferTestCache(t)
@@ -49,6 +61,15 @@ func TestAResultOverAFoldedRunIsNotAnsweredOverAnotherRun(t *testing.T) {
 	stored, _, err := cloud.SetStoredPart(ctx, sNumber, testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
+
+	if saved != "unsaved" {
+		if saved == "saved compressed" {
+			storedTestCompress(cloud)
+		}
+		require.NoError(t, cloud.Close(ctx))
+		ctx, cloud = storedPersistenceTestCloud(t, path)
+	}
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
 
 	// A third engine asks for T.
 	built, err := cloud.StoredBundle(ctx, []uint64{tNumber}, time.Now().Unix(), nil)

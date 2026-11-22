@@ -249,6 +249,9 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 			out.Withheld = append(out.Withheld, uint64(res.id))
 			out.WithheldOn = append(out.WithheldOn, uint64(by))
 			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
+			if c.resultsByID[by].overFoldedRun {
+				why = "overFoldedRun"
+			}
 			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
 			continue
 		}

@@ -1680,6 +1680,10 @@ type mergeRow struct {
 	// the row installs keeps them (mergeRunLocked).
 	run    RunName
 	runRan runRanBy
+	// overFoldedRun is, on the Cloud, whether the row's record stands over a
+	// row of its bundle that the merge folded into another run's entry
+	// (foldedRunRowsLocked), as the record the row installs keeps it.
+	overFoldedRun bool
 	// parts are, on the Cloud, the parts of the record the row installs
 	// (partFacts), from its preparation.
 	parts  *partFacts
@@ -2825,10 +2829,12 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 	}
 
 	// The values.
+	overFolded := c.foldedRunRowsLocked(commit)
 	for _, row := range commit.rows {
 		if c.blobBacked && row.action.installs() {
 			row.run, row.runRan = c.mergeRunLocked(commit.prep, row)
 			row.parts = commit.prep.partFacts[row.ordinal]
+			row.overFoldedRun = overFolded[row.ordinal]
 		}
 		switch row.action {
 		case mergeKeep:
@@ -3113,11 +3119,11 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 	rec := row.rec
 	// On the Cloud, the stored record names the row's run, which goes with
 	// it, and whether that run ran its step as far as the Cloud knows yet.
-	res.run, res.runRan = nil, runNotRan
+	res.run, res.runRan, res.overFoldedRun = nil, runNotRan, false
 	// A record whose run isn't known names none (mergeRunLocked).
 	if c.blobBacked && row.run != (RunName{}) {
 		run := row.run
-		res.run, res.runRan = &run, row.runRan
+		res.run, res.runRan, res.overFoldedRun = &run, row.runRan, row.overFoldedRun
 	}
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil

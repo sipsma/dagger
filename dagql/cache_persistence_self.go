@@ -62,10 +62,15 @@ type PersistedResultEnvelope struct {
 	// and runRan): restore takes them back onto the entry. An engine saves
 	// neither, and no record sent to another cache carries them
 	// (lightStoredEnvelope).
-	Run     *RunName `json:"run,omitempty"`
-	RunRan  uint8    `json:"runRan,omitempty"`
-	Version int      `json:"version"`
-	Kind    string   `json:"kind"`
+	Run    *RunName `json:"run,omitempty"`
+	RunRan uint8    `json:"runRan,omitempty"`
+	// OverFoldedRun is, in the Cloud's saved records, the mark that the
+	// record stands over a run its merge folded into another run's entry
+	// (sharedResult.overFoldedRun), which restore takes back onto the entry
+	// as it does Run.
+	OverFoldedRun bool   `json:"overFoldedRun,omitempty"`
+	Version       int    `json:"version"`
+	Kind          string `json:"kind"`
 	// TypeName identifies the GraphQL value type of object and scalar
 	// envelopes.
 	TypeName string `json:"typeName,omitempty"`
