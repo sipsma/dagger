@@ -14,10 +14,12 @@ import (
 // does stale held rows; the Cloud withholds the roots over them from it.
 //
 // An engine names a value's run as the Cloud does (mergeRunLocked): a record
-// the Cloud sent is the run the Cloud names for it (TransferredValue.Run), and
-// anything else, a value the engine computed or evaluated itself, is the
-// engine's own entry's run. A value whose run can't be told is its own:
-// refusing a merge it could have taken leaves roots withheld, which is safe.
+// the Cloud sent is the run the Cloud names for it (TransferredValue.Run),
+// and a value the engine computed or evaluated itself is the engine's own
+// entry's run. A record it installed with no run named, such as its image's
+// entries, is a run it can't tell, and refuses nothing: a refusal refuses the
+// whole merge, a set file's part among them, and the engine stays cold for
+// it.
 
 // mergeOtherRunError is planValueMergeLocked's answer when a row would be
 // kept onto the engine's value of another run: the merge commits nothing, and
@@ -30,15 +32,19 @@ func (e *mergeOtherRunError) Error() string {
 	return fmt.Sprintf("merge values: %d rows are another run of a step the cache holds", len(e.ordinals))
 }
 
-// engineRunLocked returns the run of res's value on an engine: the run the
-// Cloud named for the record it sent, or else res's own, named by this
-// cache's identity, res's number and its replacement count. Requires
-// egraphMu.
-func (c *Cache) engineRunLocked(res *sharedResult) RunName {
-	if res.run != nil {
-		return *res.run
+// engineRunLocked returns the run of res's value on an engine, and whether
+// the engine knows it: the run the Cloud named for the record it sent, or
+// res's own, named by this engine's identity, its number and its
+// replacement count, for a value the engine made itself. A record it
+// installed with no run named is one it doesn't know. Requires egraphMu.
+func (c *Cache) engineRunLocked(res *sharedResult) (RunName, bool) {
+	switch {
+	case res.run != nil:
+		return *res.run, true
+	case res.runUnknown:
+		return RunName{}, false
 	}
-	return RunName{Cache: CacheID(c.identity.ID), Number: uint64(res.id), Replacements: res.replacements}
+	return RunName{Cache: CacheID(c.identity.ID), Number: uint64(res.id), Replacements: res.replacements}, true
 }
 
 // otherRunRowsLocked returns, on an engine, sorted, the rows of commit merge
@@ -66,7 +72,7 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 		if call == nil || call.FollowsFromInputs || call.ContentMayChange {
 			continue
 		}
-		if c.engineRunLocked(row.target) != *row.value.Run {
+		if run, known := c.engineRunLocked(row.target); known && run != *row.value.Run {
 			other = append(other, TransferOrdinal(row.ordinal))
 		}
 	}

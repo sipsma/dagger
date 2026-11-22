@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -278,4 +279,42 @@ func TestAMergeRefusesAHeldRowOfAnotherRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []TransferOrdinal{held}, reply.OtherRun)
 	require.False(t, reply.Committed, "nothing of the bundle is installed")
+}
+
+// An engine's image entries are no run of its own: it installed them at
+// start, and the Cloud names the run of the engine that sent it the same
+// records. An installed entry whose run the engine doesn't know refuses
+// nothing, after the engine restarts as before.
+func TestAMergeOverAnImageEntryIsNotRefused(t *testing.T) {
+	t.Parallel()
+	for _, restarted := range []bool{false, true} {
+		t.Run(map[bool]string{false: "running", true: "after a restart"}[restarted], func(t *testing.T) {
+			t.Parallel()
+			actx, a, asrv := transferTestCache(t)
+			r := persistedListTestResult(t, actx, a, asrv, "image-root", &transferTestValue{Text: "root"})
+			p := secondRunTestStep(t, actx, a, asrv, "image-dep", "the image's run")
+			transferTestDependency(a, actx, r, p)
+			cctx, cloud := storedPartTestCache(t, WithBlobStore())
+			bundle, reply := secondRunTestExport(t, actx, a, nil, cloud, cctx, CacheID(a.Identity().ID), r)
+			root := secondRunTestNumber(bundle, reply, r)
+			require.NotZero(t, root)
+
+			path := filepath.Join(t.TempDir(), "b.db")
+			bctx, b := reopenTransferTestCache(t, path)
+			installed, err := b.MergeValues(bctx, imageCacheID, exportTestBundle(t, actx, a, p))
+			require.NoError(t, err)
+			require.True(t, installed.Committed, "the image's entry installs")
+			if restarted {
+				require.NoError(t, b.Close(context.Background()))
+				bctx, b = reopenTransferTestCache(t, path)
+			}
+			t.Cleanup(func() { _ = b.Close(context.Background()) })
+			sent, err := cloud.StoredBundle(cctx, []uint64{root}, time.Now().Unix(), nil)
+			require.NoError(t, err)
+			merged, err := b.MergeValues(bctx, cloudCacheID, sent.Bundle)
+			require.NoError(t, err)
+			require.Empty(t, merged.OtherRun)
+			require.True(t, merged.Committed)
+		})
+	}
 }

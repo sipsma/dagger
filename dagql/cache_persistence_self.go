@@ -61,10 +61,12 @@ type PersistedResultEnvelope struct {
 	// Run and RunRan are, in the Cloud's saved records, the run its stored
 	// record names and how the Cloud learned that run ran (sharedResult.run
 	// and runRan): restore takes them back onto the entry. An engine saves
-	// neither, and no record sent to another cache carries them
-	// (lightStoredEnvelope).
-	Run    *RunName `json:"run,omitempty"`
-	RunRan uint8    `json:"runRan,omitempty"`
+	// Run, the run the Cloud named for a record it sent, and RunUnknown, a
+	// record it installed with no run named (sharedResult.runUnknown). No
+	// record sent to another cache carries them (lightStoredEnvelope).
+	Run        *RunName `json:"run,omitempty"`
+	RunRan     uint8    `json:"runRan,omitempty"`
+	RunUnknown bool     `json:"runUnknown,omitempty"`
 	// FoldedRuns are, in the Cloud's saved records, the runs the entry keeps
 	// folded under another run's record (sharedResult.foldedRuns), which
 	// restore takes back onto the entry as it does Run.

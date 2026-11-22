@@ -3302,16 +3302,21 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 	rec := row.rec
 	// On the Cloud, the stored record names the row's run, which goes with
 	// it, and whether that run ran its step as far as the Cloud knows yet.
-	res.run, res.runRan = nil, runNotRan
+	res.run, res.runRan, res.runUnknown = nil, runNotRan, false
 	// A record whose run isn't known names none (mergeRunLocked).
-	if c.blobBacked && row.run != (RunName{}) {
-		run := row.run
-		res.run, res.runRan = &run, row.runRan
-	} else if row.value.Run != nil {
+	switch {
+	case c.blobBacked:
+		if row.run != (RunName{}) {
+			run := row.run
+			res.run, res.runRan = &run, row.runRan
+		}
+	case row.value.Run != nil:
 		// On an engine, a record the Cloud sent is the run the Cloud names
 		// for it (engineRunLocked).
 		run := *row.value.Run
 		res.run = &run
+	default:
+		res.runUnknown = true
 	}
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil

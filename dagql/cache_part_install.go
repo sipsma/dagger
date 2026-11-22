@@ -716,7 +716,7 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 
 	token.installed.Store(installed)
 	if p.evaluated && !c.blobBacked {
-		row.run = nil
+		row.run, row.runUnknown = nil, false
 	}
 	return &ReadyPartReceipt{cache: c, receiver: row, task: token}, PartInstalled, nil
 }

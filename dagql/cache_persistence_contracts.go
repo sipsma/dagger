@@ -35,6 +35,7 @@ type persistResultSnapshot struct {
 	persistDeclined       bool
 	boundSession          SessionResourceHandle
 	run                   *RunName
+	runUnknown            bool
 	runRan                runRanBy
 	foldedRuns            []RunName
 	secondRunOf           digest.Digest

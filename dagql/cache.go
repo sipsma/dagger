@@ -3326,6 +3326,11 @@ type sharedResult struct {
 	// egraphMu.
 	runRan runRanBy
 	run    *RunName
+	// runUnknown is, on an engine, true for a record it installed with no
+	// run named, such as its image's entries: a run it can't tell, which
+	// refuses nothing (engineRunLocked). An evaluation of its own clears it.
+	// Guarded by egraphMu.
+	runUnknown bool
 	// foldedRuns are, on the Cloud, the runs of this entry's step, one that
 	// can differ, that engines ran themselves and the Cloud keeps under this
 	// entry, though its stored record is another run (addFoldedRunLocked):
