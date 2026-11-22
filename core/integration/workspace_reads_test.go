@@ -110,10 +110,10 @@ func (WorkspaceSuite) TestWorkspaceReadsSharedAcrossClients(ctx context.Context,
 	}
 	// A first session reads the Git workspace from its main client alone.
 	// Once it has ended, a second session makes the same reads from its main
-	// client and two function calls. Reads its commit decides are kept past
-	// the session, so the second session makes none of them again. Two
-	// clients making a read at the same moment can each make it, so the
-	// sessions run in turn.
+	// client and two calls of each function. Reads its commit decides aren't
+	// kept past their session, so the second session makes each once again,
+	// and its other clients share it. Two clients making a read at the same
+	// moment can each make it, so the sessions run in turn.
 	gitWorkspace := []string{"-W", repo + "@" + sha}
 	query(client, "{\n"+mainReads("/git-data")+"}", 1, gitWorkspace...)
 	query(client, "{\n"+mainReads("/git-data")+functionReads("/git-data")+"}", 3, gitWorkspace...)
@@ -207,15 +207,14 @@ func (WorkspaceSuite) TestWorkspaceReadsSharedAcrossClients(ctx context.Context,
 				case !withFunctions[session]:
 					require.Equal(t, 1, executed, "%s: the first session makes the read", name)
 				case name == "WorkspaceGit.head":
-					// Workspace.git's result is kept past the session, and
-					// its clients share its children. head isn't kept
-					// itself, but its result is the workspace's own ref,
-					// which the kept result holds: the second session
-					// makes it at most once.
+					// head's result is the workspace's own ref, which may
+					// outlive the first session: the second session's
+					// clients make it at most once.
 					require.LessOrEqual(t, executed, 1, "%s: the clients of a session must share a read of a workspace its commit decides", name)
 				default:
-					require.Zero(t, executed, "%s: clients and sessions must share a read of a workspace its commit decides", name)
-					require.NotEmpty(t, others, name)
+					// The reads aren't kept past the first session, so the
+					// second makes each once, and its other clients share it.
+					require.Equal(t, 1, executed, "%s: the clients of a session must share a read of a workspace its commit decides, and it isn't kept past its session", name)
 					require.Subset(t, []string{"hit", "joined"}, others, name)
 				}
 			}
