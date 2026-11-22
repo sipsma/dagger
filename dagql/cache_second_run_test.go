@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -447,4 +448,44 @@ func TestAHoldingThatNamesASecondRunSitsOnIt(t *testing.T) {
 	held, ok = s.cloud.HolderEntry(other)
 	require.True(t, ok)
 	require.Equal(t, s.first, held)
+}
+
+// A restored Cloud keeps a second run as one, beside its recipe's current
+// entry and kept under the result over it, though nothing saved says so: on
+// the Cloud, an entry that stores a record that no recipe index names is a
+// second run of its own recipe.
+func TestARestoredCloudKeepsASecondRunAsOne(t *testing.T) {
+	t.Parallel()
+	for _, compress := range []bool{false, true} {
+		t.Run(map[bool]string{false: "whole", true: "compressed"}[compress], func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "cloud.db")
+			s := newSecondRunTestSetup(t)
+			s.cctx, s.cloud = storedPersistenceTestCloud(t, path)
+			actx, a, asrv := transferTestCache(t)
+			aStep := secondRunTestStep(t, actx, a, asrv, "second-run-step", "a-run")
+			aBundle, aReply := secondRunTestExport(t, actx, a, nil, s.cloud, s.cctx, "cache-a", aStep)
+			s.first = secondRunTestNumber(aBundle, aReply, aStep)
+			bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+			second, root := secondRunTestNumber(bundle, reply, s.bStep), secondRunTestNumber(bundle, reply, s.bRoot)
+			require.True(t, secondRunTestFacts(t, s.cloud, second).KeptUnder)
+			if compress {
+				storedTestCompress(s.cloud)
+			}
+			require.NoError(t, s.cloud.Close(s.cctx))
+
+			s.cctx, s.cloud = storedPersistenceTestCloud(t, path)
+			defer func() { require.NoError(t, s.cloud.Close(s.cctx)) }()
+			facts := secondRunTestFacts(t, s.cloud, second)
+			require.True(t, facts.SecondRun)
+			require.True(t, facts.KeptUnder)
+			require.False(t, secondRunTestFacts(t, s.cloud, s.first).SecondRun)
+			require.Equal(t, s.recipe, secondRunTestRecipe(t, s.cloud, second))
+			s.cloud.egraphMu.RLock()
+			current := s.cloud.currentEntryForRecipeLocked(s.recipe)
+			s.cloud.egraphMu.RUnlock()
+			require.Equal(t, s.first, uint64(current.id))
+			require.Equal(t, "b-run", secondRunTestText(t, s.cloud, s.cctx, root, second))
+		})
+	}
 }
