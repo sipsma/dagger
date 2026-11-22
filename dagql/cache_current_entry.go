@@ -146,7 +146,7 @@ func (c *Cache) replaceResultValueInPlaceLocked(ctx context.Context, cur, fresh 
 		cur.replacements++
 	}
 	cur.merged = fresh.merged
-	cur.run, cur.runRan = fresh.run, fresh.runRan
+	cur.run, cur.runRan, cur.runUnknown = fresh.run, fresh.runRan, fresh.runUnknown
 	// Runs folded here are still their engines', but for the fresh record's
 	// own run, which the entry now stores.
 	if fresh.run != nil {

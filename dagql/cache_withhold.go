@@ -269,7 +269,7 @@ func (w *withholdBuild) otherRunCarriedLocked(roots ...*sharedResult) (bool, sha
 // recipientHoldsOtherRunLocked reports whether the bundle's recipient holds
 // another run of res's step: the recipient answered so (HeldBy.OtherRun), or
 // res can differ and the recipient's own run of it is folded under res
-// (foldedRuns), or it holds another entry of one of res's recipes
+// (foldedRuns) while it holds res, or it holds another entry of one of res's recipes
 // (entriesOfRecipeLocked) whose run isn't res's. A value over res
 // would land on the recipient's own run of the step, whose entry its merge
 // keeps (mergeKeep), with no error. What the Cloud knows of the recipient's
@@ -284,8 +284,9 @@ func (w *withholdBuild) recipientHoldsOtherRunLocked(res *sharedResult) bool {
 		return true
 	case res.run == nil || !w.c.entryCanDifferLocked(res):
 		return false
-	case slices.ContainsFunc(res.foldedRuns, func(run RunName) bool { return run.Cache == w.held.Cache }):
-		// The recipient ran the step itself, and its run is folded here.
+	case slices.ContainsFunc(res.foldedRuns, func(run RunName) bool { return run.Cache == w.held.Cache }) && w.held.heldLocked(res, w.now):
+		// The recipient ran the step itself, its run is folded here, and it
+		// still holds it.
 		return true
 	}
 	recipes := slices.Clip(res.recipeKeys)
