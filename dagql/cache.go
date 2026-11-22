@@ -5655,6 +5655,8 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 	// Work read the entry once it asked for it, though the entry may still
 	// be running.
 	c.recordPartRead(ctx, shared.id, nil)
+	// The entry's evaluation is its own call's work, which reads for it.
+	ctx = outsideUncachedCall(ctx)
 	watch := partReselectWatch{loop: "evaluateOne"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
@@ -5694,6 +5696,8 @@ func (c *Cache) EvaluateParts(ctx context.Context, res AnyResult, parts ...PartK
 	// Work read the parts once it asked for them, though they may still be
 	// being made.
 	c.recordPartRead(ctx, shared.id, parts)
+	// The entry's evaluation is its own call's work, which reads for it.
+	ctx = outsideUncachedCall(ctx)
 	watch := partReselectWatch{loop: "EvaluateParts"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
@@ -7010,6 +7014,17 @@ func underUncachedCall(ctx context.Context) bool {
 	return under
 }
 
+// outsideUncachedCall is ctx for work that isn't an uncached call's own,
+// though the call set it off: a cached call made under it, and the
+// evaluation of a result it reads. What that work reads depends on whether
+// the cached call or the result's own call runs, not on the uncached call.
+func outsideUncachedCall(ctx context.Context) context.Context {
+	if underUncachedCall(ctx) {
+		return context.WithValue(ctx, uncachedCallCtx{}, false)
+	}
+	return ctx
+}
+
 //nolint:gocyclo // Core cache lookup/insert flow is intentionally centralized here.
 func (c *Cache) getOrInitCallInner(
 	ctx context.Context,
@@ -7099,11 +7114,7 @@ func (c *Cache) getOrInitCallInner(
 		return Result[Typed]{shared: detached}, nil
 	}
 
-	if underUncachedCall(ctx) {
-		// What a cached call reads depends on whether it runs, not on the
-		// uncached call it was made under.
-		ctx = context.WithValue(ctx, uncachedCallCtx{}, false)
-	}
+	ctx = outsideUncachedCall(ctx)
 	callDigest, err := req.deriveRecipeDigest(c)
 	if err != nil {
 		return nil, fmt.Errorf("derive request digest: %w", err)
