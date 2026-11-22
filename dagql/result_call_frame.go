@@ -229,6 +229,16 @@ type ResultCall struct {
 	// Cloud, reads it without the schema.
 	FollowsFromInputs bool `json:"followsFromInputs,omitempty"`
 
+	// ContentMayChange says that the result's content can change after it is
+	// made, for the same identity, as its type says (CacheUsageMayChange):
+	// a cache volume, a client's filesync mirror, a git mirror that
+	// fetching updates, an HTTP state. Such a result is its engine's own
+	// state, not a run of a step: no store keeps its content, and what is
+	// built over it is judged by its own declaration (entryCanDifferLocked).
+	// It is set when the frame is built, travels as FollowsFromInputs does,
+	// and enters no digest.
+	ContentMayChange bool `json:"contentMayChange,omitempty"`
+
 	// ContentPreferred is the content-preferred digest an engine computed
 	// for this frame, with the recipe digest of the frame it computed it for.
 	// A clone writes it (cloneWith): from the frame's own memo once it has

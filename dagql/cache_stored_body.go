@@ -106,6 +106,9 @@ type storedBody struct {
 	// its inputs (ResultCall.FollowsFromInputs), kept beside it so that no
 	// reader decompresses the frame for it (entryCanDifferLocked).
 	follows bool
+	// mayChange is the held frame's word that the result's content may
+	// change (ResultCall.ContentMayChange), kept beside it as follows is.
+	mayChange bool
 	// call is, while the body holds no frame, the decoded frame the body was
 	// made with, and refs are the entries the record's child and call
 	// references name, sorted, of the record and that frame. A frame that
@@ -247,6 +250,7 @@ func (b *storedBody) withFrameEncoded(c *Cache, call *ResultCall, enc *zstd.Enco
 		frameBytes:    int64(len(raw)),
 		recipe:        recipe,
 		follows:       call.FollowsFromInputs,
+		mayChange:     call.ContentMayChange,
 		refs:          b.refs,
 	}, nil
 }

@@ -14,6 +14,13 @@ import (
 // follows from its inputs only when follows is set.
 func otherRunTestBundle(t *testing.T, follows bool) (actx context.Context, a *Cache, bundle ValueBundle, pOrdinal uint64) {
 	t.Helper()
+	return otherRunTestBundleFrame(t, func(frame *ResultCall) { frame.FollowsFromInputs = follows })
+}
+
+// otherRunTestBundleFrame is otherRunTestBundle with edit applied to P's
+// frame.
+func otherRunTestBundleFrame(t *testing.T, edit func(*ResultCall)) (actx context.Context, a *Cache, bundle ValueBundle, pOrdinal uint64) {
+	t.Helper()
 	actx, a, asrv := transferTestCache(t)
 	from := CacheID(a.Identity().ID)
 	require.NotEmpty(t, from, "the test engine has an identity, as an engine does")
@@ -22,7 +29,7 @@ func otherRunTestBundle(t *testing.T, follows bool) (actx context.Context, a *Ca
 	transferTestDependency(a, actx, r, p)
 	a.egraphMu.Lock()
 	frame := p.cacheSharedResult().loadResultCall().clone()
-	frame.FollowsFromInputs = follows
+	edit(frame)
 	p.cacheSharedResult().storeResultCall(frame)
 	a.egraphMu.Unlock()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())

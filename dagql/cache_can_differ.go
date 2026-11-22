@@ -62,6 +62,24 @@ func (c *Cache) entryCanDifferWhyLocked(res *sharedResult) (bool, string) {
 	return false, ""
 }
 
+// entryContentMayChangeLocked reports whether res's stored record says its
+// content may change after it is made (ResultCall.ContentMayChange): from
+// the record's frame, or from its stored body's copy of the frame's word
+// while the frame is compressed. Holdings don't say it: an entry the Cloud
+// holds no record of has no run it stores. Requires egraphMu.
+func (c *Cache) entryContentMayChangeLocked(res *sharedResult) bool {
+	if res.stored == nil && res.persistedEnvelope == nil {
+		return false
+	}
+	if call := res.loadResultCall(); call != nil {
+		return call.ContentMayChange
+	}
+	if body := res.stored; body != nil && body.frame != nil {
+		return body.mayChange
+	}
+	return false
+}
+
 // declarationDisagreement names an entry whose record and holdings disagreed
 // on its declaration (entryCanDifferLocked), which is logged once.
 type declarationDisagreement struct {

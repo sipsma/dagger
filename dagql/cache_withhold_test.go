@@ -14,13 +14,19 @@ import (
 // holding of P's run in cache-a, at its replacement count.
 func withholdTestCloud(t *testing.T, follows bool) (context.Context, *Cache, uint64, uint64, HolderKey, uint64) {
 	t.Helper()
+	return withholdTestCloudFrame(t, func(frame *ResultCall) { frame.FollowsFromInputs = follows })
+}
+
+// withholdTestCloudFrame is withholdTestCloud with edit applied to P's frame.
+func withholdTestCloudFrame(t *testing.T, edit func(*ResultCall)) (context.Context, *Cache, uint64, uint64, HolderKey, uint64) {
+	t.Helper()
 	actx, a, asrv := transferTestCache(t)
 	r := persistedListTestResult(t, actx, a, asrv, "withhold-root", &transferTestValue{Text: "root"})
 	p := persistedListTestResult(t, actx, a, asrv, "withhold-dep", &transferTestValue{Text: "dep"})
 	transferTestDependency(a, actx, r, p)
 	a.egraphMu.Lock()
 	frame := p.cacheSharedResult().loadResultCall().clone()
-	frame.FollowsFromInputs = follows
+	edit(frame)
 	p.cacheSharedResult().storeResultCall(frame)
 	a.egraphMu.Unlock()
 	bundle := exportTestBundle(t, actx, a, r)
