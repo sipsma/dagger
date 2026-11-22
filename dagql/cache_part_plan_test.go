@@ -76,7 +76,7 @@ func TestPlannedPartFetchStartsWhenItsCallRuns(t *testing.T) {
 	})
 	require.NoError(t, err)
 	job := f.awaitPlanned(t)
-	require.True(t, job.planned)
+	require.True(t, job.planned.Load())
 	f.prefetch.mu.Lock()
 	require.Empty(t, f.prefetch.queues[job.lane], "the offer left its lane")
 	f.prefetch.mu.Unlock()
@@ -152,12 +152,36 @@ func TestPlannedPartFetchOfADecodedEntry(t *testing.T) {
 // before it runs it.
 func (f *prefetchFixture) takeLaneJob(t *testing.T) *partPrefetchJob {
 	t.Helper()
+	job := f.takeJobUnstarted(t)
+	f.prefetch.mu.Lock()
+	defer f.prefetch.mu.Unlock()
+	job.cancel = func() {}
+	return job
+}
+
+// takeJobUnstarted takes the offer's job from its queue, as the ahead worker
+// takes every job of an offer before it starts the first.
+func (f *prefetchFixture) takeJobUnstarted(t *testing.T) *partPrefetchJob {
+	t.Helper()
 	job := f.job(t, f.offer)
 	f.prefetch.mu.Lock()
 	defer f.prefetch.mu.Unlock()
 	require.True(t, f.prefetch.unqueueLocked(job))
-	job.cancel = func() {}
 	return job
+}
+
+// A plan that fires while a worker has taken the offer's job from its queue
+// but not yet started it leaves the job to that worker, which then
+// downloads it whatever the budget.
+func TestPlannedPartFetchOfAJobTakenButNotStarted(t *testing.T) {
+	f := newPlanFixture(t, func(config *partPrefetchConfig) { config.budget = 1 })
+	job := f.takeJobUnstarted(t)
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
+	require.Eventually(t, job.planned.Load, 10*time.Second, 5*time.Millisecond, "the taken job is marked planned")
+	require.Empty(t, f.plannedJobs(), "the worker keeps it")
+	f.prefetch.run(context.Background(), job)
+	lines := f.logs.lines(t, "remote cache part prefetched")
+	require.Equal(t, "done", lines[len(lines)-1].fields["outcome"])
 }
 
 // A plan that fires while a lane worker has taken the offer's job, before
@@ -170,7 +194,7 @@ func TestPlannedPartFetchOfAJobALaneWorkerTook(t *testing.T) {
 	require.Eventually(t, func() bool {
 		f.prefetch.mu.Lock()
 		defer f.prefetch.mu.Unlock()
-		return job.planned
+		return job.planned.Load()
 	}, 10*time.Second, 5*time.Millisecond, "the taken job is marked planned")
 	require.Empty(t, f.plannedJobs(), "the worker keeps it")
 	f.prefetch.run(context.Background(), job)
