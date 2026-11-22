@@ -181,14 +181,24 @@ func (srv *Server) emitReadEvent(reads []dagql.PartRead) {
 	if srv.engineEvents == nil || srv.engineCache == nil || len(reads) == 0 {
 		return
 	}
-	event := telemetryattrs.EngineReadEvent{Reads: make([]telemetryattrs.EngineRead, len(reads))}
-	for i, read := range reads {
-		event.Reads[i] = telemetryattrs.EngineRead{ResultID: read.ResultID, Part: string(read.Part), Session: read.Session}
+	var event, under telemetryattrs.EngineReadEvent
+	for _, read := range reads {
+		r := telemetryattrs.EngineRead{ResultID: read.ResultID, Part: string(read.Part), Session: read.Session, Under: read.Under, Top: read.Top}
 		if !read.At.IsZero() {
-			event.Reads[i].At = read.At.UnixNano()
+			r.At = read.At.UnixNano()
 		}
+		if read.Under != 0 {
+			under.Reads = append(under.Reads, r)
+			continue
+		}
+		event.Reads = append(event.Reads, r)
 	}
-	srv.engineEvents.Emit(telemetryattrs.EngineEventRead, srv.engineCache.Identity(), time.Now(), event)
+	if len(event.Reads) > 0 {
+		srv.engineEvents.Emit(telemetryattrs.EngineEventRead, srv.engineCache.Identity(), time.Now(), event)
+	}
+	if len(under.Reads) > 0 {
+		srv.engineEvents.Emit(telemetryattrs.EngineEventReadUnder, srv.engineCache.Identity(), time.Now(), under)
+	}
 }
 
 // stopEngineEvents runs after the cache closed: it reports engine.stop with
