@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -347,25 +348,18 @@ func TestRemoteHoldingInfosAnswerAsRemoteHoldingInfo(t *testing.T) {
 	require.Equal(t, []bool{true, false, true}, ok)
 }
 
-// A batch read lets a writer that comes during it in before its end: the
-// lock prefers writers, so a writer that waited for a batch's whole hold
-// held up every reader that came after it, and on the thirteenth whole
-// run's fill one batch of part answers held the Cloud cache for over 7 s.
-// The writer waits for the answer in progress at most; each answer stands
-// whole in one hold. Here a writer comes after a batch's first answer, and
-// gets in as the batch lets the lock go.
-func TestABatchReadLetsAWaitingWriterIn(t *testing.T) {
-	t.Parallel()
-	ctx, cloud, first, _ := storedQueriesTestClass(t)
-	key := HolderKey{"cache-c", 1}
-	_, err := cloud.AttachRemoteHolding(ctx, key, RemoteHolding{Recipe: testDigest("batch-holding"), Request: testDigest("batch-holding"), Field: "batch-holding", TypeName: "Directory", ContentDigest: testDigest("batch-holding")})
-	require.NoError(t, err)
-	const n = 64
-	now := time.Now().Unix()
-	reads := []struct {
-		name string
-		read func()
-	}{
+// batchReadTestCase is one of the cache's batch reads, run over n answers
+// (batchReadsTestCases).
+type batchReadTestCase struct {
+	name string
+	read func()
+}
+
+// batchReadsTestCases are each of the cache's batch reads, of n answers
+// each: of the part answers of the entry numbered first, of the holding key,
+// of first's entry, and of starts of first's part only to answer.
+func batchReadsTestCases(cloud *Cache, first uint64, key HolderKey, n int, now int64) []batchReadTestCase {
+	return []batchReadTestCase{
 		{"AvailableParts", func() {
 			queries := make([]PartQuery, n)
 			for i := range queries {
@@ -394,7 +388,32 @@ func TestABatchReadLetsAWaitingWriterIn(t *testing.T) {
 			}
 			cloud.EntriesFacts(numbers)
 		}},
+		{"StartPartUploads", func() {
+			starts := make([]PartStartQuery, n)
+			for i := range starts {
+				starts[i] = PartStartQuery{PartQuery: PartQuery{Number: first, Address: PersistedPartAddress{Part: "snapshot"}}, AnswerOnly: true}
+			}
+			cloud.StartPartUploads(starts, now)
+		}},
 	}
+}
+
+// A batch read lets a writer that comes during it in before its end: the
+// lock prefers writers, so a writer that waited for a batch's whole hold
+// held up every reader that came after it, and on the thirteenth whole
+// run's fill one batch of part answers held the Cloud cache for over 7 s.
+// The writer waits for the answer in progress at most; each answer stands
+// whole in one hold. Here a writer comes after a batch's first answer, and
+// gets in as the batch lets the lock go.
+func TestABatchReadLetsAWaitingWriterIn(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, first, _ := storedQueriesTestClass(t)
+	key := HolderKey{"cache-c", 1}
+	_, err := cloud.AttachRemoteHolding(ctx, key, RemoteHolding{Recipe: testDigest("batch-holding"), Request: testDigest("batch-holding"), Field: "batch-holding", TypeName: "Directory", ContentDigest: testDigest("batch-holding")})
+	require.NoError(t, err)
+	const n = 64
+	now := time.Now().Unix()
+	reads := batchReadsTestCases(cloud, first, key, n, now)
 	for _, r := range reads {
 		t.Run(r.name, func(t *testing.T) {
 			var answered, in atomic.Int64
@@ -423,6 +442,102 @@ func TestABatchReadLetsAWaitingWriterIn(t *testing.T) {
 			r.read()
 			<-done
 			require.Less(t, in.Load(), int64(n), "the writer got in before the batch's end")
+		})
+	}
+}
+
+
+// A batch read holds the lock, once it has taken it, at least as long as
+// that take waited, and gives way to a waiting writer only then, as the
+// service's runs of merged replies do: a read that gave way after every
+// answer got one answer for each writer's whole hold, and on the sixteenth
+// whole run's fill passes waited 965 s in about 340 s traced to take the
+// lock back, in the longest pass a median 16 ms behind each answer of
+// 0.08 ms. Here a writer holds the lock as the read begins, and waits for
+// it again once the read has answered after taking it; each answer takes
+// 10 ms by the cache's clock, and the writer lets the lock go 100 ms after
+// the read began to wait for it, then 30 ms after each time: the writer
+// gets in after the read's tenth answer, not its first, and three answers
+// later.
+func TestABatchReadHoldsAsLongAsItsTakeWaited(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, first, _ := storedQueriesTestClass(t)
+	key := HolderKey{"cache-c", 1}
+	_, err := cloud.AttachRemoteHolding(ctx, key, RemoteHolding{Recipe: testDigest("batch-holding"), Request: testDigest("batch-holding"), Field: "batch-holding", TypeName: "Directory", ContentDigest: testDigest("batch-holding")})
+	require.NoError(t, err)
+	const n = 64
+	now := time.Now().Unix()
+	for _, r := range batchReadsTestCases(cloud, first, key, n, now) {
+		t.Run(r.name, func(t *testing.T) {
+			var clock, answered, gave atomic.Int64
+			base := time.Now()
+			cloud.batchClock = func() time.Time { return base.Add(time.Duration(clock.Load())) }
+			var (
+				mu sync.Mutex
+				in []int64
+			)
+			gotIn := func() int {
+				mu.Lock()
+				defer mu.Unlock()
+				return len(in)
+			}
+			// Each answer takes 10 ms, and the read goes on once the writer
+			// waits for the lock, so that it finds the writer waiting.
+			cloud.testBatchAnswered = func(i int) {
+				answered.Store(int64(i + 1))
+				clock.Add(int64(10 * time.Millisecond))
+				require.Eventually(t, cloud.egraphMu.Waiting, 10*time.Second, time.Millisecond, "the writer waits")
+			}
+			// As the read lets the lock go, the writer, waiting or about
+			// to, takes it.
+			cloud.testBatchGaveWay = func() {
+				g := int(gave.Add(1))
+				require.Eventually(t, func() bool { return gotIn() > g }, 10*time.Second, time.Millisecond, "the writer gets in")
+			}
+			defer func() { cloud.testBatchAnswered, cloud.testBatchGaveWay, cloud.batchClock = nil, nil, nil }()
+			var stop atomic.Bool
+			cloud.egraphMu.Lock()
+			in = append(in, 0)
+			done := make(chan struct{})
+			// The writer, holding the lock, lets it go once the read waits
+			// for it, the wait's time on the clock, and asks for it again
+			// once the read has answered after taking it: a waiter is
+			// counted before it blocks, so a writer that asked at once could
+			// take the lock back before the read had it.
+			go func() {
+				defer close(done)
+				wait := 100 * time.Millisecond
+				for {
+					for !cloud.egraphMu.Waiting() && !stop.Load() {
+						time.Sleep(time.Millisecond)
+					}
+					if stop.Load() {
+						cloud.egraphMu.Unlock()
+						return
+					}
+					clock.Add(int64(wait))
+					wait = 30 * time.Millisecond
+					at := answered.Load()
+					cloud.egraphMu.Unlock()
+					for answered.Load() == at && !stop.Load() {
+						time.Sleep(time.Millisecond)
+					}
+					if stop.Load() {
+						return
+					}
+					cloud.egraphMu.Lock()
+					mu.Lock()
+					in = append(in, answered.Load())
+					mu.Unlock()
+				}
+			}()
+			r.read()
+			stop.Store(true)
+			<-done
+			mu.Lock()
+			defer mu.Unlock()
+			require.GreaterOrEqual(t, len(in), 3, "the writer got in during the read")
+			require.Equal(t, []int64{0, 10, 13}, in[:3], "the writer got in once the read had held as long as its take waited: 100 ms, then 30 ms")
 		})
 	}
 }
