@@ -51,12 +51,38 @@ func (c *Cache) markKeptUnderLocked(res *sharedResult) {
 	}
 }
 
+// servedOverOwnSecondRunLocked makes entry, a second run whose record names
+// the run of key's engine at the count h was just served at, name the run
+// served instead, when the engine's own run never ran and the served one
+// did. The engine's record went to the Cloud before its step ran, as the
+// records stream sends a lazy chain, and the merge kept it as the engine's
+// run; then the engine's lookup was answered with another run, and that run
+// is its value of the step: what it builds over the entry is built over the
+// served run's content. So the entry is that run, and the withholding rule
+// asks that run whole of it, rather than answering what stands over it over
+// a recipe that a third engine would run beside that content. A served run
+// that never ran says nothing yet: the engine runs the step itself, and its
+// own run's report marks the entry (noteHoldingRanLocked). Requires egraphMu
+// for writing.
+func (c *Cache) servedOverOwnSecondRunLocked(key HolderKey, entry *sharedResult, h *holding) {
+	if entry.secondRunOf == "" || entry.run == nil || entry.runRan != runNotRan || h.served == nil || !h.served.known || h.served.ran == runNotRan {
+		return
+	}
+	if run := *entry.run; run.Cache != key.Cache || run.Number != key.Number || run.Replacements != h.served.replacements || h.ran {
+		return
+	}
+	served := h.served.run
+	entry.run, entry.runRan = &served, h.served.ran
+	c.markEntryLocked(entry.id)
+}
+
 // ReleaseSecondRuns releases, on the Cloud, what the engine cache cache kept
-// apart once it has ended: each second run of its own that nothing stored
+// apart once it has ended: each second run it holds that nothing stored
 // stands over loses its value, as a prune drops a value only holdings keep
 // (dropValueLocked), and so in turn does each second run that held only
-// through what that drop released. A second run of an engine that live
-// reports still running is left: it can still build over it. A recipe's
+// through what that drop released. A second run whose record names the run
+// of an engine that live reports still running is left: that engine can
+// still build over it. A recipe's
 // current entry is never touched. The entries left with no owner at all are
 // collected. Only a blob-backed cache keeps second runs.
 func (c *Cache) ReleaseSecondRuns(ctx context.Context, cache CacheID, live func(CacheID) bool) (RemoteChange, error) {
@@ -79,7 +105,7 @@ func (c *Cache) releaseSecondRunsLocked(ctx context.Context, cache CacheID, live
 	}
 	var queue []*sharedResult
 	for _, id := range state.entries {
-		if res := c.resultsByID[id]; res != nil && res.secondRunOf != "" && res.run != nil && res.run.Cache == cache {
+		if res := c.resultsByID[id]; res != nil && res.secondRunOf != "" && res.run != nil {
 			queue = append(queue, res)
 		}
 	}

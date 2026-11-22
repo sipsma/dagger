@@ -731,6 +731,7 @@ func (c *Cache) applyMergedTargetsLocked(ctx context.Context, cache CacheID, clo
 				served.run, served.ran, served.known = t.served.run, t.served.ran, true
 			}
 			h.served = &served
+			c.servedOverOwnSecondRunLocked(key, entry, h)
 		}
 	}
 }
