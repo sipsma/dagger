@@ -22,6 +22,16 @@ type StoredBundleResult struct {
 	// known only through holdings.
 	Gone    []uint64
 	NoValue []uint64
+	// Withheld are the roots whose closure, the root included, holds a run
+	// of a step that can differ, stored only in part (withholdBuild): the
+	// bundle carries nothing of them until that run is stored whole.
+	// WithheldOn has, for each, the entry found that holds that run: once its
+	// parts are stored, a build may carry the root, or find another.
+	// WithheldOnField has the field of each of those entries and why it can
+	// differ (entryCanDifferWhyLocked), as field/why, for its readers' lines.
+	Withheld        []uint64
+	WithheldOn      []uint64
+	WithheldOnField []string
 	// Held are the numbers of the entries the bundle carries as held rows.
 	Held []uint64
 	// NotWhole are, with HeldBy.Whole, the numbers of the entries the
@@ -214,6 +224,9 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 	var out StoredBundleResult
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
+	// Whatever it carries, the answer is as of this count: a reader of the
+	// roots it withholds asks what changed since (WithheldOn).
+	out.Position = c.writes
 
 	var rootEntries []*sharedResult
 	seenRoot := map[sharedResultID]bool{}
@@ -229,11 +242,28 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 			rootEntries = append(rootEntries, res)
 		}
 	}
+	withhold := &withholdBuild{c: c, memo: map[sharedResultID]sharedResultID{}}
+	kept := make([]*sharedResult, 0, len(rootEntries))
+	for _, res := range rootEntries {
+		withheld, by, err := withhold.withheldLocked(res)
+		if err != nil {
+			return StoredBundleResult{}, nil, fmt.Errorf("stored bundle: entry %d: %w", res.id, err)
+		}
+		if withheld {
+			out.Withheld = append(out.Withheld, uint64(res.id))
+			out.WithheldOn = append(out.WithheldOn, uint64(by))
+			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
+			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
+			continue
+		}
+		kept = append(kept, res)
+	}
+	rootEntries = kept
 	if len(rootEntries) == 0 {
 		return out, nil, nil
 	}
 	c.storedBundleBuilds.Add(1)
-	build, notWhole, err := c.storedBundleWholeWalkLocked(rootEntries, nowUnix, held)
+	build, notWhole, err := c.storedBundleWholeWalkLocked(rootEntries, nowUnix, held, withhold)
 	if err != nil {
 		return StoredBundleResult{}, nil, err
 	}
@@ -292,7 +322,6 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 		}
 	}
 	out.Bundle, out.Donors, out.stored = build.bundle, build.donors, build.stored
-	out.Position = c.writes
 	for id := range build.partial {
 		out.Partial = append(out.Partial, uint64(id))
 	}
@@ -313,12 +342,12 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 // a new build, root by root, as StoredSizes prices them: each root's
 // closure, then the calls kept on what it added, with their inputs'
 // closures. The entries of notWhole aren't held. Requires egraphMu.
-func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy, notWhole map[sharedResultID]bool) (*storedBundleBuild, error) {
+func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy, notWhole map[sharedResultID]bool, withhold *withholdBuild) (*storedBundleBuild, error) {
 	seenRoot := make(map[sharedResultID]bool, len(rootEntries))
 	for _, res := range rootEntries {
 		seenRoot[res.id] = true
 	}
-	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, heldBy: held, notWhole: notWhole, held: map[sharedResultID]bool{},
+	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, heldBy: held, notWhole: notWhole, held: map[sharedResultID]bool{}, withhold: withhold,
 		owners: map[sharedResultID]int{}, ordinary: map[sharedResultID]bool{}, rootSeen: seenRoot}
 	build.bundle.Version = ValueBundleVersion
 	visiting := map[sharedResultID]bool{}
@@ -343,8 +372,8 @@ func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int6
 // build holds a held row the recipient doesn't hold whole, which then goes
 // in full, as a caller building again would walk it. It returns the last
 // build and those rows, in the order found. Requires egraphMu.
-func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy) (*storedBundleBuild, []uint64, error) {
-	build, err := c.storedBundleWalkLocked(rootEntries, nowUnix, held, nil)
+func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy, withhold *withholdBuild) (*storedBundleBuild, []uint64, error) {
+	build, err := c.storedBundleWalkLocked(rootEntries, nowUnix, held, nil, withhold)
 	if err != nil || held == nil || !held.Whole {
 		return build, nil, err
 	}
@@ -368,7 +397,7 @@ func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix
 			notWhole[sharedResultID(number)] = true
 		}
 		all = append(all, found...)
-		if build, err = c.storedBundleWalkLocked(rootEntries, nowUnix, held, notWhole); err != nil {
+		if build, err = c.storedBundleWalkLocked(rootEntries, nowUnix, held, notWhole, withhold); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -449,6 +478,9 @@ type storedBundleBuild struct {
 	heldBy   *HeldBy
 	notWhole map[sharedResultID]bool
 	held     map[sharedResultID]bool
+	// withhold decides which entries the bundle withholds: no root it
+	// carries is one, and no call goes with an input that is.
+	withhold *withholdBuild
 	// rootSeen are the roots' entries, and callRoots the entries added as
 	// roots for the inputs of calls the bundle sends, callInputs their
 	// numbers, and unsendableCalls the terms it sends no call for
