@@ -188,11 +188,16 @@ func (s *secondRunTestSetup) checkKeptApart(t *testing.T, second, root uint64) {
 
 	s.cloud.egraphMu.RLock()
 	current := s.cloud.currentEntryForRecipeLocked(s.recipe)
+	var ofRecipe []uint64
+	for _, res := range s.cloud.entriesOfRecipeLocked(s.recipe) {
+		ofRecipe = append(ofRecipe, uint64(res.id))
+	}
 	_, overSecond := s.cloud.resultsByID[sharedResultID(root)].deps[sharedResultID(second)]
 	_, overFirst := s.cloud.resultsByID[sharedResultID(root)].deps[sharedResultID(s.first)]
 	s.cloud.egraphMu.RUnlock()
 	require.NotNil(t, current)
 	require.Equal(t, s.first, uint64(current.id), "the first run stays the recipe's current entry")
+	require.Equal(t, []uint64{s.first, second}, ofRecipe, "the recipe's entries: its current entry first, then the second run")
 	require.True(t, overSecond, "the unique result stands over cache-b's run")
 	require.False(t, overFirst, "and not over cache-a's")
 
