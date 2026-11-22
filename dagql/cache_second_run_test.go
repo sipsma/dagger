@@ -674,3 +674,30 @@ func TestASecondRunWhoseEngineInstalledOtherContentBeforeItsExportIsWithheldOver
 	require.NoError(t, err)
 	require.Empty(t, built.Withheld)
 }
+
+// A second run is kept under a stored current entry only while one stands
+// over it. When the result over it is replaced in place on expiry, by a
+// record that isn't over it, as the Cloud replaces an expired value, the
+// mark goes with the edge: selection no longer asks the run's content, and
+// its engine's end releases it.
+func TestAKeptUnderMarkGoesWithItsLastStoredParentsEdge(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+	second, root := secondRunTestNumber(bundle, reply, s.bStep), secondRunTestNumber(bundle, reply, s.bRoot)
+	require.True(t, secondRunTestFacts(t, s.cloud, second).KeptUnder)
+
+	s.cloud.egraphMu.Lock()
+	s.cloud.resultsByID[sharedResultID(root)].expiresAtUnix = time.Now().Unix() - 10
+	s.cloud.egraphMu.Unlock()
+	cctx, c, csrv := transferTestCache(t)
+	other := secondRunTestStep(t, cctx, c, csrv, "second-run-unique", "c-root")
+	_, again := secondRunTestExport(t, cctx, c, nil, s.cloud, s.cctx, "cache-c", other)
+	require.Equal(t, 1, again.Rows.Replaced, "the expired result is replaced in place")
+	require.False(t, secondRunTestFacts(t, s.cloud, second).KeptUnder, "nothing stored stands over the second run")
+
+	_, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
+	require.NoError(t, err)
+	_, ok := s.cloud.EntryRun(second)
+	require.False(t, ok, "released at cache-b's end")
+}
