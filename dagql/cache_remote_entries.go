@@ -1804,6 +1804,14 @@ func (c *Cache) holderEntryLocked(key HolderKey) (uint64, bool) {
 	return uint64(entry.id), true
 }
 
+// HasEntry reports whether the cache has the entry numbered number, retired
+// or not (replaceRunsLocked), reading nothing of its record or classes.
+func (c *Cache) HasEntry(number uint64) bool {
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	return c.resultsByID[sharedResultID(number)] != nil
+}
+
 // EntryRecipe returns a recipe that names the entry numbered number in the
 // cache's recipe index: one an engine's holding of the entry attaches by
 // (RemoteHolding.Recipe), as when the Cloud learns that an engine holds an

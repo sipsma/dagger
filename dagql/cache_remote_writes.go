@@ -162,6 +162,11 @@ func (w *RemoteWrites) ApplyHeldValueState(ctx context.Context, key HolderKey, o
 	return change, found, nil
 }
 
+// HasEntry is Cache.HasEntry, in the hold.
+func (w *RemoteWrites) HasEntry(number uint64) bool {
+	return w.c.resultsByID[sharedResultID(number)] != nil
+}
+
 // EntryRecipe is Cache.EntryRecipe, in the hold.
 func (w *RemoteWrites) EntryRecipe(number uint64) (digest.Digest, bool) {
 	return w.c.entryRecipeLocked(number)
