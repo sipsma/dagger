@@ -3078,6 +3078,9 @@ type Cache struct {
 	partPrefetchMu     sync.Mutex
 	partPrefetchConfig *partPrefetchConfig
 	partPrefetchRoom   func(need int64) bool
+	// partPlan holds the planned part fetches waiting for their call to run
+	// (PlanPartFetch).
+	partPlan partFetchPlan
 	// partInstalls counts the installs of offered parts running, which
 	// the prefetcher's ahead worker waits for before taking an offer.
 	partInstalls atomic.Int64
@@ -7425,6 +7428,9 @@ func (c *Cache) getOrInitCallInner(
 	}()
 
 	c.callsMu.Unlock()
+	// The call runs: the parts planned for its run start fetching ahead,
+	// outside the call's path and its locks.
+	c.callRuns(context.WithoutCancel(oc.sharedWorkCtx), callDigest)
 	if ev != nil {
 		// The decision fact: the cache chose to execute. It stays recorded even
 		// if the resolver later errors — the span's own error/cancel status
