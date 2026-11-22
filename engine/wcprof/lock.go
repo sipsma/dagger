@@ -64,6 +64,9 @@ type RWMutex struct {
 	// that reads it before and after its wait tells from the count whether
 	// a writer let it in, and from the kind which.
 	released atomic.Uint64
+	// writeTook is when the latest writer took m, in nanoseconds since
+	// lockEpoch, 0 before any has (WriterTook).
+	writeTook atomic.Int64
 }
 
 // LockHolder names the kind of work holding an RWMutex for writing, as
@@ -137,6 +140,7 @@ func (m *RWMutex) Lock() {
 		m.RWMutex.Lock()
 		m.waiting.Add(-1)
 	}
+	m.tookWrite()
 	m.mark(HolderUnknown)
 }
 
@@ -145,8 +149,34 @@ func (m *RWMutex) TryLock() bool {
 	if !m.RWMutex.TryLock() {
 		return false
 	}
+	m.tookWrite()
 	m.mark(HolderUnknown)
 	return true
+}
+
+// lockEpoch is what writers' takes are timed from (writeTook): a time with
+// a monotonic reading, so that a take's time stays monotonic too, and a step
+// of the wall clock between a writer's take and a reader's doesn't count.
+var lockEpoch = time.Now()
+
+// tookWrite notes, by the writer that has just taken m, when it took it
+// (WriterTook).
+func (m *RWMutex) tookWrite() {
+	m.writeTook.Store(max(1, int64(time.Since(lockEpoch))))
+}
+
+// WriterTook is when the latest writer took m, the zero time before any
+// has. A reader that waited for m and now holds it was let in by that
+// writer's release: a writer waiting for m keeps new readers out, the
+// readers it kept out go in as it releases m, and the next writer waits for
+// them. So a reader that holds m learns from it how long the writer that let
+// it in held m, apart from its wait for the readers ahead of that writer.
+func (m *RWMutex) WriterTook() time.Time {
+	ns := m.writeTook.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return lockEpoch.Add(time.Duration(ns))
 }
 
 // Unlock unlocks m for writing. While someone waits for m, it records for

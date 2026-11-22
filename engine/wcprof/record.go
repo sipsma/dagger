@@ -405,6 +405,7 @@ func WriteLock(ctx context.Context, mu RWLocker, ident string) {
 	if !m.RWMutex.TryLock() {
 		m.waitFor(ctx, ident, false)
 	}
+	m.tookWrite()
 	m.markOp(ctx)
 }
 
@@ -429,6 +430,7 @@ func WriteLockAs(ctx context.Context, m *RWMutex, ident string, kind LockHolder)
 	if !m.RWMutex.TryLock() {
 		lw = m.waitFor(ctx, ident, false)
 	}
+	m.tookWrite()
 	m.kind = kind
 	m.markOp(ctx)
 	return lw

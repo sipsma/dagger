@@ -193,19 +193,42 @@ func (c *Cache) AvailableParts(queries []PartQuery, nowUnix int64) []PartAnswer 
 }
 
 // batchHold is a batch read's hold of egraphMu for reading (holdBatch):
-// when its latest take got the lock, and how long that take waited for it.
+// when its latest take got the lock, and how long that take waited for the
+// writer that let it in.
 type batchHold struct {
 	taken  time.Time
 	waited time.Duration
 }
 
 // holdBatch takes egraphMu for reading for a batch read, and times the take
-// (batchHold). The read lets it go at its end.
+// (batchHold): from when it asked, or from when the writer whose release let
+// it in took the lock, if later. A take that waited also waited for the
+// readers ahead of that writer, whose pieces the writer waited for; counted,
+// they would make the read's piece as long as theirs and a writer's hold,
+// and the next writer wait for that, each turn's piece longer than the last.
+// The read lets the lock go at its end.
 func (c *Cache) holdBatch() batchHold {
 	asked := c.batchNow()
 	c.egraphMu.RLock()
 	taken := c.batchNow()
-	return batchHold{taken: taken, waited: taken.Sub(asked)}
+	from := asked
+	if took := c.batchWriterTookAt(); took.After(from) {
+		from = took
+	}
+	waited := taken.Sub(from)
+	if waited < 0 {
+		waited = 0
+	}
+	return batchHold{taken: taken, waited: waited}
+}
+
+// batchWriterTookAt is when the latest writer took egraphMu
+// (wcprof.RWMutex.WriterTook), by the clock batch reads are timed by.
+func (c *Cache) batchWriterTookAt() time.Time {
+	if c.batchWriterTook != nil {
+		return c.batchWriterTook()
+	}
+	return c.egraphMu.WriterTook()
 }
 
 // batchNow is the time on the clock a batch read's holds are timed by.
@@ -219,15 +242,16 @@ func (c *Cache) batchNow() time.Time {
 // giveWayLocked lets egraphMu, held for reading by a batch read (h), go and
 // takes it again, between two of the batch's answers, when another
 // acquisition waits for it and the hold has lasted at least as long as its
-// latest take waited: as a step's run of merged replies gives way between
-// two replies, so that readers and writers share the lock by one rule. A
+// latest take waited for the writer that let it in (holdBatch): as a step's
+// run of merged replies gives way between two replies, so that readers and
+// writers share the lock by one rule. A
 // read that gave way after every answer, while writers came steadily, got
 // one answer for each writer's whole hold: on the sixteenth whole run's
 // fill passes waited 965 s in about 340 s traced to take the lock back, in
 // the longest pass a median 16 ms behind each answer of 0.08 ms. Holding as
-// long as it waited, a read that is always waited on holds the lock at
-// least as much as it waits for it, and a writer that comes during it waits
-// for at most the read's latest wait and the answer in progress. With
+// long as the writer that let it in held, a read that is always waited on
+// holds the lock about as much as writers do, and a writer that comes during
+// it waits for at most that writer's hold and the answer in progress. With
 // nobody waiting, the batch keeps its one hold. The cache can change between
 // two answers, so a batch carries no pointer across one.
 func (c *Cache) giveWayLocked(h *batchHold) {
