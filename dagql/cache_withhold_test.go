@@ -219,3 +219,81 @@ func withholdTestCallOverAWithheldInput(t *testing.T, held func(*receiverCallTes
 	require.Empty(t, built.CallInputs)
 	require.Equal(t, 1, built.UnsendableCalls)
 }
+
+// What StoredSizes, StoredClosure and StoredLowerHalf count of a bundle
+// without building it is what StoredBundle carries: nothing of a root it
+// withholds, and no input of a call it doesn't send. A set file prices its
+// roots with StoredSizes and cuts one priced over its part bound into parts
+// of the records below it first (StoredClosure); a root its own part then
+// withholds would leave those records with nothing the file retains over
+// them, which an engine that restores the file drops.
+func TestStoredSizesAndListingsCountNothingABundleWithholds(t *testing.T) {
+	t.Parallel()
+	t.Run("a withheld root", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud, r, p, key, replacements := withholdTestCloud(t, false)
+		withholdTestRan(t, ctx, cloud, p, key, replacements, false)
+		now := time.Now().Unix()
+		built, err := cloud.StoredBundle(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{r}, built.Withheld)
+
+		sizes, err := cloud.StoredSizes(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Equal(t, StoredSize{}, sizes[0], "a bundle of the root carries nothing")
+		measured, err := cloud.MeasuredStoredSizes(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Equal(t, StoredSize{}, measured[0])
+		closure, err := cloud.StoredClosure(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Empty(t, closure.Entries)
+		lower, carried, err := cloud.StoredLowerHalf(ctx, r, now, nil)
+		require.NoError(t, err)
+		require.Empty(t, lower)
+		require.Zero(t, carried)
+
+		stored, _, err := cloud.SetStoredPart(ctx, p, testLiveOffer(), 0)
+		require.NoError(t, err)
+		require.True(t, stored)
+		built, err = cloud.StoredBundle(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Empty(t, built.Withheld, "once P's run is stored whole, the root goes")
+		sizes, err = cloud.StoredSizes(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Equal(t, len(built.Bundle.Values), sizes[0].Records)
+		closure, err = cloud.StoredClosure(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Len(t, closure.Entries, len(built.Bundle.Values))
+	})
+	t.Run("a call over a withheld input", func(t *testing.T) {
+		t.Parallel()
+		test := newReceiverCallTest(t)
+		run, ok := test.cloud.EntryRun(test.receiverNumber)
+		require.True(t, ok)
+		recipe, ok := test.cloud.EntryRecipe(test.receiverNumber)
+		require.True(t, ok)
+		_, err := test.cloud.AttachRemoteHolding(test.ctx, HolderKey{Cache: run.Run.Cache, Number: run.Run.Number}, RemoteHolding{
+			Recipe:       recipe,
+			Parts:        []PersistedPartAddress{testLiveOffer().Address},
+			Replacements: run.Run.Replacements,
+			Executed:     true,
+		})
+		require.NoError(t, err)
+		now := time.Now().Unix()
+		built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, now, nil)
+		require.NoError(t, err)
+		require.Empty(t, built.Withheld)
+		require.Empty(t, built.CallInputs, "the call over the withheld input isn't sent")
+
+		sizes, err := test.cloud.StoredSizes(test.ctx, []uint64{test.number}, now, nil)
+		require.NoError(t, err)
+		require.Equal(t, len(built.Bundle.Values), sizes[0].Records, "the input isn't priced")
+		closure, err := test.cloud.StoredClosure(test.ctx, []uint64{test.number}, now, nil)
+		require.NoError(t, err)
+		require.Empty(t, closure.CallInputs)
+		require.Len(t, closure.Entries, len(built.Bundle.Values), "the input isn't listed")
+		_, carried, err := test.cloud.StoredLowerHalf(test.ctx, test.number, now, nil)
+		require.NoError(t, err)
+		require.Equal(t, len(built.Bundle.Values), carried)
+	})
+}
