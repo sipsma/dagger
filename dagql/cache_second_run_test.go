@@ -625,3 +625,52 @@ func TestASecondRunWhoseEngineInstalledOtherContentIsWithheldOver(t *testing.T) 
 	require.NoError(t, err)
 	require.Empty(t, built.Withheld, "and answered once it does")
 }
+
+// The same, with the engine's report of the installed content reaching the
+// Cloud before its pending export does, as telemetry rows can apply while an
+// export is on its way: the merge that keeps the run apart recovers what the
+// engine's holding already reported, and the result over it is withheld.
+func TestASecondRunWhoseEngineInstalledOtherContentBeforeItsExportIsWithheldOver(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	aRun := runTestRan(t, s.cloud, s.first).Run
+	withholdTestRan(t, s.cctx, s.cloud, s.first, HolderKey{Cache: aRun.Cache, Number: aRun.Number}, aRun.Replacements, false)
+	stored, _, err := s.cloud.SetStoredPart(s.cctx, s.first, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+
+	// cache-b's pending export, captured before anything else.
+	pending := exportTestBundle(t, s.bctx, s.b, s.bRoot)
+
+	// cache-b's lookup of the step is answered with the first run, and it
+	// installs the first run's offered content, while its holding, which
+	// its call row put there, still sits on the first run's entry.
+	sent, err := s.cloud.StoredBundle(s.cctx, []uint64{s.first}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	breply, err := s.b.MergeValues(s.bctx, cloudCacheID, sent.Bundle)
+	require.NoError(t, err)
+	_, err = s.cloud.ApplyMergedReply(s.cctx, "cache-b", sent.Bundle, breply)
+	require.NoError(t, err)
+	bStep := s.bStep.cacheSharedResult()
+	key := HolderKey{Cache: "cache-b", Number: uint64(bStep.id)}
+	held, ok := s.cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.Equal(t, s.first, held)
+	runTestEvaluated(t, s.cctx, s.cloud, key, bStep.replacements, false)
+	require.Equal(t, aRun, runTestRan(t, s.cloud, s.first).Run, "the first run's entry is still the first run's")
+
+	reply, err := s.cloud.MergeValues(s.cctx, "cache-b", pending)
+	require.NoError(t, err)
+	second, root := secondRunTestNumber(pending, reply, s.bStep), secondRunTestNumber(pending, reply, s.bRoot)
+	require.NotEqual(t, s.first, second)
+	require.True(t, runTestRan(t, s.cloud, second).Ran, "the run kept apart has the content its engine reported")
+	built, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Contains(t, built.Withheld, root)
+	stored, _, err = s.cloud.SetStoredPart(s.cctx, second, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	built, err = s.cloud.StoredBundle(s.cctx, []uint64{root}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Empty(t, built.Withheld)
+}
