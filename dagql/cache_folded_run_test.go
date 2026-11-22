@@ -14,10 +14,9 @@ import (
 
 // Two engines each run a step that can give different bytes. The second
 // builds a result only it makes, T, over its own run of the step. The Cloud
-// folds the second's run of the step into the first's entry, since their
-// recipe is the same, so T's record names that entry. A third engine asking
-// for T must not be answered over the first engine's run: T was built over
-// the second's. That holds across a save of the Cloud's records, whole or
+// keeps the second's run of the step as an entry of its own, which T's
+// record names. A third engine asking for T must not be answered over the
+// first engine's run: T was built over the second's. That holds across a save of the Cloud's records, whole or
 // compressed, and a restart.
 func TestAResultOverAFoldedRunIsNotAnsweredOverAnotherRun(t *testing.T) {
 	t.Parallel()
@@ -54,7 +53,7 @@ func foldedRunTest(t *testing.T, saved string) {
 	replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
 	require.NoError(t, err)
 	tNumber := cloudNumberOf(t, exportedB, replyB, top)
-	require.Equal(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "the Cloud folds b's run of S into a's entry")
+	require.NotEqual(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "the Cloud keeps b's run of S as an entry of its own")
 
 	// a's run of S ran and is stored whole.
 	cloud.egraphMu.RLock()
@@ -214,9 +213,9 @@ func foldedRunTestHolding(t *testing.T, ctx context.Context, cloud *Cache, numbe
 
 // A step's record goes to the Cloud before the step runs, as the records
 // stream sends a lazy chain: engine b's step S, pending, under a result T
-// only b makes. The Cloud folds b's S into a's entry, whose run is stored
-// whole. Whether T stands over another run is known only once b's S is
-// evaluated: if b's lookup is answered with a's run, T is built over a's
+// only b makes. The Cloud keeps b's S as an entry of its own beside a's,
+// whose run is stored whole. Whether T stands over a run that ran is known
+// only once b's S is evaluated: if b's lookup is answered with a's run, T is built over a's
 // content and is answered to a third engine; if b runs S itself, T is built
 // over b's run and isn't, though T's record was installed before that was
 // known and nothing installs it again.
@@ -257,7 +256,7 @@ func TestAFoldIsDecidedWhenTheSendersRunIsKnown(t *testing.T) {
 			exportedB := exportTestBundle(t, bctx, b, top)
 			replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
 			require.NoError(t, err)
-			require.Equal(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "the Cloud folds b's S into a's entry")
+			require.NotEqual(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "the Cloud keeps b's S as an entry of its own")
 			tNumber := cloudNumberOf(t, exportedB, replyB, top)
 
 			// Then b evaluates S, served or itself, and T over it; T's run
@@ -280,9 +279,9 @@ func TestAFoldIsDecidedWhenTheSendersRunIsKnown(t *testing.T) {
 	}
 }
 
-// A step that follows from its inputs carries a folded run up: engine b's M,
-// a function of b's own run of S, is kept onto a's M as S is kept onto a's
-// S, and only S is a step that can differ. A result b builds over its M
+// A step that follows from its inputs carries another run up: engine b's M,
+// a function of b's own run of S, is an entry of its own as b's S is, and
+// only S is a step that can differ. A result b builds over its M
 // stands over b's run of S, and isn't answered over a's. Where b was served
 // a's S, its M and the result over it are over a's content, and the result
 // is answered.
@@ -333,8 +332,8 @@ func foldedThroughTest(t *testing.T, ranOwn, withheld bool) {
 	exportedB := exportTestBundle(t, bctx, b, top)
 	replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
 	require.NoError(t, err)
-	require.Equal(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "b's S is kept onto a's")
-	require.Equal(t, mNumber, cloudNumberOf(t, exportedB, replyB, mB), "and b's M onto a's")
+	require.NotEqual(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "b's S is an entry of its own")
+	require.NotEqual(t, mNumber, cloudNumberOf(t, exportedB, replyB, mB), "and so is b's M, over it")
 	tNumber := cloudNumberOf(t, exportedB, replyB, top)
 	foldedRunTestHolding(t, ctx, cloud, sNumber, HolderKey{Cache: fromB, Number: uint64(sB.cacheSharedResult().id)}, ranOwn)
 
@@ -408,10 +407,10 @@ func TestAFoldOntoAnEntryTheSameMergeCreatesIsJudged(t *testing.T) {
 	require.Contains(t, built.Withheld, tNumber, "T is built over S₁, not S₂")
 }
 
-// Engine b's run S₁ of a step is folded under a's record, and T, which b
-// built over S₁, is withheld. Once a's record has expired, a later run of
-// b's, S₂, replaces it in place. S₁ is still folded under the entry, now
-// S₂'s, so T, built over S₁, is still withheld.
+// Engine b's run S₁ of a step is an entry of its own beside a's record, and
+// T, which b built over S₁, is withheld while S₁ isn't stored whole. Once
+// a's record has expired, a later run of b's, S₂, replaces it in place. T,
+// built over S₁, is still withheld.
 func TestAReplacementByAnotherRunOfTheSameEngineKeepsItsFold(t *testing.T) {
 	t.Parallel()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
@@ -434,7 +433,7 @@ func TestAReplacementByAnotherRunOfTheSameEngineKeepsItsFold(t *testing.T) {
 	exportedB := exportTestBundle(t, bctx, b, top)
 	replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
 	require.NoError(t, err)
-	require.Equal(t, sNumber, cloudNumberOf(t, exportedB, replyB, s1))
+	require.NotEqual(t, sNumber, cloudNumberOf(t, exportedB, replyB, s1), "b's S₁ is an entry of its own")
 	tNumber := cloudNumberOf(t, exportedB, replyB, top)
 	foldedRunTestHolding(t, ctx, cloud, sNumber, HolderKey{Cache: fromB, Number: uint64(s1.cacheSharedResult().id)}, true)
 
