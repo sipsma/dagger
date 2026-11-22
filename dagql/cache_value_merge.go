@@ -69,14 +69,25 @@ import (
 //
 // MergeValues is PrepareValueMerge then CommitValueMerge. A caller that holds
 // a lock of its own across a merge can call them apart, and prepare outside
-// that lock.
+// that lock. A caller that uploads what the bundle carries calls them apart
+// too: MergeValues takes no claims after its commit, so it ends the uploads
+// the commit marked (MergeReply.Uploading) before it returns.
 func (c *Cache) MergeValues(ctx context.Context, from CacheID, input ValueBundle) (MergeReply, error) {
 	ctx = withCacheWork(ctx, workMerge)
 	p, err := c.PrepareValueMerge(ctx, from, input)
 	if err != nil {
 		return MergeReply{}, err
 	}
-	return c.CommitValueMerge(ctx, p)
+	reply, err := c.CommitValueMerge(ctx, p)
+	if len(reply.Uploading) > 0 {
+		ended, endErr := c.EndPartUploads(reply.Uploading)
+		reply.Uploading = nil
+		reply.Change.Entries = append(reply.Change.Entries, ended.Entries...)
+		slices.Sort(reply.Change.Entries)
+		reply.Change.Entries = slices.Compact(reply.Change.Entries)
+		err = errors.Join(err, endErr)
+	}
+	return reply, err
 }
 
 // MergeServiceValues merges a bundle the remote cache service sent an

@@ -614,6 +614,19 @@ func mergeExport(t *testing.T, ctx context.Context, cloud *Cache, from CacheID, 
 	return reply, err
 }
 
+// mergeHeld merges an engine's export into cloud as a remote cache service's
+// commit does (PrepareValueMerge, CommitValueMerge), leaving the uploads the
+// commit marked (MergeReply.Uploading) for the caller to end: the export's
+// claims would take them over.
+func mergeHeld(t *testing.T, ctx context.Context, cloud *Cache, from CacheID, bundle ValueBundle) (MergeReply, error) {
+	t.Helper()
+	p, err := cloud.PrepareValueMerge(ctx, from, bundle)
+	if err != nil {
+		return MergeReply{}, err
+	}
+	return cloud.CommitValueMerge(ctx, p)
+}
+
 // withContent puts, on bundle's rows of results, an output of their snapshot
 // part: the export carries the run's content of them.
 func withContent(t *testing.T, bundle ValueBundle, results ...AnyResult) ValueBundle {
@@ -1278,7 +1291,7 @@ func TestTwoRunsWithContentOnItsWayDontReplaceEachOther(t *testing.T) {
 		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
 		p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
 		transferTestDependency(e, ectx, r, p)
-		reply, err := cloud.MergeValues(ctx, from, withContent(t, exportTestBundle(t, ectx, e, r), p))
+		reply, err := mergeHeld(t, ctx, cloud, from, withContent(t, exportTestBundle(t, ectx, e, r), p))
 		require.NoError(t, err)
 		for _, v := range reply.Values {
 			if len(v.Deps) == 0 {
@@ -1312,7 +1325,7 @@ func TestAMergeMarksTheUploadsItsExportCarries(t *testing.T) {
 		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
 		p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
 		transferTestDependency(e, ectx, r, p)
-		reply, err := cloud.MergeValues(ctx, from, withContent(t, exportTestBundle(t, ectx, e, r), p))
+		reply, err := mergeHeld(t, ctx, cloud, from, withContent(t, exportTestBundle(t, ectx, e, r), p))
 		require.NoError(t, err)
 		for _, v := range reply.Values {
 			if len(v.Deps) == 0 {
@@ -1660,4 +1673,21 @@ func TestAnImportedRecordItsSenderRanReplacesARunWhoseContentWontCome(t *testing
 	}
 	require.Zero(t, export("cache-b", false).Rows.RunsReplaced, "a copy B only took replaces nothing")
 	require.Equal(t, 1, export("cache-c", true).Rows.RunsReplaced, "C's own run of the copy it took replaces A's")
+}
+
+// MergeValues takes no claims after its commit, so it ends the uploads its
+// commit marked: nothing it merges is left counted as uploading.
+func TestMergeValuesLeavesNoUploadMarked(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "a root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "a dep"})
+	transferTestDependency(e, ectx, r, p)
+	reply, err := cloud.MergeValues(ctx, "cache-a", withContent(t, exportTestBundle(t, ectx, e, r), p))
+	require.NoError(t, err)
+	require.Empty(t, reply.Uploading)
+	for _, v := range reply.Values {
+		require.False(t, cloud.PartUploading(v.Number, PersistedPartAddress{Part: "snapshot"}), "entry %d", v.Number)
+	}
 }
