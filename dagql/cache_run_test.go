@@ -25,7 +25,7 @@ func TestSetStoredPartTakesOnlyTheEntrysRun(t *testing.T) {
 	t.Parallel()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
 	bundle, _ := mergeTestSource(t, "root", "value")
-	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	reply, err := mergeExport(t, ctx, cloud, "cache-a", bundle)
 	require.NoError(t, err)
 	number := reply.Imported()[0].ResultID
 	run, ok := cloud.EntryRun(number)
@@ -38,7 +38,7 @@ func TestSetStoredPartTakesOnlyTheEntrysRun(t *testing.T) {
 	// Engine B ran the recipe itself and exports its own run: its record
 	// lands on A's entry, which keeps A's record.
 	second, _ := mergeTestSource(t, "root", "another value")
-	breply, err := cloud.MergeValues(ctx, "cache-b", second)
+	breply, err := mergeExport(t, ctx, cloud, "cache-b", second)
 	require.NoError(t, err)
 	require.Equal(t, ownRun("cache-b", second.Values[0]), breply.Values[0].Run, "B's record is B's run")
 	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: number, Run: breply.Values[0].Run, Part: testLiveOffer()}})
@@ -60,7 +60,7 @@ func TestTheCloudNamesAnImportedRecordsRunByItsHolding(t *testing.T) {
 	t.Parallel()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
 	bundle, _ := mergeTestSource(t, "root", "value")
-	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	reply, err := mergeExport(t, ctx, cloud, "cache-a", bundle)
 	require.NoError(t, err)
 	number := reply.Imported()[0].ResultID
 	sent, err := cloud.StoredBundle(ctx, []uint64{number}, time.Now().Unix(), nil)
@@ -80,7 +80,7 @@ func TestTheCloudNamesAnImportedRecordsRunByItsHolding(t *testing.T) {
 
 	// Without a holding of B's, the Cloud can't tell which run B took: it
 	// names B's entry.
-	unheld, err := cloud.MergeValues(ctx, "cache-b", exported)
+	unheld, err := mergeExport(t, ctx, cloud, "cache-b", exported)
 	require.NoError(t, err)
 	require.Equal(t, ownRun("cache-b", exported.Values[0]), unheld.Values[0].Run)
 
@@ -90,7 +90,7 @@ func TestTheCloudNamesAnImportedRecordsRunByItsHolding(t *testing.T) {
 	_, err = cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-c", Number: bNumber}, RemoteHolding{Recipe: recipe})
 	require.NoError(t, err)
 	again := exportTestBundle(t, bctx, b, imported)
-	held, err := cloud.MergeValues(ctx, "cache-c", again)
+	held, err := mergeExport(t, ctx, cloud, "cache-c", again)
 	require.NoError(t, err)
 	require.Equal(t, ownRun("cache-a", bundle.Values[0]), held.Values[0].Run, "the run of the entry it was sent")
 	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: number, Run: held.Values[0].Run, Part: testLiveOffer()}})
@@ -114,7 +114,7 @@ func TestAPrunedEntryTakesTheRunOfItsRefill(t *testing.T) {
 	dep := persistedListTestResult(t, actx, a, asrv, "bundle-dep", &transferTestValue{Text: "dep"})
 	transferTestDependency(a, actx, root, dep)
 	bundle := exportTestBundle(t, actx, a, root)
-	reply, err := cloud.MergeValues(ctx, "cache-c", bundle)
+	reply, err := mergeExport(t, ctx, cloud, "cache-c", bundle)
 	require.NoError(t, err)
 	require.Equal(t, r, reply.Imported()[0].ResultID, "the same entry stores again")
 	run, ok := cloud.EntryRun(r)
@@ -207,7 +207,7 @@ func TestCloudCountsRecordsOverAnotherRunOfAnInput(t *testing.T) {
 				transferTestDependency(s, sctx, r, p)
 				return exportTestBundle(t, sctx, s, r)
 			}
-			first, err := cloud.MergeValues(ctx, "cache-a", source("cache-a", tc.a, ""))
+			first, err := mergeExport(t, ctx, cloud, "cache-a", source("cache-a", tc.a, ""))
 			require.NoError(t, err)
 			// A's input has its content, so B's run of it doesn't replace
 			// it (replaceRunsLocked).
@@ -215,12 +215,25 @@ func TestCloudCountsRecordsOverAnotherRunOfAnInput(t *testing.T) {
 			stored, _, err := cloud.SetStoredPart(ctx, p, storedPartRunOf(t, cloud, p), testLiveOffer(), 0)
 			require.NoError(t, err)
 			require.True(t, stored)
-			reply, err := cloud.MergeValues(ctx, "cache-b", source("cache-b", tc.b, "over-r"))
+			reply, err := mergeExport(t, ctx, cloud, "cache-b", source("cache-b", tc.b, "over-r"))
 			require.NoError(t, err)
 			got := MergeRowCounts{OverOtherRunEqual: reply.Rows.OverOtherRunEqual, OverOtherRunDifferent: reply.Rows.OverOtherRunDifferent, OverOtherRunUnknown: reply.Rows.OverOtherRunUnknown}
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// mergeExport merges an engine's export into cloud as a remote cache service
+// does: its commit marks the uploads the export carries
+// (MergeReply.Uploading), and the service ends them once it has taken its
+// own claims, which a test that stores no part takes none of.
+func mergeExport(t *testing.T, ctx context.Context, cloud *Cache, from CacheID, bundle ValueBundle) (MergeReply, error) {
+	t.Helper()
+	reply, err := cloud.MergeValues(ctx, from, bundle)
+	if _, endErr := cloud.EndPartUploads(reply.Uploading); endErr != nil {
+		return reply, endErr
+	}
+	return reply, err
 }
 
 // withContent puts, on bundle's rows of results, an output of their snapshot
@@ -262,7 +275,7 @@ func replaceTestRun(t *testing.T, ctx context.Context, cloud *Cache, from CacheI
 	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
 	transferTestDependency(e, ectx, r, p)
 	bundle := withContent(t, exportTestBundle(t, ectx, e, r), r, p)
-	reply, err := cloud.MergeValues(ctx, from, bundle)
+	reply, err := mergeExport(t, ctx, cloud, from, bundle)
 	require.NoError(t, err)
 	var rNumber, pNumber uint64
 	for _, value := range reply.Values {
@@ -542,7 +555,7 @@ func TestARecipeRecordTakesTheRunOfTheFirstPartStored(t *testing.T) {
 		t.Parallel()
 		ctx, cloud := storedPartTestCache(t, WithBlobStore())
 		bundle, _ := mergeTestSource(t, "root", "value")
-		reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+		reply, err := mergeExport(t, ctx, cloud, "cache-a", bundle)
 		require.NoError(t, err)
 		n := reply.Imported()[0].ResultID
 		replaceTestRan(t, ctx, cloud, n)
@@ -563,7 +576,7 @@ func replaceTestProving(t *testing.T, compressed bool) (context.Context, *Cache,
 	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "dep", Parts: []transferTestPart{{Part: "snapshot", State: "completed", Kind: "directory"}}})
 	transferTestDependency(e, ectx, r, p)
 	bundle := exportTestBundle(t, ectx, e, r)
-	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	reply, err := mergeExport(t, ctx, cloud, "cache-a", bundle)
 	require.NoError(t, err)
 	if compressed {
 		storedTestCompress(cloud)
@@ -606,7 +619,7 @@ func TestAHeldRowOverAReplacedRunStopsTheReplacement(t *testing.T) {
 	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "b dep"})
 	transferTestDependency(e, ectx, r, p)
 	held := engineHeldTestBundle(t, e, exportTestBundle(t, ectx, e, r, p), r)
-	reply, err := cloud.MergeValues(ctx, "cache-b", held)
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", held)
 	require.NoError(t, err)
 	require.Zero(t, reply.Rows.RunsReplaced)
 	recipe, ok := cloud.EntryRecipe(r1)
@@ -626,7 +639,7 @@ func TestARecipeKeepsItsRunUnderItsEnginesRecordThroughAnothers(t *testing.T) {
 	transferTestDependency(e, ectx, r, q)
 	transferTestDependency(e, ectx, q, p)
 	bundle := exportTestBundle(t, ectx, e, r)
-	reply, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	reply, err := mergeExport(t, ctx, cloud, "cache-a", bundle)
 	require.NoError(t, err)
 	numbers := map[uint64]uint64{}
 	for _, value := range reply.Values {
@@ -678,7 +691,7 @@ func heldTestRun(t *testing.T, ctx context.Context, cloud *Cache) (*Cache, AnyRe
 	p := persistedListTestResult(t, bctx, b, bsrv, "replace-dep", &transferTestValue{Text: "b dep"})
 	transferTestDependency(b, bctx, r, p)
 	full := withContent(t, exportTestBundle(t, bctx, b, r), r, p)
-	reply, err := cloud.MergeValues(ctx, "cache-b", full)
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", full)
 	require.NoError(t, err)
 	return b, p, r, full, reply
 }
@@ -722,21 +735,23 @@ func TestAHeldRowOfAnEnginesOwnRunOverARunWithoutContentIsStale(t *testing.T) {
 	replaceTestRan(t, ctx, cloud, pA)
 	heldTestComputed(t, ctx, cloud, b, p)
 
+	// B's export carries P's content, which a commit would mark.
 	held := engineHeldTestBundle(t, b, full, p)
 	reply, err := cloud.MergeValues(ctx, "cache-b", held)
 	require.NoError(t, err)
 	require.False(t, reply.Committed)
 	require.Len(t, reply.Stale, 1, "B's held row on A's record is stale")
+	require.Empty(t, reply.Uploading, "a stale merge commits nothing, and marks nothing")
 
 	// With P in full and R held over it, R's held row lands on A's record
 	// over P, which the replacement would retire: stale too.
 	both := withContent(t, exportTestBundle(t, bctxOf(t, b), b, r, p), r, p)
-	reply, err = cloud.MergeValues(ctx, "cache-b", engineHeldTestBundle(t, b, both, r))
+	reply, err = mergeExport(t, ctx, cloud, "cache-b", engineHeldTestBundle(t, b, both, r))
 	require.NoError(t, err)
 	require.False(t, reply.Committed)
 	require.Len(t, reply.Stale, 1, "B's held row on A's record over it is stale")
 
-	again, err := cloud.MergeValues(ctx, "cache-b", full)
+	again, err := mergeExport(t, ctx, cloud, "cache-b", full)
 	require.NoError(t, err)
 	require.Equal(t, 1, again.Rows.RunsReplaced, "B's run replaces A's")
 	var pB uint64
@@ -762,7 +777,7 @@ func TestAHeldRowOfACopyTakenFromTheCloudIsntStale(t *testing.T) {
 	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
 	b, p, _, full, _ := heldTestRun(t, ctx, cloud)
 	replaceTestRan(t, ctx, cloud, pA)
-	reply, err := cloud.MergeValues(ctx, "cache-b", engineHeldTestBundle(t, b, full, p))
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", engineHeldTestBundle(t, b, full, p))
 	require.NoError(t, err)
 	require.Empty(t, reply.Stale)
 	require.True(t, reply.Committed)
@@ -780,13 +795,13 @@ func TestAHeldRowIsntStaleWhileTheRunsUploadHoldsItsClaim(t *testing.T) {
 	heldTestComputed(t, ctx, cloud, b, p)
 	require.NoError(t, cloud.MarkPartUploading(pA, testLiveOffer().Address))
 	held := engineHeldTestBundle(t, b, full, p)
-	reply, err := cloud.MergeValues(ctx, "cache-b", held)
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", held)
 	require.NoError(t, err)
 	require.Empty(t, reply.Stale, "A's content is on its way")
 
 	_, err = cloud.EndPartUploads([]PartUpload{{Number: pA, Address: testLiveOffer().Address}})
 	require.NoError(t, err)
-	reply, err = cloud.MergeValues(ctx, "cache-b", held)
+	reply, err = mergeExport(t, ctx, cloud, "cache-b", held)
 	require.NoError(t, err)
 	require.Len(t, reply.Stale, 1, "A's upload ended with nothing stored")
 }
@@ -803,7 +818,7 @@ func TestAHeldRowOverARunWithContentIsntStale(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, stored)
 	heldTestComputed(t, ctx, cloud, b, p)
-	reply, err := cloud.MergeValues(ctx, "cache-b", engineHeldTestBundle(t, b, full, p))
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", engineHeldTestBundle(t, b, full, p))
 	require.NoError(t, err)
 	require.Empty(t, reply.Stale)
 	require.True(t, reply.Committed)
@@ -835,7 +850,7 @@ func TestTwoRunsWithoutContentDontReplaceEachOther(t *testing.T) {
 				}
 			}
 		}
-		reply, err := cloud.MergeValues(ctx, from, bundle)
+		reply, err := mergeExport(t, ctx, cloud, from, bundle)
 		require.NoError(t, err)
 		return reply
 	}
@@ -856,6 +871,90 @@ func TestTwoRunsWithoutContentDontReplaceEachOther(t *testing.T) {
 	require.Empty(t, pendingOnly.Stale)
 	third := export("cache-c", true)
 	require.Equal(t, 1, third.Rows.RunsReplaced, "C brings its content: its run replaces A's, once")
+}
+
+// Two engines that both ran a step, each exporting its whole content
+// before its upload starts, don't replace each other's records in turn:
+// each merge's marks, which its caller holds until its own claims are
+// taken, say the content of the run the Cloud holds is on its way. Over A,
+// B, A and B's exports, a run replaces another's record at most once.
+func TestTwoRunsWithContentOnItsWayDontReplaceEachOther(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	export := func(from CacheID) MergeReply {
+		t.Helper()
+		ectx, e, esrv := transferTestCache(t)
+		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
+		p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
+		transferTestDependency(e, ectx, r, p)
+		reply, err := cloud.MergeValues(ctx, from, withContent(t, exportTestBundle(t, ectx, e, r), p))
+		require.NoError(t, err)
+		for _, v := range reply.Values {
+			if len(v.Deps) == 0 {
+				// The engine's run of the step ran: its holding reports
+				// the part complete, as its telemetry does.
+				replaceTestRan(t, ctx, cloud, v.Number)
+			}
+		}
+		return reply
+	}
+	replaced := 0
+	for i, from := range []CacheID{"cache-a", "cache-b", "cache-a", "cache-b"} {
+		reply := export(from)
+		replaced += reply.Rows.RunsReplaced
+		t.Logf("export %d from %s: %d replaced, %d stale", i, from, reply.Rows.RunsReplaced, len(reply.Stale))
+	}
+	require.LessOrEqual(t, replaced, 1, "two runs whose content is on its way replace each other's records in turn")
+}
+
+// A merge marks in progress, in its commit, the upload of each part its
+// export carries on a record of the sender's own run, and names the marks in
+// its reply: until its caller ends them, the record isn't replaced, and once
+// they end without the content arriving, it is. A record of the sender's run
+// kept on another run's entry is marked nothing.
+func TestAMergeMarksTheUploadsItsExportCarries(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	export := func(from CacheID) MergeReply {
+		t.Helper()
+		ectx, e, esrv := transferTestCache(t)
+		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
+		p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
+		transferTestDependency(e, ectx, r, p)
+		reply, err := cloud.MergeValues(ctx, from, withContent(t, exportTestBundle(t, ectx, e, r), p))
+		require.NoError(t, err)
+		for _, v := range reply.Values {
+			if len(v.Deps) == 0 {
+				replaceTestRan(t, ctx, cloud, v.Number)
+			}
+		}
+		return reply
+	}
+	a := export("cache-a")
+	var pA uint64
+	for _, v := range a.Values {
+		if len(v.Deps) == 0 {
+			pA = v.Number
+		}
+	}
+	require.Equal(t, []PartUpload{{Number: pA, Address: PersistedPartAddress{Part: "snapshot"}}}, a.Uploading, "A's merge marks the part it carries")
+	require.True(t, cloud.PartUploading(pA, PersistedPartAddress{Part: "snapshot"}))
+	require.Contains(t, a.Change.Entries, pA, "and names the entry, whose answers count the mark")
+
+	b := export("cache-b")
+	require.Zero(t, b.Rows.RunsReplaced, "A's content is on its way: B doesn't replace A's record")
+	require.Empty(t, b.Uploading, "B's record kept on A's entry is marked nothing")
+
+	_, err := cloud.EndPartUploads(a.Uploading)
+	require.NoError(t, err)
+	require.False(t, cloud.PartUploading(pA, PersistedPartAddress{Part: "snapshot"}), "A's marks end")
+	c := export("cache-c")
+	require.Equal(t, 1, c.Rows.RunsReplaced, "A's content never came: C's run replaces A's record")
+	var replaced bool
+	for _, v := range c.Values {
+		replaced = replaced || v.Replaced
+	}
+	require.True(t, replaced, "C's reply says which records the replacement installed")
 }
 
 // A holding's executed call describes the value it computed. Once the
@@ -886,7 +985,7 @@ func TestAnExecutedCallDescribesOnlyTheValueItComputed(t *testing.T) {
 			held.Values[i].SenderReplacements = 1
 		}
 	}
-	reply, err := cloud.MergeValues(ctx, "cache-b", held)
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", held)
 	require.NoError(t, err)
 	require.Empty(t, reply.Stale, "B's imported value isn't its own run")
 }
@@ -943,7 +1042,7 @@ func TestARunReplacesOnlyWithItsWholeContent(t *testing.T) {
 								}
 							}
 						}
-						reply, err := cloud.MergeValues(ctx, from, bundle)
+						reply, err := mergeExport(t, ctx, cloud, from, bundle)
 						require.NoError(t, err)
 						return reply
 					}

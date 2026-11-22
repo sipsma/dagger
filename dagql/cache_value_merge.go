@@ -461,6 +461,9 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 		}
 		commit.restore, commit.hold = restore, hold
 		reply, finish := c.commitValueMergeLocked(ctx, commit)
+		if !restore {
+			c.markCarriedUploadsLocked(commit, &reply)
+		}
 		reply.Committed, reply.CommitHold, reply.Warm = true, time.Since(locked), warmed
 		reply.LockWait = locked.Sub(asked)
 		reply.PrepareLockWait, reply.PrepareLockWaits = prep.lockWaits.total(), prep.lockWaits.byHolder()
@@ -542,6 +545,16 @@ type MergeReply struct {
 	Release func(context.Context) error
 	// Rows counts the bundle's records by what the commit did with each.
 	Rows MergeRowCounts
+	// Uploading are, on the Cloud, the uploads the commit marked in progress
+	// (MarkPartUploading), in the same hold: each part whose content the
+	// bundle carries, on each record of the sender's own run the commit left
+	// on an entry of that run. The sender's export uploads them next, and
+	// until its own claims are taken they are what says the content is on
+	// its way, so that no other run replaces the record meanwhile
+	// (storedWithoutContentLocked). The caller ends every one with
+	// EndPartUploads once it has taken its claims, on every path, whether or
+	// not it uploads the part.
+	Uploading []PartUpload
 	// Warm is how long the commit took to capture its targets' complete
 	// parts before it decided (warmMergeTargetParts). Each capture takes
 	// egraphMu for writing, briefly, so it waits for egraphMu's readers.
@@ -633,6 +646,11 @@ type MergedValue struct {
 	// (mergeRunLocked): the run a part its sender uploads for it is of.
 	// Zero on an engine.
 	Run RunName
+	// Replaced reports, on the Cloud, that the commit installed the record
+	// on a new entry because the sender's run replaced another's
+	// (replaceRunsLocked): the parts the sender carries for it are the
+	// step's only content, which the replaced run's retirement cost.
+	Replaced bool
 }
 
 // MergedRoot is one root of the bundle: its target and retention, or expired.
@@ -685,7 +703,7 @@ type valueMergePrep struct {
 	imageRows, computedRows map[uint64]bool
 	// contentRows are, on the Cloud, the parts besides metadata whose
 	// content the bundle carries for each row, by ordinal (contentRowsOf).
-	contentRows map[uint64]map[string]bool
+	contentRows map[uint64]map[string]PersistedPartAddress
 	bundle      ValueBundle
 	// unretained are the bundle's roots the commit gives no retention edge
 	// (PreparedValueMerge.Unretained).
@@ -839,7 +857,7 @@ func (c *Cache) checkValueMerge(from CacheID, input ValueBundle) (*valueMergePre
 	// rows whose content the bundle carries are noted first: a run replaces
 	// another's record only with its content (replaceRunsLocked).
 	var heldParts map[uint64][]TransferredOutput
-	var contentRows map[uint64]map[string]bool
+	var contentRows map[uint64]map[string]PersistedPartAddress
 	if c.blobBacked {
 		heldParts = heldRowOutputs(bundle)
 		contentRows = contentRowsOf(bundle)
@@ -1723,8 +1741,12 @@ type mergeRow struct {
 	// (PreparedValueMerge.ImageEntries).
 	run        RunName
 	imageEntry bool
-	plan       transferIdentityPlan
-	action     mergeAction
+	// replacing marks, on the Cloud, a row the commit installs on a new
+	// entry because a run it carries the whole content of replaces the
+	// record it landed on, or one under it (replaceRunsLocked).
+	replacing bool
+	plan      transferIdentityPlan
+	action    mergeAction
 	// target is the recipe's entry before the merge, if any.
 	target *sharedResult
 	// res is the entry that holds the record's value after the merge: the
@@ -1968,12 +1990,12 @@ func (c *Cache) staleHeldRowsLocked(prep *valueMergePrep, targets mergeTargets, 
 }
 
 // contentRowsOf returns, by ordinal, the parts besides metadata whose content
-// the bundle carries for each row, by part address key: a completed output
+// the bundle carries for each row, their addresses by key: a completed output
 // with the chain of layers it uploads, its prefix resolved
 // (ResolveChainPrefixes), or an empty chain, which is scratch. An output of a
 // pending part names the part and carries nothing.
-func contentRowsOf(bundle ValueBundle) map[uint64]map[string]bool {
-	var rows map[uint64]map[string]bool
+func contentRowsOf(bundle ValueBundle) map[uint64]map[string]PersistedPartAddress {
+	var rows map[uint64]map[string]PersistedPartAddress
 	for _, output := range bundle.Outputs {
 		if output.Address.Part == "metadata" || output.State != "completed" || output.Chain == nil {
 			continue
@@ -1983,12 +2005,12 @@ func contentRowsOf(bundle ValueBundle) map[uint64]map[string]bool {
 			continue
 		}
 		if rows == nil {
-			rows = map[uint64]map[string]bool{}
+			rows = map[uint64]map[string]PersistedPartAddress{}
 		}
 		if rows[uint64(output.Ordinal)] == nil {
-			rows[uint64(output.Ordinal)] = map[string]bool{}
+			rows[uint64(output.Ordinal)] = map[string]PersistedPartAddress{}
 		}
-		rows[uint64(output.Ordinal)][key] = true
+		rows[uint64(output.Ordinal)][key] = output.Address
 	}
 	return rows
 }
@@ -3521,7 +3543,7 @@ func (c *Cache) mergeReplyLocked(commit *valueMergeCommit) MergeReply {
 			// that nothing owns: there is no target to report.
 			continue
 		}
-		value := MergedValue{Ordinal: row.value.Ordinal, Number: uint64(res.id), Replacements: res.replacements, Revision: RowRevision{Replacements: res.replacements, Transfer: res.transferRevision, Dependencies: res.dependencyOwnershipRevision}, ExpiresAtUnix: res.expiresAtUnix, Run: row.run}
+		value := MergedValue{Ordinal: row.value.Ordinal, Number: uint64(res.id), Replacements: res.replacements, Revision: RowRevision{Replacements: res.replacements, Transfer: res.transferRevision, Dependencies: res.dependencyOwnershipRevision}, ExpiresAtUnix: res.expiresAtUnix, Run: row.run, Replaced: row.replacing}
 		value.Stored = row.value.Held == "" && (row.action == mergeCreate || row.action == mergeStore || row.action == mergeReplace || row.action == mergeRetire)
 		for dep := range res.deps {
 			value.Deps = append(value.Deps, uint64(dep))

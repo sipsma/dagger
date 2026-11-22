@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -168,6 +169,7 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 			continue
 		}
 		row.action, row.res = mergeRetire, &sharedResult{id: sharedResultID(commit.prep.firstID + row.ordinal - 1)}
+		row.replacing = true
 		delete(over, cur.id)
 	}
 	commit.overOtherRun.RunsReplaced = len(replaced)
@@ -355,7 +357,7 @@ func (c *Cache) ReplaceableBy(number uint64, run RunName) bool {
 // content of, hold every part of content res's stored record declares or
 // proves (recordParts.contentKeys): the step's whole content, as a run of it
 // writes. Requires egraphMu.
-func (c *Cache) carriesWholeLocked(res *sharedResult, parts map[string]bool) bool {
+func (c *Cache) carriesWholeLocked(res *sharedResult, parts map[string]PersistedPartAddress) bool {
 	if res == nil || len(parts) == 0 {
 		return false
 	}
@@ -364,11 +366,46 @@ func (c *Cache) carriesWholeLocked(res *sharedResult, parts map[string]bool) boo
 		return false
 	}
 	for _, key := range record.contentKeys() {
-		if !parts[key] {
+		if _, ok := parts[key]; !ok {
 			return false
 		}
 	}
 	return true
+}
+
+// markCarriedUploadsLocked marks in progress, in the commit's hold, an upload
+// of each part whose content the bundle carries on each record of the
+// sender's own run the commit left on an entry of that run, and names them,
+// and their entries' classes, in reply (MergeReply.Uploading). An export
+// carries its run's content as completed outputs and claims their uploads
+// only once its merge has committed: without the mark, another run's merge
+// in between would find the record without content and replace it, and the
+// export's own, its record replaced in turn. Requires egraphMu for writing.
+func (c *Cache) markCarriedUploadsLocked(commit *valueMergeCommit, reply *MergeReply) {
+	if !c.blobBacked || len(commit.prep.contentRows) == 0 {
+		return
+	}
+	var numbers []uint64
+	for _, row := range commit.rows {
+		parts := commit.prep.contentRows[row.ordinal]
+		res := row.res
+		if len(parts) == 0 || res == nil || c.resultsByID[res.id] != res || c.runOfLocked(res) != row.run {
+			continue
+		}
+		for _, key := range slices.Sorted(maps.Keys(parts)) {
+			if err := c.MarkPartUploading(uint64(res.id), parts[key]); err != nil {
+				continue
+			}
+			reply.Uploading = append(reply.Uploading, PartUpload{Number: uint64(res.id), Address: parts[key]})
+		}
+		numbers = append(numbers, uint64(res.id))
+	}
+	if len(numbers) == 0 {
+		return
+	}
+	reply.Change.Entries = append(reply.Change.Entries, c.classChangeLocked(numbers).Entries...)
+	slices.Sort(reply.Change.Entries)
+	reply.Change.Entries = slices.Compact(reply.Change.Entries)
 }
 
 // contentKeys returns the keys of the record's parts that have content: every
