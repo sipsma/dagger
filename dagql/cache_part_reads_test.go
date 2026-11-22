@@ -374,3 +374,99 @@ func TestCacheReportsPartsReadAtTheSessionTopAndUnderSessionBoundCalls(t *testin
 		return parts
 	}())
 }
+
+// A nested client's requests, such as a module's while it answers a function
+// call, are made from the session's context, and carry from the call they
+// answer both its recipe and what part reads made under it count as
+// (CurrentReadScope, ContextWithReadScope). So under a reported session-bound
+// call at the session's top, a read at the request's top and an uncached
+// call's read count, and carry no caller, as they would in that call's own
+// resolver, not the session-bound call, whose recipe names the session. Under
+// a reported cached call, an uncached call's read carries that call, and a
+// read at the request's top, which happens only when the call's lookup
+// misses, doesn't count.
+func TestCacheReportsPartsReadUnderANestedClientsRequest(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var reported []PartRead
+	ctx := cacheTestContext(t.Context())
+	c, err := NewCache(ctx, "", nil, nil, WithPartReadReport(func(reads []PartRead) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, reads...)
+	}))
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, c)
+	t.Cleanup(func() { assert.NilError(t, c.CloseDiscardingPersistence()) })
+	session := cacheTestSessionID(t, ctx)
+	srv := cacheTestPartsServer(t)
+
+	atTopUnderSessionBound := newPartsReadTestValue(t, c, ctx, "read-at-a-request's-top-under-a-session-bound-call", nil)
+	uncachedUnderSessionBound := newPartsReadTestValue(t, c, ctx, "read-by-an-uncached-call-under-a-session-bound-call", nil)
+	atTopUnderCached := newPartsReadTestValue(t, c, ctx, "read-at-a-request's-top-under-a-cached-call", nil)
+	uncachedUnderCached := newPartsReadTestValue(t, c, ctx, "read-by-an-uncached-call-under-a-cached-call", nil)
+	call := func(ctx context.Context, field string, sessionBound, uncached bool, fn func(context.Context) error) {
+		t.Helper()
+		frame := &ResultCall{Kind: ResultCallKindField, Type: NewResultCallType((&cacheTestPartsObject{}).Type()), Field: field}
+		if sessionBound {
+			arg, err := resultCallArgFromInput(ctx, PerSessionInput.Name, NewString(session), false)
+			assert.NilError(t, err)
+			frame.ImplicitInputs = []*ResultCallArg{arg}
+		}
+		_, err := c.GetOrInitCall(ctx, session, srv, &CallRequest{ResultCall: frame, DoNotCache: uncached, CacheReported: !uncached}, func(ctx context.Context) (AnyResult, error) {
+			if err := fn(ctx); err != nil {
+				return nil, err
+			}
+			return NewObjectResultForCall(&cacheTestPartsObject{resolveFn: partsTestDirectResolve}, srv, frame)
+		})
+		assert.NilError(t, err)
+	}
+	// request makes a request as a nested client does for the call answered
+	// runs under: from the session's context, carrying that call's recipe
+	// and read scope.
+	request := func(answered context.Context, fn func(context.Context) error) error {
+		return fn(ContextWithReadScope(ContextWithCallerRecipe(ctx, CallerRecipe(answered)), CurrentReadScope(answered)))
+	}
+	call(ctx, "session-bound-at-the-top", true, false, func(answered context.Context) error {
+		return request(answered, func(ctx context.Context) error {
+			if err := c.EvaluateParts(ctx, atTopUnderSessionBound, partsTestPartFS); err != nil {
+				return err
+			}
+			call(ctx, "uncached-under-the-session-bound-call", false, true, func(ctx context.Context) error {
+				return c.EvaluateParts(ctx, uncachedUnderSessionBound, partsTestPartFS)
+			})
+			return nil
+		})
+	})
+	var cached digest.Digest
+	call(ctx, "cached-at-the-top", false, false, func(answered context.Context) error {
+		cached = CallerRecipe(answered)
+		return request(answered, func(ctx context.Context) error {
+			if err := c.EvaluateParts(ctx, atTopUnderCached, partsTestPartFS); err != nil {
+				return err
+			}
+			call(ctx, "uncached-under-the-cached-call", false, true, func(ctx context.Context) error {
+				return c.EvaluateParts(ctx, uncachedUnderCached, partsTestPartFS)
+			})
+			return nil
+		})
+	})
+	assert.Assert(t, cached != "", "a reported cached call is the caller of the calls under it")
+	c.partReads.flush()
+
+	id := func(r ObjectResult[*cacheTestPartsObject]) uint64 { return uint64(r.cacheSharedResult().id) }
+	mu.Lock()
+	defer mu.Unlock()
+	var sessionReads []PartRead
+	for _, read := range reported {
+		if read.Session != "" {
+			read.At = time.Time{}
+			sessionReads = append(sessionReads, read)
+		}
+	}
+	assert.DeepEqual(t, []PartRead{
+		{ResultID: id(atTopUnderSessionBound), Part: partsTestPartFS, Session: session},
+		{ResultID: id(uncachedUnderSessionBound), Part: partsTestPartFS, Session: session},
+		{ResultID: id(uncachedUnderCached), Part: partsTestPartFS, Session: session, Caller: cached},
+	}, sessionReads)
+}
