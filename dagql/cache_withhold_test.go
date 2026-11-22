@@ -304,3 +304,35 @@ func TestStoredListingsAndWithholdingPricesCountNothingABundleWithholds(t *testi
 		require.Equal(t, len(built.Bundle.Values), carried)
 	})
 }
+
+// A saved call's inputs join the bundle as roots of their own, so they too
+// carry one run of a step: a call whose input is another run of a step the
+// bundle already carries isn't sent, though the value it reaches still is.
+func TestStoredBundleSendsNoCallOverAnotherRunTheBundleCarries(t *testing.T) {
+	t.Parallel()
+	test := newReceiverCallTest(t)
+	bctx, b, bsrv := transferTestCache(t)
+	bReceiver, err := b.GetOrInitCall(bctx, "test-session", bsrv, &CallRequest{ResultCall: receiverTestFrame("a"), IsPersistable: true},
+		func(context.Context) (AnyResult, error) {
+			return NewResultForCall(&transferTestValue{Text: "receiver, b's run"}, receiverTestFrame("a"))
+		})
+	require.NoError(t, err)
+	bRoot := secondRunTestStep(t, bctx, b, bsrv, "over-b-receiver", "b-root")
+	transferTestDependency(b, bctx, bRoot, bReceiver)
+	bundle, reply := secondRunTestExport(t, bctx, b, nil, test.cloud, test.ctx, "cache-b", bRoot)
+	second, root := secondRunTestNumber(bundle, reply, bReceiver), secondRunTestNumber(bundle, reply, bRoot)
+	require.NotZero(t, root)
+	require.NotEqual(t, test.receiverNumber, second, "b's receiver is a run of its own")
+	now := time.Now().Unix()
+
+	alone, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, now, nil)
+	require.NoError(t, err)
+	require.Len(t, alone.Bundle.Calls, 1, "alone, the call goes with a's receiver")
+
+	built, err := test.cloud.StoredBundle(test.ctx, []uint64{root, test.number}, now, nil)
+	require.NoError(t, err)
+	require.Empty(t, built.Withheld, "neither value is over the other run")
+	require.Empty(t, built.Bundle.Calls, "the call's input is another run of b's receiver")
+	require.Empty(t, built.CallInputs)
+	require.Equal(t, 1, built.UnsendableCalls)
+}

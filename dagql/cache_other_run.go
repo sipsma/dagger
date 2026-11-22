@@ -1,6 +1,9 @@
 package dagql
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // An engine holds one current run of each recipe, and merge keeps it
 // (mergeKeep): the rows of a bundle above a kept row are attached over the
@@ -38,10 +41,12 @@ func (c *Cache) engineRunLocked(res *sharedResult) RunName {
 	return RunName{Cache: CacheID(c.identity.ID), Number: uint64(res.id), Replacements: res.replacements}
 }
 
-// otherRunRowsLocked returns, on an engine, the rows of commit merge would
-// keep onto the cache's current entry where the row's step can differ, the
-// Cloud named the row's run, and the entry's run is another. Requires
-// egraphMu.
+// otherRunRowsLocked returns, on an engine, sorted, the rows of commit merge
+// would keep onto the cache's current entry, held rows among them, where the
+// row's step can differ, the Cloud named the row's run, and the entry's run
+// is another. A held row names the run the Cloud believes the engine holds,
+// and the engine may have run the step itself before the Cloud learned of
+// it. Requires egraphMu.
 func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 	if c.blobBacked {
 		return nil
@@ -65,5 +70,6 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 			other = append(other, TransferOrdinal(row.ordinal))
 		}
 	}
+	slices.Sort(other)
 	return other
 }

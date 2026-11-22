@@ -199,3 +199,83 @@ func TestAStoredBundleWithholdsAValueOverAnotherRunOfAStepItsRecipientHolds(t *t
 		})
 	}
 }
+
+// heldRowTestCloud has engine a compute R over P, where P's step can
+// differ, and its Cloud merge them. Engine b computes its own run of P,
+// and its call row of it reaches the Cloud before any export of b's, as it
+// usually does: b's holding sits on a's entry of P. It returns b and the
+// Cloud's numbers for R and P.
+func heldRowTestCloud(t *testing.T) (cctx context.Context, cloud *Cache, bctx context.Context, b *Cache, rNumber, pNumber uint64) {
+	t.Helper()
+	actx, a, asrv := transferTestCache(t)
+	r := persistedListTestResult(t, actx, a, asrv, "held-run-root", &transferTestValue{Text: "root over a's run"})
+	p := secondRunTestStep(t, actx, a, asrv, "held-run-dep", "a's run")
+	transferTestDependency(a, actx, r, p)
+	cctx, cloud = storedPartTestCache(t, WithBlobStore())
+	bundle, reply := secondRunTestExport(t, actx, a, nil, cloud, cctx, CacheID(a.Identity().ID), r)
+	rNumber, pNumber = secondRunTestNumber(bundle, reply, r), secondRunTestNumber(bundle, reply, p)
+	require.NotZero(t, rNumber)
+	require.NotZero(t, pNumber)
+
+	bctx, b, bsrv := transferTestCache(t)
+	bp := secondRunTestStep(t, bctx, b, bsrv, "held-run-dep", "b's run")
+	_, err := cloud.AttachRemoteHolding(cctx, HolderKey{Cache: CacheID(b.Identity().ID), Number: uint64(bp.cacheSharedResult().id)}, RemoteHolding{
+		Recipe:   secondRunTestRecipe(t, cloud, pNumber),
+		Parts:    []PersistedPartAddress{testLiveOffer().Address},
+		Executed: true,
+		CallRow:  true,
+	})
+	require.NoError(t, err)
+	held, ok := cloud.HolderEntry(HolderKey{Cache: CacheID(b.Identity().ID), Number: uint64(bp.cacheSharedResult().id)})
+	require.True(t, ok)
+	require.Equal(t, pNumber, held, "b's call row lands on a's entry of the step")
+	return cctx, cloud, bctx, b, rNumber, pNumber
+}
+
+// An engine whose own run of a step the Cloud keeps folded under another
+// run's entry holds another run of it: a bundle for it withholds what is
+// over that entry, which another engine still gets.
+func TestAStoredBundleWithholdsAValueOverAStepTheRecipientRanItself(t *testing.T) {
+	t.Parallel()
+	cctx, cloud, _, b, r, p := heldRowTestCloud(t)
+	now := time.Now().Unix()
+	got, err := cloud.StoredBundle(cctx, []uint64{r}, now, &HeldBy{Cache: CacheID(b.Identity().ID)})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{r}, got.Withheld)
+	require.Equal(t, []uint64{p}, got.WithheldOn)
+	require.Equal(t, []string{"held-run-dep/otherRun"}, got.WithheldOnField)
+	got, err = cloud.StoredBundle(cctx, []uint64{r}, now, &HeldBy{Cache: "cache-c"})
+	require.NoError(t, err)
+	require.Empty(t, got.Withheld, "another engine holds no run of it")
+}
+
+// A bundle sends a step its recipient holds as a held row, which lands on
+// the recipient's own entry of the step. The Cloud names the run it
+// believes that is, so an engine that holds another run refuses the value
+// over it, even when the Cloud doesn't know yet.
+func TestAMergeRefusesAHeldRowOfAnotherRun(t *testing.T) {
+	t.Parallel()
+	cctx, cloud, bctx, b, r, _ := heldRowTestCloud(t)
+	// As though the Cloud didn't know yet that b ran the step itself: only
+	// the engine can tell.
+	cloud.egraphMu.Lock()
+	for _, res := range cloud.resultsByID {
+		res.foldedRuns = nil
+	}
+	cloud.egraphMu.Unlock()
+	sent, err := cloud.StoredBundle(cctx, []uint64{r}, time.Now().Unix(), &HeldBy{Cache: CacheID(b.Identity().ID)})
+	require.NoError(t, err)
+	require.Empty(t, sent.Withheld)
+	var held TransferOrdinal
+	for _, value := range sent.Bundle.Values {
+		if value.Held != "" {
+			held = value.Ordinal
+			require.NotNil(t, value.Run, "the Cloud names the held row's run")
+		}
+	}
+	require.NotZero(t, held, "the step goes as a held row")
+	reply, err := b.MergeValues(bctx, cloudCacheID, sent.Bundle)
+	require.NoError(t, err)
+	require.Equal(t, []TransferOrdinal{held}, reply.OtherRun)
+	require.False(t, reply.Committed, "nothing of the bundle is installed")
+}

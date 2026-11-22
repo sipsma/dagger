@@ -127,6 +127,13 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 			if chosen != nil && build.withhold != nil && build.withhold.callOverWithheldLocked(chosen) {
 				chosen = nil
 			}
+			// The inputs it adds travel as roots, which carry one run of a
+			// step with the bundle's own (otherRunCarriedLocked).
+			if chosen != nil && build.withhold != nil {
+				if other, _ := build.withhold.otherRunCarriedLocked(add...); other {
+					chosen = nil
+				}
+			}
 			if chosen == nil {
 				build.unsendableCalls++
 				build.markPartial(res)

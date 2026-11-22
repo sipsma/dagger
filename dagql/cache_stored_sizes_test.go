@@ -516,9 +516,11 @@ func TestHeldRowSizeIsItsEncodingLength(t *testing.T) {
 		for _, replacements := range []uint64{0, 1, 77, 1<<64 - 1} {
 			for _, expires := range []int64{0, 1, -5, 1_760_000_000, -1 << 63} {
 				for _, recipe := range []digest.Digest{"xxh3:2d06800538d394c2", heldRowSizeDigest, digest.FromString("x")} {
-					data, err := json.Marshal(TransferredValue{Ordinal: TransferOrdinal(number), SenderNumber: number, SenderReplacements: replacements, Record: PersistedRecord{ResultID: number}, ExpiresAtUnix: expires, Held: recipe})
-					require.NoError(t, err)
-					require.Equal(t, int64(len(data)), heldRowSize(number, replacements, expires, recipe), "number %d, replacements %d, expiry %d, recipe %s", number, replacements, expires, recipe)
+					for _, run := range []*RunName{nil, {Cache: "cache-a", Number: number}, {Cache: "7f3c2e1a-engine", Number: 1, Replacements: replacements}} {
+						data, err := json.Marshal(TransferredValue{Ordinal: TransferOrdinal(number), SenderNumber: number, SenderReplacements: replacements, Record: PersistedRecord{ResultID: number}, ExpiresAtUnix: expires, Held: recipe, Run: run})
+						require.NoError(t, err)
+						require.Equal(t, int64(len(data)), heldRowSize(number, replacements, expires, recipe, run), "number %d, replacements %d, expiry %d, recipe %s, run %v", number, replacements, expires, recipe, run)
+					}
 				}
 			}
 		}

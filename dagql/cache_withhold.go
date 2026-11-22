@@ -84,6 +84,9 @@ type withholdBuild struct {
 	held *HeldBy
 	// now is the bundle's time, by which the recipient's holdings expire.
 	now int64
+	// carried is what the bundle carries of the steps that can differ
+	// (otherRunCarriedLocked).
+	carried carriedRuns
 	// memo has, for each entry read, the first entry of its closure found
 	// that withholds it, or 0.
 	memo map[sharedResultID]sharedResultID
@@ -175,7 +178,6 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundleResult) []*sharedResult {
 	c := w.c
 	kept := make([]*sharedResult, 0, len(roots))
-	carried := &carriedRuns{entries: map[sharedResultID]bool{}, runs: map[digest.Digest]RunName{}}
 	for _, res := range roots {
 		if withheld, by := w.withheldLocked(res); withheld {
 			out.Withheld = append(out.Withheld, uint64(res.id))
@@ -190,7 +192,7 @@ func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundle
 			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
 			continue
 		}
-		if withheld, by := w.otherRunCarriedLocked(carried, res); withheld {
+		if withheld, by := w.otherRunCarriedLocked(res); withheld {
 			out.Withheld = append(out.Withheld, uint64(res.id))
 			out.WithheldOn = append(out.WithheldOn, uint64(by))
 			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/otherRun")
@@ -208,20 +210,24 @@ type carriedRuns struct {
 	runs    map[digest.Digest]RunName
 }
 
-// otherRunCarriedLocked reports whether the closure of root, a root the
-// bundle would keep after the roots it has kept (carried), brings it a run
-// of a step of which the bundle, or the closure itself, carries another run,
-// and the entry that does. An engine decides each recipe once: a bundle
+// otherRunCarriedLocked reports whether the closures of roots, which the
+// bundle would add after what it has kept (carried), bring it a run of a
+// step of which the bundle, or those closures themselves, carry another
+// run, and the entry that does. An engine decides each recipe once: a bundle
 // with two runs of a step lands the second run's values over the first
 // run's entry (mergeKeep), with no error, as it would over a run the engine
 // already held (recipientHoldsOtherRunLocked). The first run a bundle
-// carries stays. When the closure brings no other run, the bundle carries
-// it. The closure is the one the rule walks (storedClosureChildrenLocked).
+// carries stays. When the closures bring no other run, the bundle carries
+// them. The closure is the one the rule walks (storedClosureChildrenLocked).
 // Requires egraphMu.
-func (w *withholdBuild) otherRunCarriedLocked(carried *carriedRuns, root *sharedResult) (bool, sharedResultID) {
+func (w *withholdBuild) otherRunCarriedLocked(roots ...*sharedResult) (bool, sharedResultID) {
+	carried := &w.carried
+	if carried.entries == nil {
+		carried.entries, carried.runs = map[sharedResultID]bool{}, map[digest.Digest]RunName{}
+	}
 	seen := map[sharedResultID]bool{}
 	runs := map[digest.Digest]RunName{}
-	stack := []*sharedResult{root}
+	stack := slices.Clone(roots)
 	for len(stack) > 0 {
 		res := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
@@ -262,8 +268,9 @@ func (w *withholdBuild) otherRunCarriedLocked(carried *carriedRuns, root *shared
 
 // recipientHoldsOtherRunLocked reports whether the bundle's recipient holds
 // another run of res's step: the recipient answered so (HeldBy.OtherRun), or
-// res can differ and the recipient holds another entry of one of res's
-// recipes (entriesOfRecipeLocked) whose run isn't res's. A value over res
+// res can differ and the recipient's own run of it is folded under res
+// (foldedRuns), or it holds another entry of one of res's recipes
+// (entriesOfRecipeLocked) whose run isn't res's. A value over res
 // would land on the recipient's own run of the step, whose entry its merge
 // keeps (mergeKeep), with no error. What the Cloud knows of the recipient's
 // holdings lags, so the engine refuses such a merge itself too
@@ -277,6 +284,9 @@ func (w *withholdBuild) recipientHoldsOtherRunLocked(res *sharedResult) bool {
 		return true
 	case res.run == nil || !w.c.entryCanDifferLocked(res):
 		return false
+	case slices.ContainsFunc(res.foldedRuns, func(run RunName) bool { return run.Cache == w.held.Cache }):
+		// The recipient ran the step itself, and its run is folded here.
+		return true
 	}
 	recipes := slices.Clip(res.recipeKeys)
 	if res.secondRunOf != "" {

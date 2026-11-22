@@ -576,13 +576,14 @@ func heldRowSizeLocked(res *sharedResult) int64 {
 	if len(res.recipeKeys) > 0 {
 		recipe = res.recipeKeys[0]
 	}
-	return heldRowSize(uint64(res.id), res.replacements, res.expiresAtUnix, recipe)
+	return heldRowSize(uint64(res.id), res.replacements, res.expiresAtUnix, recipe, savedRunLocked(res))
 }
 
 // heldRowEncoding is what a held row's json.Marshal encoding is made of:
-// a row with every field zero, and what a nonzero replacement count, expiry
-// and recipe each add beyond their digits or characters.
-var heldRowEncoding = func() (enc struct{ base, replacements, expires, held int64 }) {
+// a row with every field zero, and what a nonzero replacement count, expiry,
+// recipe, run and run's replacement count each add beyond their digits or
+// characters.
+var heldRowEncoding = func() (enc struct{ base, replacements, expires, held, run, runReplacements int64 }) {
 	size := func(v TransferredValue) int64 {
 		data, err := json.Marshal(v)
 		if err != nil {
@@ -594,15 +595,24 @@ var heldRowEncoding = func() (enc struct{ base, replacements, expires, held int6
 	enc.replacements = size(TransferredValue{SenderReplacements: 1}) - enc.base - 1
 	enc.expires = size(TransferredValue{ExpiresAtUnix: 1}) - enc.base - 1
 	enc.held = size(TransferredValue{Held: "x"}) - enc.base - 1
+	enc.run = size(TransferredValue{Run: &RunName{}}) - enc.base - 1
+	enc.runReplacements = size(TransferredValue{Run: &RunName{Replacements: 1}}) - enc.base - enc.run - 2
 	return enc
 }()
 
 // heldRowSize returns the length of the json.Marshal encoding of the held row
-// StoredBundle builds for entry number with the replacement count, expiry and
-// recipe, without encoding it: its ordinal, sender number and record's
-// result ID are the number, and a recipe has no character JSON escapes.
-func heldRowSize(number, replacements uint64, expiresAtUnix int64, recipe digest.Digest) int64 {
+// StoredBundle builds for entry number with the replacement count, expiry,
+// recipe and run, without encoding it: its ordinal, sender number and
+// record's result ID are the number, and neither a recipe nor a cache ID has
+// a character JSON escapes.
+func heldRowSize(number, replacements uint64, expiresAtUnix int64, recipe digest.Digest, run *RunName) int64 {
 	size := heldRowEncoding.base + 3*(decimalDigits(number)-1) + heldRowEncoding.held + int64(len(recipe))
+	if run != nil {
+		size += heldRowEncoding.run + int64(len(run.Cache)) + decimalDigits(run.Number)
+		if run.Replacements != 0 {
+			size += heldRowEncoding.runReplacements + decimalDigits(run.Replacements)
+		}
+	}
 	if replacements != 0 {
 		size += heldRowEncoding.replacements + decimalDigits(replacements)
 	}
