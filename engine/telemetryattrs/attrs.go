@@ -1206,18 +1206,13 @@ type EngineRead struct {
 	// Part is the part read, as the part of an address in
 	// dagger.io/cache.parts names it; empty for the whole entry.
 	Part string `json:"part,omitempty"`
-	// Session, Caller and At say where the part was read when the read
-	// counts for the session: when it was made in an uncached call or a
-	// session-bound one, which every session that reaches it makes again, or
-	// at the session's top, outside any call. They are the session, the
-	// recipe digest of the outermost call above the read that is neither,
-	// which runs only when its lookup misses, and is the call a next engine
-	// fetches the part once it starts to run (empty when there is none up to
-	// the session's top, for a fetch at once), and when, in Unix nanoseconds
-	// on the engine's clock. Such a read is reported once per part and session, beside the
-	// engine-wide report of the entry, which leaves all three empty.
+	// Session and At say where the part was read when every session that
+	// gets there makes the read again: when no call above it, up to the
+	// session's top, is a cached call that isn't session-bound. They are the
+	// session, and when, in Unix nanoseconds on the engine's clock. Such a
+	// read is reported once per part and session, beside the engine-wide
+	// report of the entry, which leaves both empty.
 	Session string `json:"session,omitempty"`
-	Caller  string `json:"caller,omitempty"`
 	At      int64  `json:"at,omitempty"`
 }
 

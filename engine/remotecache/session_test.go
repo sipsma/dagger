@@ -218,13 +218,12 @@ func (a *fakeAdapter) RestorePart(ctx context.Context, part dagql.ValueBundle, _
 type plannedFetchCall struct {
 	number uint64
 	part   dagql.PartKey
-	runs   digest.Digest
 }
 
-func (a *fakeAdapter) PlanPartFetch(_ context.Context, number uint64, part dagql.PartKey, runs digest.Digest) {
+func (a *fakeAdapter) PlanPartFetch(_ context.Context, number uint64, part dagql.PartKey) {
 	a.plannedMu.Lock()
 	defer a.plannedMu.Unlock()
-	a.planned = append(a.planned, plannedFetchCall{number: number, part: part, runs: runs})
+	a.planned = append(a.planned, plannedFetchCall{number: number, part: part})
 }
 
 func (a *fakeAdapter) Landing() func() {

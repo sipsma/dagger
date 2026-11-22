@@ -223,12 +223,11 @@ func TestRestorePlansAPartsFetchesOnItsEntries(t *testing.T) {
 		return merged(part, time.Unix(1790000000, 0)), nil
 	}
 	s, conn := restoreSession(t, adapter)
-	const runs = "xxh3:0123456789abcdef"
 	const fs, meta = dagql.PartKey("fs"), dagql.PartKey("meta")
 	file := setFile(t, dagql.ValueBundleVersion, part(11), part(12))
 	header, raw, err := protocol.ReadSetFile(file)
 	require.NoError(t, err)
-	header.Parts[0].Fetch = []protocol.SetFileFetch{{Ordinal: 1, Part: fs, Runs: runs}, {Ordinal: 9, Part: fs}}
+	header.Parts[0].Fetch = []protocol.SetFileFetch{{Ordinal: 1, Part: fs}, {Ordinal: 9, Part: fs}}
 	header.Parts[1].Fetch = []protocol.SetFileFetch{{Ordinal: 1, Part: meta}}
 	var buf bytes.Buffer
 	require.NoError(t, protocol.WriteSetFile(&buf, header, raw))
@@ -241,7 +240,7 @@ func TestRestorePlansAPartsFetchesOnItsEntries(t *testing.T) {
 	adapter.plannedMu.Lock()
 	defer adapter.plannedMu.Unlock()
 	require.Equal(t, []plannedFetchCall{
-		{number: 11, part: fs, runs: runs},
+		{number: 11, part: fs},
 		{number: 12, part: meta},
 	}, adapter.planned)
 }

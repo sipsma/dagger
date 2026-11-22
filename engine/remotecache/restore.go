@@ -672,7 +672,7 @@ func (r *restorer) planFetches(ctx context.Context, fetches []protocol.SetFileFe
 	}
 	for _, fetch := range fetches {
 		if number, ok := numbers[fetch.Ordinal]; ok {
-			r.s.adapter.PlanPartFetch(ctx, number, fetch.Part, digest.Digest(fetch.Runs))
+			r.s.adapter.PlanPartFetch(ctx, number, fetch.Part)
 		}
 	}
 }

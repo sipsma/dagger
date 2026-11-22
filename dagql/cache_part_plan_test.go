@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -59,28 +58,20 @@ func (f *prefetchFixture) runPlanned(t *testing.T) {
 	f.prefetch.runAhead([]*partPrefetchJob{job})
 }
 
-// A part planned for when a call runs waits until that call runs on this
-// engine: then its offer leaves its lane for the planned queue, its blobs are
-// downloaded and its chain is imported ahead, which its lane would not have
-// done, and its install unpacks and downloads nothing.
-func TestPlannedPartFetchStartsWhenItsCallRuns(t *testing.T) {
+// A planned part is fetched at once: its offer leaves its lane for the
+// planned queue, its blobs are downloaded and its chain is imported ahead,
+// which its lane would not have done, and its install unpacks and downloads
+// nothing. The plan worker logs what it did: one plan, which found the
+// entry's one offer, with the graph lock taken once to find the row and once
+// to find its offer.
+func TestPlannedPartFetchAtOnce(t *testing.T) {
 	f := newPlanFixture(t, nil)
-	frame := &ResultCall{Kind: ResultCallKindField, Field: "planned-call", Type: NewResultCallType((&transferTestValue{}).Type())}
-	recipe, err := frame.deriveRecipeDigest(f.cache)
-	require.NoError(t, err)
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, recipe)
-	require.Empty(t, f.plannedJobs(), "nothing is planned before the call runs")
-
-	_, err = f.cache.GetOrInitCall(f.ctx, "test-session", f.srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
-		return NewResultForCall(&transferTestValue{Text: "ran"}, frame)
-	})
-	require.NoError(t, err)
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part)
 	job := f.awaitPlanned(t)
 	require.True(t, job.planned.Load())
 	f.prefetch.mu.Lock()
 	require.Empty(t, f.prefetch.queues[job.lane], "the offer left its lane")
 	f.prefetch.mu.Unlock()
-
 	f.runPlanned(t)
 	ahead := f.aheadLine(t)
 	require.Equal(t, "done", ahead.fields["outcome"])
@@ -91,29 +82,6 @@ func TestPlannedPartFetchStartsWhenItsCallRuns(t *testing.T) {
 	require.Len(t, installs, 1)
 	require.Zero(t, installs[0].int(t, "bytes"), "the install downloads nothing")
 	require.EqualValues(t, 2, f.store.Applies.Load(), "the install unpacks nothing")
-}
-
-// A planned part waits for its own call: another call running doesn't start
-// it.
-func TestPlannedPartFetchWaitsForItsOwnCall(t *testing.T) {
-	f := newPlanFixture(t, nil)
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, digest.FromString("another call"))
-	frame := &ResultCall{Kind: ResultCallKindField, Field: "unplanned-call", Type: NewResultCallType((&transferTestValue{}).Type())}
-	_, err := f.cache.GetOrInitCall(f.ctx, "test-session", f.srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
-		return NewResultForCall(&transferTestValue{Text: "ran"}, frame)
-	})
-	require.NoError(t, err)
-	require.Never(t, func() bool { return len(f.plannedJobs()) > 0 }, 200*time.Millisecond, 10*time.Millisecond)
-}
-
-// A part planned with no call is fetched at once. The plan worker logs what
-// it did: one plan fired at once, which found the entry's one offer, with the
-// graph lock taken once to find the row and once to find its offer.
-func TestPlannedPartFetchAtOnce(t *testing.T) {
-	f := newPlanFixture(t, nil)
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
-	f.runPlanned(t)
-	require.Equal(t, "done", f.aheadLine(t).fields["outcome"])
 	var line offerLine
 	require.Eventually(t, func() bool {
 		lines := f.logs.lines(t, "remote cache part plans fired")
@@ -123,8 +91,7 @@ func TestPlannedPartFetchAtOnce(t *testing.T) {
 		line = lines[0]
 		return true
 	}, 10*time.Second, 5*time.Millisecond)
-	require.EqualValues(t, 1, line.int(t, "at_once"))
-	require.EqualValues(t, 0, line.int(t, "by_call"))
+	require.EqualValues(t, 1, line.int(t, "plans"))
 	require.EqualValues(t, 1, line.int(t, "offers"))
 	require.EqualValues(t, 0, line.int(t, "none"))
 	require.EqualValues(t, 2, line.int(t, "graph_holds"))
@@ -134,7 +101,7 @@ func TestPlannedPartFetchAtOnce(t *testing.T) {
 // parts is fetched.
 func TestPlannedPartFetchOfAWholeEntry(t *testing.T) {
 	f := newPlanFixture(t, nil)
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), "", "")
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), "")
 	f.runPlanned(t)
 	require.Equal(t, "done", f.aheadLine(t).fields["outcome"])
 }
@@ -142,7 +109,7 @@ func TestPlannedPartFetchOfAWholeEntry(t *testing.T) {
 // A plan for an entry the cache doesn't hold fetches nothing.
 func TestPlannedPartFetchOfAnEntryNotHeld(t *testing.T) {
 	f := newPlanFixture(t, nil)
-	f.cache.PlanPartFetch(f.ctx, 1<<40, f.address.Part, "")
+	f.cache.PlanPartFetch(f.ctx, 1<<40, f.address.Part)
 	require.Never(t, func() bool { return len(f.plannedJobs()) > 0 }, 200*time.Millisecond, 10*time.Millisecond)
 }
 
@@ -159,7 +126,7 @@ func TestPlannedPartFetchOfADecodedEntry(t *testing.T) {
 	decoded := row.persistedEnvelope == nil && row.hasValue
 	row.payloadMu.RUnlock()
 	require.True(t, decoded, "the entry's value is decoded")
-	f.cache.PlanPartFetch(f.ctx, uint64(row.id), f.address.Part, "")
+	f.cache.PlanPartFetch(f.ctx, uint64(row.id), f.address.Part)
 	f.runPlanned(t)
 	require.Equal(t, "done", f.aheadLine(t).fields["outcome"])
 }
@@ -192,7 +159,7 @@ func (f *prefetchFixture) takeJobUnstarted(t *testing.T) *partPrefetchJob {
 func TestPlannedPartFetchOfAJobTakenButNotStarted(t *testing.T) {
 	f := newPlanFixture(t, func(config *partPrefetchConfig) { config.budget = 1 })
 	job := f.takeJobUnstarted(t)
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part)
 	require.Eventually(t, job.planned.Load, 10*time.Second, 5*time.Millisecond, "the taken job is marked planned")
 	require.Empty(t, f.plannedJobs(), "the worker keeps it")
 	f.prefetch.run(context.Background(), job)
@@ -206,7 +173,7 @@ func TestPlannedPartFetchOfAJobTakenButNotStarted(t *testing.T) {
 func TestPlannedPartFetchOfAJobALaneWorkerTook(t *testing.T) {
 	f := newPlanFixture(t, func(config *partPrefetchConfig) { config.budget = 1 })
 	job := f.takeLaneJob(t)
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part)
 	require.Eventually(t, func() bool {
 		f.prefetch.mu.Lock()
 		defer f.prefetch.mu.Unlock()
@@ -228,7 +195,7 @@ func TestPlannedPartFetchAfterItsLaneJobWasSkipped(t *testing.T) {
 	f.prefetch.run(context.Background(), job)
 	lines := f.logs.lines(t, "remote cache part prefetched")
 	require.Equal(t, "skipped_budget", lines[len(lines)-1].fields["outcome"])
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part)
 	planned := f.awaitPlanned(t)
 	require.NotSame(t, job, planned)
 	f.prefetch.mu.Lock()
@@ -245,7 +212,7 @@ func TestPlannedPartFetchAfterItsLaneJobWasSkipped(t *testing.T) {
 // part is downloaded whatever the budget, as its lane's job would not be.
 func TestPlannedPartFetchIgnoresTheBudget(t *testing.T) {
 	f := newPlanFixture(t, func(config *partPrefetchConfig) { config.budget = 1 })
-	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part)
 	f.runPlanned(t)
 	lines := f.logs.lines(t, "remote cache part prefetched")
 	require.NotEmpty(t, lines)
@@ -304,7 +271,7 @@ func TestPlannedPartFetchFollowsDelegation(t *testing.T) {
 		f.cache.egraphMu.Unlock()
 	})
 
-	f.cache.PlanPartFetch(f.ctx, uint64(child.id), f.address.Part, "")
+	f.cache.PlanPartFetch(f.ctx, uint64(child.id), f.address.Part)
 	job := f.awaitPlanned(t)
 	require.Equal(t, f.receiver.cacheSharedResult().id, job.row, "the job is the parent's offer's")
 }

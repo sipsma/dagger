@@ -7031,17 +7031,12 @@ func (c *Cache) getOrInitCallTakingOver(
 }
 
 // partReadScope is what a part read made under a context counts as
-// (recordPartRead). A read counts when the call it is made in is uncached, or
-// session-bound (keyed per session, so every session makes it again), or when
-// it is made at the session's top, outside any call; it carries as its caller
-// the outermost call above it that is neither, which runs only when its own
-// lookup misses, and whose run is the earliest a next engine knows the read
-// will come; or an empty caller when there is none up to the session's top.
-// A session-bound call is never the caller, at any depth, since its recipe
-// names its session and so can't be matched on another engine.
+// (recordPartRead). A read counts when no call above it, up to the session's
+// top, is a cached call that isn't session-bound: every session that gets
+// there makes it again, since uncached and session-bound calls run in every
+// session, while any other cached call runs only when its lookup misses.
 type partReadScope struct {
 	counts bool
-	caller digest.Digest
 }
 
 type partReadScopeCtx struct{}
@@ -7053,8 +7048,7 @@ func readScope(ctx context.Context) partReadScope {
 	if scope, ok := ctx.Value(partReadScopeCtx{}).(partReadScope); ok {
 		return scope
 	}
-	caller := CallerRecipe(ctx)
-	return partReadScope{counts: caller == "", caller: caller}
+	return partReadScope{counts: CallerRecipe(ctx) == ""}
 }
 
 // withReadScope is ctx with its part reads scoped as scope.
@@ -7067,10 +7061,10 @@ func withReadScope(ctx context.Context, scope partReadScope) context.Context {
 // requests, across the client's boundary, which a Go context value doesn't
 // cross: a module function's call, or the call of an exec whose process
 // calls back in. It is carried beside the call's recipe (CallerRecipe),
-// which can't stand for it: a session-bound or uncached call names itself or
-// the call above it there, while its reads count under the outermost call
-// above it that is neither (partReadScope). The zero ReadScope carries
-// nothing.
+// which can't stand for it: a session-bound call names itself there, and an
+// uncached call the call above it, while their reads count only when no
+// other cached call is above them (partReadScope). The zero ReadScope
+// carries nothing.
 type ReadScope struct {
 	scope partReadScope
 	ok    bool
@@ -7138,11 +7132,9 @@ func (c *Cache) getOrInitCallInner(
 			ev.Outcome = CacheOutcomeUncached
 		}
 
-		// An uncached call runs whenever the call above it does: its own
-		// reads count, under that call.
-		scope := readScope(ctx)
-		scope.counts = true
-		val, err := fn(withReadScope(ctx, scope))
+		// An uncached call runs whenever the call above it does: its reads
+		// count as that call's do.
+		val, err := fn(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -7201,14 +7193,14 @@ func (c *Cache) getOrInitCallInner(
 	if err != nil {
 		return nil, fmt.Errorf("derive request digest: %w", err)
 	}
-	// A session-bound call is made again by every session: its own reads
-	// count, under the caller above it. Any other cached call runs only when
-	// its lookup misses: its reads don't count, and the outermost such call
-	// whose span is reported is the caller of the reads under it.
+	// A session-bound call is made again by every session: its reads count as
+	// the call above it's do. Any other cached call runs only when its lookup
+	// misses: no read under it counts. The scope is set either way, before the
+	// call names itself as the caller of the calls under it (CallerRecipe),
+	// which the scope of a context no call has scoped would read.
 	scope := readScope(ctx)
-	scope.counts = req.ResultCall.SessionBound()
-	if !scope.counts && req.CacheReported && scope.caller == "" {
-		scope.caller = callDigest
+	if !req.ResultCall.SessionBound() {
+		scope.counts = false
 	}
 	ctx = withReadScope(ctx, scope)
 	// The call names the cached call it was made under, and is the caller of
@@ -7429,9 +7421,6 @@ func (c *Cache) getOrInitCallInner(
 	}()
 
 	c.callsMu.Unlock()
-	// The call runs: the parts planned for its run start fetching ahead,
-	// outside the call's path and its locks.
-	c.callRuns(context.WithoutCancel(oc.sharedWorkCtx), callDigest)
 	if ev != nil {
 		// The decision fact: the cache chose to execute. It stays recorded even
 		// if the resolver later errors — the span's own error/cancel status

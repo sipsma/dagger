@@ -183,7 +183,7 @@ func (srv *Server) emitReadEvent(reads []dagql.PartRead) {
 	}
 	event := telemetryattrs.EngineReadEvent{Reads: make([]telemetryattrs.EngineRead, len(reads))}
 	for i, read := range reads {
-		event.Reads[i] = telemetryattrs.EngineRead{ResultID: read.ResultID, Part: string(read.Part), Session: read.Session, Caller: read.Caller.String()}
+		event.Reads[i] = telemetryattrs.EngineRead{ResultID: read.ResultID, Part: string(read.Part), Session: read.Session}
 		if !read.At.IsZero() {
 			event.Reads[i].At = read.At.UnixNano()
 		}

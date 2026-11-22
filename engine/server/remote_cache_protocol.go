@@ -705,8 +705,8 @@ func (a *RemoteCacheAdapter) Landing() func() {
 
 // PlanPartFetch plans a fetch ahead of a restored entry's part
 // (dagql.Cache.PlanPartFetch).
-func (a *RemoteCacheAdapter) PlanPartFetch(ctx context.Context, number uint64, part dagql.PartKey, runs digest.Digest) {
-	a.cache.PlanPartFetch(ctx, number, part, runs)
+func (a *RemoteCacheAdapter) PlanPartFetch(ctx context.Context, number uint64, part dagql.PartKey) {
+	a.cache.PlanPartFetch(ctx, number, part)
 }
 
 // CacheWork returns the cache's counts a restore's window reads.

@@ -5,24 +5,19 @@ import (
 	"slices"
 	"sync"
 	"time"
-
-	digest "github.com/opencontainers/go-digest"
 )
 
 // partReadFlushInterval is the longest a read waits to be reported.
 const partReadFlushInterval = time.Second
 
 // PartRead is a part of an entry that work read; Part is empty when it read
-// the whole entry. Session, Caller and At are set on a read that counts
-// (partReadScope): the session, the recipe digest of the outermost call
-// above it that is neither uncached nor session-bound (empty when there is
-// none up to the session's top), and when. They are empty on the engine-wide report
-// of the entry.
+// the whole entry. Session and At are set on a read that counts
+// (partReadScope): the session, and when. They are empty on the engine-wide
+// report of the entry.
 type PartRead struct {
 	ResultID uint64
 	Part     PartKey
 	Session  string
-	Caller   digest.Digest
 	At       time.Time
 }
 
@@ -37,7 +32,7 @@ type PartRead struct {
 // cache's close. report runs with no cache lock held and must not block.
 //
 // A read that counts (partReadScope) is also reported once per part and
-// session, with the session, its caller and its time, in the same batches.
+// session, with the session and its time, in the same batches.
 func WithPartReadReport(report func([]PartRead)) CacheOption {
 	return func(c *Cache) {
 		c.partReads = &partReadLog{report: report, seen: map[sharedResultID]*partReadsSeen{}, pending: map[sharedResultID]struct{}{}, sessions: map[string]map[sessionPartRead]struct{}{}}
@@ -119,7 +114,7 @@ func (l *partReadLog) record(id sharedResultID, parts []PartKey) {
 // recordPartRead notes that work read parts of entry id, or the whole of it
 // when parts is empty: for the engine-wide report (partReadLog.record), and,
 // when the read counts (partReadScope), once per part and session with the
-// session, its caller and the time.
+// session and the time.
 func (c *Cache) recordPartRead(ctx context.Context, id sharedResultID, parts []PartKey) {
 	c.partReads.record(id, parts)
 	if c.partReads == nil {
@@ -133,13 +128,13 @@ func (c *Cache) recordPartRead(ctx context.Context, id sharedResultID, parts []P
 	if err != nil {
 		return
 	}
-	c.partReads.recordSession(session, scope.caller, time.Now(), id, parts)
+	c.partReads.recordSession(session, time.Now(), id, parts)
 }
 
 // recordSession notes a read of parts of entry id, or of the whole of it when
-// parts is empty, that counted for session under caller,
-// and arranges for each part the session hasn't read so to be reported.
-func (l *partReadLog) recordSession(session string, caller digest.Digest, at time.Time, id sharedResultID, parts []PartKey) {
+// parts is empty, that counted for session, and arranges for each part the
+// session hasn't read so to be reported.
+func (l *partReadLog) recordSession(session string, at time.Time, id sharedResultID, parts []PartKey) {
 	if l == nil || session == "" {
 		return
 	}
@@ -163,7 +158,7 @@ func (l *partReadLog) recordSession(session string, caller digest.Digest, at tim
 			continue
 		}
 		seen[key] = struct{}{}
-		l.sessionReads = append(l.sessionReads, PartRead{ResultID: uint64(id), Part: part, Session: session, Caller: caller, At: at})
+		l.sessionReads = append(l.sessionReads, PartRead{ResultID: uint64(id), Part: part, Session: session, At: at})
 		added = true
 	}
 	if added && l.timer == nil {

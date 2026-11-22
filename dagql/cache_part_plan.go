@@ -6,62 +6,35 @@ import (
 	"time"
 
 	"github.com/dagger/dagger/engine/slog"
-	"github.com/opencontainers/go-digest"
 )
 
 // A planned part fetch is a part the service sent to fetch ahead, because
-// the job's earlier runs read it when a call ran (PartRead): once that call
-// runs here, or at once when the reads had no caller. The engine downloads
-// the part's content and unpacks it ahead of its first use (partPrefetcher's
-// planned queue), from the offer that serves it.
+// the job's earlier runs read it where every run that gets there reads it
+// again (PartRead with a session): the engine fetches it at once, as the
+// set's part that names it lands. It downloads the part's content and unpacks
+// it ahead of its first use (partPrefetcher's planned queue), from the offer
+// that serves it.
 
 // plannedPartFetch is one part to fetch ahead: entry id's part, as a read
-// names it, or the whole entry when part is empty; atOnce when it waited for
-// no call.
+// names it, or the whole entry when part is empty.
 type plannedPartFetch struct {
-	id     sharedResultID
-	part   PartKey
-	atOnce bool
+	id   sharedResultID
+	part PartKey
 }
 
-// partFetchPlan holds the planned fetches that wait for their call to run,
-// by the call's recipe digest, and those whose call ran or that wait for
-// none, for its worker to find their offers, one at a time, off the paths
-// that fire them: a restore's merge and a call's start.
+// partFetchPlan holds the planned fetches its worker hasn't found offers for
+// yet, one at a time, off the restore's merge that plans them.
 type partFetchPlan struct {
 	mu      sync.Mutex
-	waiting map[digest.Digest][]plannedPartFetch
 	ready   []plannedPartFetch
 	working bool
 }
 
 // PlanPartFetch plans a fetch ahead of entry number's part, or of the whole
-// entry when part is empty: once the call whose recipe digest is runs starts
-// to run on this engine, or at once when runs is empty. A plan for an entry
-// the cache no longer holds, or a part no offer serves, fetches nothing. It
-// never blocks on the fetch.
-func (c *Cache) PlanPartFetch(ctx context.Context, number uint64, part PartKey, runs digest.Digest) {
-	fetch := plannedPartFetch{id: sharedResultID(number), part: part, atOnce: runs == ""}
-	if runs == "" {
-		c.firePlannedFetches(ctx, fetch)
-		return
-	}
-	c.partPlan.mu.Lock()
-	defer c.partPlan.mu.Unlock()
-	if c.partPlan.waiting == nil {
-		c.partPlan.waiting = map[digest.Digest][]plannedPartFetch{}
-	}
-	c.partPlan.waiting[runs] = append(c.partPlan.waiting[runs], fetch)
-}
-
-// callRuns fires the planned fetches that wait for the call with recipe
-// digest call, which is about to run. It takes only the plan's mutex.
-func (c *Cache) callRuns(ctx context.Context, call digest.Digest) {
-	c.partPlan.mu.Lock()
-	fetches := c.partPlan.waiting[call]
-	delete(c.partPlan.waiting, call)
-	c.partPlan.mu.Unlock()
-	c.firePlannedFetches(ctx, fetches...)
+// entry when part is empty. A plan for an entry the cache no longer holds,
+// or a part no offer serves, fetches nothing. It never blocks on the fetch.
+func (c *Cache) PlanPartFetch(ctx context.Context, number uint64, part PartKey) {
+	c.firePlannedFetches(ctx, plannedPartFetch{id: sharedResultID(number), part: part})
 }
 
 // firePlannedFetches hands fetches to the plan's worker, starting it when it
@@ -82,14 +55,14 @@ func (c *Cache) firePlannedFetches(ctx context.Context, fetches ...plannedPartFe
 
 // workPlannedFetches hands each fired fetch's part to the prefetcher's
 // planned queue, in the order they fired, until none is left, and logs what
-// that took: the plans by kind, the offers they found, the plans that found
-// none, the graph lock's holds they took, and how long it ran.
+// that took: the plans, the offers they found, the plans that found none,
+// the graph lock's holds they took, and how long it ran.
 func (c *Cache) workPlannedFetches(ctx context.Context) {
 	start := time.Now()
 	var stats planStats
 	defer func() {
 		slog.FromContext(ctx).Info("remote cache part plans fired",
-			"at_once", stats.atOnce, "by_call", stats.byCall, "offers", stats.offers,
+			"plans", stats.plans, "offers", stats.offers,
 			"none", stats.none, "graph_holds", stats.graphHolds, "duration", time.Since(start))
 	}()
 	for {
@@ -103,11 +76,7 @@ func (c *Cache) workPlannedFetches(ctx context.Context) {
 		fetch := c.partPlan.ready[0]
 		c.partPlan.ready = c.partPlan.ready[1:]
 		c.partPlan.mu.Unlock()
-		if fetch.atOnce {
-			stats.atOnce++
-		} else {
-			stats.byCall++
-		}
+		stats.plans++
 		served := c.plannedPartOffers(ctx, fetch, &stats)
 		if len(served) == 0 {
 			stats.none++
@@ -121,7 +90,7 @@ func (c *Cache) workPlannedFetches(ctx context.Context) {
 
 // planStats counts what one run of the plan worker did (workPlannedFetches).
 type planStats struct {
-	atOnce, byCall, offers, none, graphHolds int
+	plans, offers, none, graphHolds int
 }
 
 // servedPart is an offer that serves a planned part: the row that holds it

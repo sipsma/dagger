@@ -58,15 +58,12 @@ type SetFilePart struct {
 	Fetch []SetFileFetch `json:"fetch,omitempty"`
 }
 
-// SetFileFetch is one part to fetch ahead: the record of the part's bundle
-// with Ordinal, and its part Part, as a read names it (at any of the record's
-// output paths), or the whole record when Part is empty. Runs is the recipe
-// digest of the call whose run the part waits for, the reads' caller's
-// top-level call; empty, the engine fetches it at once.
+// SetFileFetch is one part to fetch ahead, at once: the record of the part's
+// bundle with Ordinal, and its part Part, as a read names it (at any of the
+// record's output paths), or the whole record when Part is empty.
 type SetFileFetch struct {
 	Ordinal dagql.TransferOrdinal `json:"ordinal"`
 	Part    dagql.PartKey         `json:"part,omitempty"`
-	Runs    string                `json:"runs,omitempty"`
 }
 
 // EncodeSetFilePart encodes a bundle as a set file's part with enc, and
