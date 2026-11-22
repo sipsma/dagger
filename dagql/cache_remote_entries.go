@@ -515,7 +515,11 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 	if desc.Entry != 0 {
 		recipe = ""
 	}
-	c.teachRemoteIdentityLocked(ctx, entry, desc.Field, recipe, desc.Request, desc.ContentDigest, desc.Term)
+	content := desc.ContentDigest
+	if !c.teachesEntryContentLocked(entry, key, desc.Replacements, desc.Executed) {
+		content = ""
+	}
+	c.teachRemoteIdentityLocked(ctx, entry, desc.Field, recipe, desc.Request, content, desc.Term)
 	change.Saved = c.keepCallLocked(entry, desc, kept)
 	if desc.TypeName != "" && desc.TypeName != handleString(h.typeName) {
 		h.typeName = internString(desc.TypeName)
@@ -814,7 +818,7 @@ func (c *Cache) updateRemoteHoldingLocked(ctx context.Context, key HolderKey, up
 // keys. It returns the dropped dependencies' holdings. Requires egraphMu for
 // writing.
 func (c *Cache) applyHeldValueStateLocked(ctx context.Context, state *remoteCacheState, key HolderKey, entry *sharedResult, h *holding, obs HeldValueState, parts, offered []string) []HolderKey {
-	if obs.ContentDigest != "" && string(obs.ContentDigest) != handleString(h.contentDigest) {
+	if obs.ContentDigest != "" && string(obs.ContentDigest) != handleString(h.contentDigest) && c.teachesEntryContentLocked(entry, key, obs.Replacements, h.ran) {
 		// The class learns a content digest from every observation, whatever
 		// its count: a union is never undone, and gating it by count would
 		// only make the class depend on arrival order. The holding's own

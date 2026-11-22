@@ -1809,3 +1809,134 @@ func TestAReplacingSendersHoldingMovesToItsOwnRecord(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, CacheID("cache-b"), run.Cache, "to B's own record")
 }
+
+// runTestKeptRun has cache-b run the step A's record holds, with its own
+// content, and export it while A's record isn't replaceable: B's record is
+// kept on A's entry. It returns B's run.
+func runTestKeptRun(t *testing.T, ctx context.Context, cloud *Cache, pA uint64) RunName {
+	t.Helper()
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "cache-b root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "cache-b dep"})
+	transferTestDependency(e, ectx, r, p)
+	b := RunName{Cache: "cache-b", Number: uint64(p.cacheSharedResult().id)}
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: b.Cache, Number: b.Number}, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", withContent(t, exportTestBundle(t, ectx, e, r), r, p))
+	require.NoError(t, err)
+	require.Zero(t, reply.Rows.RunsReplaced, "A's record isn't replaceable")
+	at, ok := cloud.HolderEntry(HolderKey{Cache: b.Cache, Number: b.Number})
+	require.True(t, ok)
+	require.Equal(t, pA, at, "B's record is kept on A's entry")
+	return b
+}
+
+// A record of another run kept on an entry names its own run's content: the
+// entry doesn't learn it, from the merge or from the run's telemetry, so it
+// never shows B's run equal to A's record, and B's bytes stay refused.
+func TestAnotherRunsContentIsntTaughtToTheEntryItIsKeptOn(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	// The entry's content, once the body worker has given its frame what
+	// it was taught (applyTaughtContent), as it does in its own time.
+	content := func() digest.Digest {
+		cloud.egraphMu.RLock()
+		res := cloud.resultsByID[sharedResultID(pA)]
+		cloud.egraphMu.RUnlock()
+		cloud.applyTaughtContent([]*sharedResult{res})
+		cloud.egraphMu.RLock()
+		defer cloud.egraphMu.RUnlock()
+		return cloud.entryContentLocked(res)
+	}
+	run, ok := entryRunName(cloud, pA)
+	require.True(t, ok)
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: recipe, Replacements: run.Replacements, ContentDigest: digest.FromString("A's content")})
+	require.NoError(t, err)
+	before := content()
+	require.Equal(t, digest.FromString("A's content"), before, "A's own run teaches its entry")
+	b := runTestKeptRun(t, ctx, cloud, pA)
+	require.Equal(t, before, content(), "B's record doesn't teach A's entry its content")
+	_, err = cloud.AttachRemoteHolding(ctx, HolderKey{Cache: b.Cache, Number: b.Number}, RemoteHolding{Recipe: recipe, Executed: true, ContentDigest: digest.FromString("B's own content")})
+	require.NoError(t, err)
+	require.Equal(t, before, content(), "nor does B's telemetry")
+	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: pA, Run: b, Part: testLiveOffer()}})
+	require.NoError(t, err)
+	require.True(t, got[0].OtherRun, "B's bytes are another run's")
+}
+
+// A class can join two runs' entries by a request digest alone, the same
+// call returning both: that doesn't make them one value, so a class mate of
+// another run whose content isn't shown equal lends nothing.
+func TestAClassMateJoinedByARequestDigestOnlyLendsNothing(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	ectx, e, esrv := transferTestCache(t)
+	q := persistedListTestResult(t, ectx, e, esrv, "other-dep", &transferTestValue{Text: "cache-b other"})
+	reply, err := mergeExport(t, ctx, cloud, "cache-b", withContent(t, exportTestBundle(t, ectx, e, q), q))
+	require.NoError(t, err)
+	require.Len(t, reply.Values, 1)
+	pB := reply.Values[0].Number
+	require.NotEqual(t, pA, pB)
+	stored, _, err := cloud.SetStoredPart(ctx, pB, storedPartRunOf(t, cloud, pB), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	request := digest.FromString("one call returned both")
+	for _, n := range []uint64{pA, pB} {
+		recipe, ok := cloud.EntryRecipe(n)
+		require.True(t, ok)
+		run, ok := entryRunName(cloud, n)
+		require.True(t, ok)
+		_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: recipe, Replacements: run.Replacements, Request: request})
+		require.NoError(t, err)
+	}
+	class, ok := cloud.EntryClassEntries(pA)
+	require.True(t, ok)
+	require.Contains(t, class.Entries, pB, "the request digest joins the two")
+	av, err := cloud.AvailablePart(pA, testLiveOffer().Address, time.Now().Unix())
+	require.NoError(t, err)
+	require.NotEqual(t, PartStored, av.State, "B's part is another value's")
+}
+
+// An engine's copy of a record stays on that record's entry when a later
+// run replaces it: its export, which replaces nothing, doesn't move it onto
+// the replacing run's entry, whose run it isn't.
+func TestACopysHoldingStaysOnTheRecordItCopied(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	// C's engine took A's record from the Cloud.
+	ectx, e, esrv := transferTestCache(t)
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "cache-a root"})
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "cache-a dep"})
+	transferTestDependency(e, ectx, r, p)
+	key := HolderKey{Cache: "cache-c", Number: uint64(p.cacheSharedResult().id)}
+	_, err := cloud.AttachRemoteHolding(ctx, key, RemoteHolding{Recipe: recipe})
+	require.NoError(t, err)
+	at, ok := cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.Equal(t, pA, at)
+	replaceTestRan(t, ctx, cloud, pA)
+	reply, _, _ := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Equal(t, 1, reply.Rows.RunsReplaced)
+	bundle := withContent(t, exportTestBundle(t, ectx, e, r), p)
+	for i := range bundle.Values {
+		if bundle.Values[i].SenderNumber == key.Number {
+			bundle.Values[i].Record.Envelope.Imported = true
+		}
+	}
+	reply, err = mergeExport(t, ctx, cloud, "cache-c", bundle)
+	require.NoError(t, err)
+	require.Zero(t, reply.Rows.RunsReplaced)
+	at, ok = cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.Equal(t, pA, at, "C's copy is A's run, not B's")
+}

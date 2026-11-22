@@ -3320,11 +3320,12 @@ func (c *Cache) mergeSenderHoldingLocked(ctx context.Context, state *remoteCache
 		entry, h = c.newHoldingLocked(ctx, state, key, RemoteHolding{Recipe: row.plan.recipe, Field: row.res.description})
 		change.Candidates = append(change.Candidates, key)
 	}
-	if h != nil && entry != nil && entry != row.res && entry.runReplaced && c.resultsByID[row.res.id] == row.res {
-		// The sender's run replaced the record its holding sat on: the
+	if h != nil && entry != nil && entry != row.res && row.replacing && row.run == (RunName{Cache: commit.from, Number: row.value.SenderNumber, Replacements: row.value.SenderReplacements}) && c.resultsByID[row.res.id] == row.res {
+		// The sender's own run replaced the record its holding sat on: the
 		// holding goes to the entry its own record is installed on, whose
-		// run it is. The retired entry keeps serving what names it, and is
-		// left for the pool to prune, not collected here.
+		// run it is. A copy of the retired record stays with it, as does a
+		// row that replaced nothing. The retired entry keeps serving what
+		// names it, and is left for the pool to prune, not collected here.
 		entry.deleteHolderLocked(key)
 		_, _ = c.decrementIncomingOwnershipLocked(ctx, entry, nil)
 		row.res.putHolderLocked(key, h)
@@ -3341,12 +3342,19 @@ func (c *Cache) mergeSenderHoldingLocked(ctx context.Context, state *remoteCache
 	for _, dep := range row.value.DependencyIDs {
 		deps = append(deps, commit.prep.index[dep].SenderNumber)
 	}
-	// The sender's holding learns the content digest its own record names,
-	// as its telemetry would: on an entry of another run, that's what shows
-	// the two runs equal by content, or not (lendsLocked).
-	content := commit.prep.records[row.ordinal].Call.ContentDigest()
-	candidates := c.applyHeldValueStateLocked(ctx, state, key, entry, h, HeldValueState{Replacements: row.value.SenderReplacements, Deps: deps, ContentDigest: content}, nil, nil)
+	candidates := c.applyHeldValueStateLocked(ctx, state, key, entry, h, HeldValueState{Replacements: row.value.SenderReplacements, Deps: deps}, nil, nil)
 	change.Candidates = append(change.Candidates, candidates...)
+	// A sender's record kept on another run's entry names its own run's
+	// content digest: the holding keeps it as its own evidence, which shows
+	// the two runs equal by content or not (runsShownEqualLocked), and
+	// teaches the entry nothing. Taught to the entry, it would rewrite the
+	// other run's record with this run's content.
+	if entry != nil && entry.run != nil && *entry.run != row.run {
+		if content := commit.prep.records[row.ordinal].Call.ContentDigest(); content != "" && string(content) != handleString(h.contentDigest) {
+			h.contentDigest = internString(string(content))
+			c.markHoldingLocked(key)
+		}
+	}
 }
 
 // mergeHeldSenderHoldingLocked records, on the Cloud, the sending engine's

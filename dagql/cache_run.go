@@ -904,38 +904,21 @@ func compareRunContent(incoming *ResultCall, res *sharedResult) int {
 }
 
 // lendsLocked reports whether other, an entry of res's class, may answer for
-// res's parts. A class mate the class holds for a content digest or a term
-// it shares is the same value, by the cache's own model, and may. One that is
-// only the same call, an entry of a recipe res shares, is another run of it,
-// whose bytes differ for a step that can differ: on the Cloud it may only
-// when it is res's own record's run, or shown equal to it by content digest
-// (entryContentLocked), or either names no run. The store refuses another
-// run's bytes onto res (SetStoredParts), and a bundle doesn't lend them, so
-// they neither store nor upload res's part. Off the Cloud every class mate
-// may. Requires egraphMu.
+// res's parts. On the Cloud, a class mate of another run is another value
+// unless the two records are shown equal by content digest
+// (entryContentLocked): a class can join two runs of one call by its recipe
+// or its request digest alone, and their bytes differ for a step that can
+// differ. So it may when it is res's own record's run, or either names no
+// run, or both records' content digests are known and the same. The store
+// refuses another run's bytes onto res (SetStoredParts), and a bundle
+// doesn't lend them, so they neither store nor upload res's part. Off the
+// Cloud every class mate may. Requires egraphMu.
 func (c *Cache) lendsLocked(res, other *sharedResult) bool {
 	if !c.blobBacked || other == res || res.run == nil || other.run == nil || *res.run == *other.run {
 		return true
 	}
-	// A retired entry has left the recipe index, so it shares no recipe
-	// key, but it is the run a later one replaced: it lends only to its own.
-	if !other.runReplaced && !res.runReplaced && !sharesRecipe(res, other) {
-		return true
-	}
 	mine, theirs := c.entryContentLocked(res), c.entryContentLocked(other)
 	return mine != "" && mine == theirs
-}
-
-// sharesRecipe reports whether a and b are entries of one recipe, the same
-// call: a recipe key of one is the other's. A retired entry has left the
-// recipe index and keeps no keys; it shares none.
-func sharesRecipe(a, b *sharedResult) bool {
-	for _, ka := range a.recipeKeys {
-		if slices.Contains(b.recipeKeys, ka) {
-			return true
-		}
-	}
-	return false
 }
 
 // entryContentLocked is the content digest res's stored record is known by:
@@ -943,6 +926,13 @@ func sharesRecipe(a, b *sharedResult) bool {
 // the one the holding of the record's own run reports; "" when neither says.
 // Requires egraphMu.
 func (c *Cache) entryContentLocked(res *sharedResult) digest.Digest {
+	// A digest the entry was taught that its frame hasn't taken yet is the
+	// frame's content once the body worker gives it (queueTaughtContentLocked):
+	// the last taught, as on the engine. Only the record's own run or a copy
+	// of it teaches the entry (teachesEntryContentLocked).
+	if n := len(res.taught); n > res.taughtGiven {
+		return res.taught[n-1]
+	}
 	res.resultCallMu.RLock()
 	known, content, call := res.frameContentKnown, res.frameContent, res.resultCall
 	res.resultCallMu.RUnlock()
@@ -986,4 +976,19 @@ func (c *Cache) holderOfOtherRunLocked(res *sharedResult, holder HolderKey, nowU
 		return false
 	}
 	return !c.replaceableLocked(res, run, nowUnix)
+}
+
+// teachesEntryContentLocked reports whether a content digest the holding key
+// reports, at replacement count replacements, is evidence of entry's stored
+// record's content, which the entry may learn: off the Cloud always; on it,
+// when the holding is of the record's own run, or didn't run its value
+// itself (ran), so holds the record's copy. A holding that ran another run
+// kept on the entry reports that run's content, which would rewrite the
+// record as another value's; it keeps its digest as its own
+// (holding.contentDigest). Requires egraphMu.
+func (c *Cache) teachesEntryContentLocked(entry *sharedResult, key HolderKey, replacements uint64, ran bool) bool {
+	if !c.blobBacked || entry == nil || entry.run == nil || !ran {
+		return true
+	}
+	return *entry.run == RunName{Cache: key.Cache, Number: key.Number, Replacements: replacements}
 }
