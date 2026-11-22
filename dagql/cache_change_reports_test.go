@@ -56,7 +56,7 @@ func changeTestAddresses(c *Cache) map[string]PersistedPartAddress {
 			}
 		}
 		for _, ref := range res.holderRefsLocked() {
-			info := holdingInfo(ref.key, ref.h, res)
+			info := holdingInfo(ref.key, ref.h)
 			for _, address := range append(info.Parts, info.OfferedParts...) {
 				add(address)
 			}

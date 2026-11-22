@@ -1836,13 +1836,6 @@ type RemoteHoldingInfo struct {
 	// FollowsFromInputs and CallRow are the holding's word on the
 	// declaration, as a call row's description set it (Declares).
 	FollowsFromInputs, CallRow bool
-	// SecondRun reports that the holding's entry is a second run of its
-	// recipe, kept beside the recipe's current entry (secondRunOf), and
-	// KeptUnder that a stored entry that is its recipe's current entry
-	// stands over it, through second runs only (keptUnder): only such a
-	// second run's own content is needed, and it outlives its engine. A
-	// write that changes either names the entry (RemoteChange.Entries).
-	SecondRun, KeptUnder bool
 }
 
 // RemoteEntryInfo returns what the cache holds for the entry of one holding,
@@ -1922,7 +1915,7 @@ func (c *Cache) remoteHoldingInfoLocked(key HolderKey) (RemoteHeldEntry, bool) {
 	if h == nil {
 		return RemoteHeldEntry{}, false
 	}
-	held := RemoteHeldEntry{Holding: holdingInfo(key, h, entry)}
+	held := RemoteHeldEntry{Holding: holdingInfo(key, h)}
 	held.Number, held.Stored, held.StoredExpiresAtUnix, held.Recipes = entryFactsLocked(entry)
 	held.RunParts, held.RunPartsKnown = c.runPartsLocked(entry)
 	return held, true
@@ -2043,7 +2036,7 @@ func (c *Cache) CacheHoldings(cache CacheID, numbers []uint64) []RemoteHeldEntry
 		held.Number, held.Stored, held.StoredExpiresAtUnix, held.Recipes = entryFactsLocked(entry)
 		held.RunParts, held.RunPartsKnown = c.runPartsLocked(entry)
 		for _, ref := range refs {
-			held.Holding = holdingInfo(ref.key, ref.h, entry)
+			held.Holding = holdingInfo(ref.key, ref.h)
 			out = append(out, held)
 		}
 	}
@@ -2111,8 +2104,12 @@ type EntryFacts struct {
 	// reports them.
 	RunParts      []PersistedPartAddress
 	RunPartsKnown bool
-	// SecondRun and KeptUnder are the entry's, as RemoteHoldingInfo
-	// reports them.
+	// SecondRun reports that the entry is a second run of its recipe, kept
+	// beside the recipe's current entry (secondRunOf), and KeptUnder that a
+	// stored entry that is its recipe's current entry stands over it,
+	// through second runs only (keptUnder): only such a second run's own
+	// content is needed, and it outlives its engine. A write that changes
+	// either names the entry (RemoteChange.Entries).
 	SecondRun, KeptUnder bool
 }
 
@@ -2188,16 +2185,13 @@ func (c *Cache) remoteEntryInfoLocked(entry *sharedResult) RemoteEntryInfo {
 	info.ClassDigests = sortedKeys(classDigests)
 	slices.SortFunc(info.Terms, compareTerms)
 	for _, ref := range entry.holderRefsLocked() {
-		info.Holdings = append(info.Holdings, holdingInfo(ref.key, ref.h, entry))
+		info.Holdings = append(info.Holdings, holdingInfo(ref.key, ref.h))
 	}
 	return info
 }
 
-// holdingInfo describes the holding key, h, which sits on entry.
-func holdingInfo(key HolderKey, h *holding, entry *sharedResult) RemoteHoldingInfo {
+func holdingInfo(key HolderKey, h *holding) RemoteHoldingInfo {
 	info := RemoteHoldingInfo{
-		SecondRun:         entry.secondRunOf != "",
-		KeptUnder:         entry.keptUnder,
 		Key:               key,
 		TypeName:          handleString(h.typeName),
 		ContentDigest:     digest.Digest(handleString(h.contentDigest)),
@@ -2268,9 +2262,6 @@ type HoldingFacts struct {
 	// reports them.
 	RunParts      []PersistedPartAddress
 	RunPartsKnown bool
-	// SecondRun and KeptUnder are the entry's, as RemoteHoldingInfo
-	// reports them.
-	SecondRun, KeptUnder bool
 }
 
 // HoldingFacts returns the facts of the holding key and its entry, read under
@@ -2294,8 +2285,6 @@ func (c *Cache) HoldingFacts(key HolderKey) (HoldingFacts, bool) {
 		CallRow:           h.rowed,
 		Deps:              h.deps,
 		UnknownDeps:       h.unknownDeps,
-		SecondRun:         entry.secondRunOf != "",
-		KeptUnder:         entry.keptUnder,
 	}
 	if !entry.noValueLocked() {
 		facts.Stored, facts.StoredExpiresAtUnix = true, entry.expiresAtUnix
