@@ -1722,7 +1722,12 @@ type RemoteEntryInfo struct {
 	// record).
 	Stored              bool
 	StoredExpiresAtUnix int64
-	Field               string
+	// RunParts are the parts of the entry's run, as its stored record
+	// declares them (runPartsLocked): stored whole, the entry stores each.
+	// RunPartsKnown reports that the Cloud keeps a record that says.
+	RunParts      []PersistedPartAddress
+	RunPartsKnown bool
+	Field         string
 	// Recipes are the recipe digests that name the entry.
 	Recipes []digest.Digest
 	// Digests are the digests the entry is posted under.
@@ -1791,12 +1796,14 @@ func (c *Cache) EntryInfo(number uint64) (RemoteEntryInfo, bool) {
 // entry's own facts, without the entry's other holdings, digests, classes or
 // terms.
 type RemoteHeldEntry struct {
-	// Number, Stored, StoredExpiresAtUnix and Recipes are the entry's, as
-	// RemoteEntryInfo reports them.
+	// Number, Stored, StoredExpiresAtUnix, Recipes, RunParts and
+	// RunPartsKnown are the entry's, as RemoteEntryInfo reports them.
 	Number              uint64
 	Stored              bool
 	StoredExpiresAtUnix int64
 	Recipes             []digest.Digest
+	RunParts            []PersistedPartAddress
+	RunPartsKnown       bool
 	// Holding is the holding's description, as in RemoteEntryInfo.Holdings.
 	Holding RemoteHoldingInfo
 }
@@ -1839,6 +1846,7 @@ func (c *Cache) remoteHoldingInfoLocked(key HolderKey) (RemoteHeldEntry, bool) {
 	}
 	held := RemoteHeldEntry{Holding: holdingInfo(key, h)}
 	held.Number, held.Stored, held.StoredExpiresAtUnix, held.Recipes = entryFactsLocked(entry)
+	held.RunParts, held.RunPartsKnown = c.entryRunPartsLocked(entry)
 	return held, true
 }
 
@@ -1949,6 +1957,7 @@ func (c *Cache) CacheHoldings(cache CacheID, numbers []uint64) []RemoteHeldEntry
 		}
 		var held RemoteHeldEntry
 		held.Number, held.Stored, held.StoredExpiresAtUnix, held.Recipes = entryFactsLocked(entry)
+		held.RunParts, held.RunPartsKnown = c.entryRunPartsLocked(entry)
 		for _, ref := range refs {
 			held.Holding = holdingInfo(ref.key, ref.h)
 			out = append(out, held)
@@ -2014,6 +2023,10 @@ type EntryFacts struct {
 	Stored              bool
 	StoredExpiresAtUnix int64
 	Recipes             []digest.Digest
+	// RunParts and RunPartsKnown are the entry's, as RemoteEntryInfo
+	// reports them.
+	RunParts      []PersistedPartAddress
+	RunPartsKnown bool
 }
 
 // EntriesFacts returns, for each of numbers the cache has an entry for, in
@@ -2036,6 +2049,7 @@ func (c *Cache) EntriesFacts(numbers []uint64) []EntryFacts {
 		}
 		var facts EntryFacts
 		facts.Number, facts.Stored, facts.StoredExpiresAtUnix, facts.Recipes = entryFactsLocked(entry)
+		facts.RunParts, facts.RunPartsKnown = c.entryRunPartsLocked(entry)
 		out = append(out, facts)
 		if c.testBatchAnswered != nil {
 			c.testBatchAnswered(len(out) - 1)
@@ -2061,6 +2075,7 @@ func entryFactsLocked(entry *sharedResult) (number uint64, stored bool, storedEx
 func (c *Cache) remoteEntryInfoLocked(entry *sharedResult) RemoteEntryInfo {
 	info := RemoteEntryInfo{Field: entry.description}
 	info.Number, info.Stored, info.StoredExpiresAtUnix, info.Recipes = entryFactsLocked(entry)
+	info.RunParts, info.RunPartsKnown = c.entryRunPartsLocked(entry)
 	digests := map[string]struct{}{}
 	for _, dig := range c.resultIndexedDigests[entry.id] {
 		digests[dig] = struct{}{}
@@ -2153,6 +2168,10 @@ type HoldingFacts struct {
 	UnknownDeps                []uint64
 	// Parts are the copy's complete parts, as RemoteHoldingInfo.Parts.
 	Parts []PersistedPartAddress
+	// RunParts and RunPartsKnown are the entry's, as RemoteEntryInfo
+	// reports them.
+	RunParts      []PersistedPartAddress
+	RunPartsKnown bool
 }
 
 // HoldingFacts returns the facts of the holding key and its entry, read under
@@ -2184,6 +2203,7 @@ func (c *Cache) HoldingFacts(key HolderKey) (HoldingFacts, bool) {
 		facts.RetentionExpiresAtUnix = h.retention.expiresAtUnix
 	}
 	facts.Parts, _ = heldPartAddresses(h.parts, false)
+	facts.RunParts, facts.RunPartsKnown = c.entryRunPartsLocked(entry)
 	return facts, true
 }
 

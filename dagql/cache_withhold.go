@@ -1,14 +1,45 @@
 package dagql
 
-// runNotStoredWholeLocked reports whether res stores its run only in part:
-// a part besides its metadata that its record declares complete or pending
-// isn't among the parts the entry stores. Requires egraphMu.
-func (c *Cache) runNotStoredWholeLocked(res *sharedResult) (bool, error) {
+import (
+	"slices"
+	"strings"
+)
+
+// runPartsLocked returns the parts of res's run: every part besides its
+// metadata that its stored record declares complete or pending, inherited
+// ones included, sorted by key. A run is stored whole when the entry stores
+// each of them; the withholding rule and selection's storing whole both read
+// them here. known is false when the Cloud keeps no record of res, so nothing
+// says what its run made. Requires egraphMu.
+func (c *Cache) runPartsLocked(res *sharedResult) (parts []PersistedPartAddress, known bool, err error) {
+	type keyed struct {
+		key     string
+		address PersistedPartAddress
+	}
+	var all []keyed
+	known, err = c.eachRunPartLocked(res, func(key string, address PersistedPartAddress) bool {
+		all = append(all, keyed{key, address})
+		return true
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	slices.SortFunc(all, func(a, b keyed) int { return strings.Compare(a.key, b.key) })
+	all = slices.CompactFunc(all, func(a, b keyed) bool { return a.key == b.key })
+	for _, part := range all {
+		parts = append(parts, part.address)
+	}
+	return parts, known, nil
+}
+
+// eachRunPartLocked calls fn with each part of res's run (runPartsLocked), by
+// its address key, until fn returns false; a part its record both declares
+// pending and proves complete comes twice. Requires egraphMu.
+func (c *Cache) eachRunPartLocked(res *sharedResult, fn func(key string, address PersistedPartAddress) bool) (known bool, err error) {
 	var declared []declaredPart
 	var complete *partKeySet
 	switch {
 	case res.stored != nil:
-		var err error
 		if _, declared, complete, err = res.storedFactsLocked(); err != nil {
 			return false, err
 		}
@@ -21,25 +52,41 @@ func (c *Cache) runNotStoredWholeLocked(res *sharedResult) (bool, error) {
 	default:
 		return false, nil
 	}
-	missing := func(key string, address PersistedPartAddress) bool {
-		if address.Part == "metadata" {
-			return false
-		}
-		_, stored := res.storedParts[key]
-		return !stored
-	}
 	for _, part := range declared {
-		if part.state == "pending" && missing(part.key, part.address) {
+		if part.state == "pending" && part.address.Part != "metadata" && !fn(part.key, part.address) {
 			return true, nil
 		}
 	}
 	for _, key := range complete.list() {
-		addresses := appendPartAddress(nil, key)
-		if len(addresses) == 1 && missing(key, addresses[0]) {
+		if addresses := appendPartAddress(nil, key); len(addresses) == 1 && addresses[0].Part != "metadata" && !fn(key, addresses[0]) {
 			return true, nil
 		}
 	}
-	return false, nil
+	return true, nil
+}
+
+// runNotStoredWholeLocked reports whether res stores its run only in part:
+// some part of its run (runPartsLocked) isn't among the parts the entry
+// stores. Requires egraphMu.
+func (c *Cache) runNotStoredWholeLocked(res *sharedResult) (bool, error) {
+	partial := false
+	_, err := c.eachRunPartLocked(res, func(key string, _ PersistedPartAddress) bool {
+		_, stored := res.storedParts[key]
+		partial = !stored
+		return stored
+	})
+	return partial, err
+}
+
+// entryRunPartsLocked is runPartsLocked for the Cloud's readers of an entry's
+// facts: a record it can't read says nothing, as no record does. Requires
+// egraphMu.
+func (c *Cache) entryRunPartsLocked(res *sharedResult) ([]PersistedPartAddress, bool) {
+	parts, known, err := c.runPartsLocked(res)
+	if err != nil {
+		return nil, false
+	}
+	return parts, known
 }
 
 // withholdBuild decides, for one stored bundle's build, which entries the

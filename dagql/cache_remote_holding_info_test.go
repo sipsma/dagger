@@ -43,6 +43,8 @@ func requireHeldEntryMatches(t *testing.T, cloud *Cache, step string, keys []Hol
 			Stored:              info.Stored,
 			StoredExpiresAtUnix: info.StoredExpiresAtUnix,
 			Recipes:             info.Recipes,
+			RunParts:            info.RunParts,
+			RunPartsKnown:       info.RunPartsKnown,
 		}
 		found := false
 		for _, h := range info.Holdings {

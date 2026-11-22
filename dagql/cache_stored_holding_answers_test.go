@@ -69,6 +69,8 @@ func TestStoredEntryHoldingAnswers(t *testing.T) {
 		Stored:              true,
 		StoredExpiresAtUnix: expiry,
 		Recipes:             info.Recipes,
+		RunParts:            []PersistedPartAddress{{Part: "snapshot"}},
+		RunPartsKnown:       true,
 		Holding: RemoteHoldingInfo{
 			Key:                    rootKey,
 			TypeName:               "transferTestValue",
