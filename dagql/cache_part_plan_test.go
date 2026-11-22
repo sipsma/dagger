@@ -127,7 +127,78 @@ func TestPlannedPartFetchOfAWholeEntry(t *testing.T) {
 func TestPlannedPartFetchOfAnEntryNotHeld(t *testing.T) {
 	f := newPlanFixture(t, nil)
 	f.cache.PlanPartFetch(f.ctx, 1<<40, f.address.Part, "")
-	require.Empty(t, f.plannedJobs())
+	require.Never(t, func() bool { return len(f.plannedJobs()) > 0 }, 200*time.Millisecond, 10*time.Millisecond)
+}
+
+// A plan that fires after its entry's value was decoded, which lets go of
+// the entry's persisted envelope though its content is still only offered,
+// finds the entry's offer all the same, from the record an install would
+// capture.
+func TestPlannedPartFetchOfADecodedEntry(t *testing.T) {
+	f := newPlanFixture(t, nil)
+	_, err := f.cache.ensurePersistedHitValueLoaded(f.ctx, f.srv, f.receiver)
+	require.NoError(t, err)
+	row := f.receiver.cacheSharedResult()
+	row.payloadMu.RLock()
+	decoded := row.persistedEnvelope == nil && row.hasValue
+	row.payloadMu.RUnlock()
+	require.True(t, decoded, "the entry's value is decoded")
+	f.cache.PlanPartFetch(f.ctx, uint64(row.id), f.address.Part, "")
+	f.runPlanned(t)
+	require.Equal(t, "done", f.aheadLine(t).fields["outcome"])
+}
+
+// takeLaneJob takes the offer's job from its lane, as a lane worker does
+// before it runs it.
+func (f *prefetchFixture) takeLaneJob(t *testing.T) *partPrefetchJob {
+	t.Helper()
+	job := f.job(t, f.offer)
+	f.prefetch.mu.Lock()
+	defer f.prefetch.mu.Unlock()
+	require.True(t, f.prefetch.unqueueLocked(job))
+	job.cancel = func() {}
+	return job
+}
+
+// A plan that fires while a lane worker has taken the offer's job, before
+// the job meets the budget, leaves the job to that worker, which then
+// downloads it whatever the budget.
+func TestPlannedPartFetchOfAJobALaneWorkerTook(t *testing.T) {
+	f := newPlanFixture(t, func(config *partPrefetchConfig) { config.budget = 1 })
+	job := f.takeLaneJob(t)
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
+	require.Eventually(t, func() bool {
+		f.prefetch.mu.Lock()
+		defer f.prefetch.mu.Unlock()
+		return job.planned
+	}, 10*time.Second, 5*time.Millisecond, "the taken job is marked planned")
+	require.Empty(t, f.plannedJobs(), "the worker keeps it")
+	f.prefetch.run(context.Background(), job)
+	lines := f.logs.lines(t, "remote cache part prefetched")
+	require.Equal(t, "done", lines[len(lines)-1].fields["outcome"])
+	require.Equal(t, "done", f.aheadLine(t).fields["outcome"])
+}
+
+// A plan that fires once a lane worker's job was skipped against the budget,
+// before the worker let go of it, queues a planned job in its place, which
+// downloads it.
+func TestPlannedPartFetchAfterItsLaneJobWasSkipped(t *testing.T) {
+	f := newPlanFixture(t, func(config *partPrefetchConfig) { config.budget = 1 })
+	job := f.takeLaneJob(t)
+	f.prefetch.run(context.Background(), job)
+	lines := f.logs.lines(t, "remote cache part prefetched")
+	require.Equal(t, "skipped_budget", lines[len(lines)-1].fields["outcome"])
+	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
+	planned := f.awaitPlanned(t)
+	require.NotSame(t, job, planned)
+	f.prefetch.mu.Lock()
+	if key := job.jobKey(); f.prefetch.jobs[key] == job {
+		delete(f.prefetch.jobs, key)
+	}
+	f.prefetch.mu.Unlock()
+	f.runPlanned(t)
+	lines = f.logs.lines(t, "remote cache part prefetched")
+	require.Equal(t, "done", lines[len(lines)-1].fields["outcome"])
 }
 
 // The prefetch budget bounds what fetching ahead holds on a guess; a planned
