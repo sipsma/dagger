@@ -130,41 +130,52 @@ func (c *Cache) noteHoldingRanLocked(key HolderKey, entry *sharedResult, h *hold
 	return true
 }
 
-// markRecipesUnderLocked marks the entries below res, through its
-// dependencies, whose stored record is of the same engine as res's and
-// whose own run didn't run: whether one may be adopted reads whether a
-// record over it of its engine ran (canAdoptRunLocked's
-// ownEngineRanOverLocked), and res's run has just run. A branch stops at an
-// entry of that engine whose run ran, since what is under it already has a
-// record over it that ran. Requires egraphMu for writing.
-func (c *Cache) markRecipesUnderLocked(res *sharedResult) {
-	if !c.blobBacked || res.run == nil {
+// markRecipesUnderLocked marks the entries below each of ran, through
+// their dependencies, whose stored record is of the same engine as that
+// record's and whose own run didn't run: whether one may be adopted reads
+// whether a record over it of its engine ran (canAdoptRunLocked's
+// ownEngineRanOverLocked), and each record of ran has a run that ran, newly
+// or newly over them. A branch stops at an entry of that engine whose run
+// ran, since what is under it already has a record over it that ran. Each
+// entry is walked once for each engine. Requires egraphMu for writing.
+func (c *Cache) markRecipesUnderLocked(ran ...*sharedResult) {
+	if !c.blobBacked {
 		return
 	}
-	engine := res.run.Cache
-	seen := map[sharedResultID]bool{res.id: true}
-	queue := []*sharedResult{res}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for id := range cur.deps {
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
-			dep := c.resultsByID[id]
-			if dep == nil {
-				continue
-			}
-			if dep.run != nil && dep.run.Cache == engine {
-				if c.ownRunRanLocked(dep) && !dep.noValueLocked() {
+	type walked struct {
+		engine CacheID
+		id     sharedResultID
+	}
+	seen := map[walked]bool{}
+	for _, res := range ran {
+		if res == nil || res.run == nil || res.runRan == runNotRan {
+			continue
+		}
+		engine := res.run.Cache
+		seen[walked{engine, res.id}] = true
+		queue := []*sharedResult{res}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			for id := range cur.deps {
+				if seen[walked{engine, id}] {
 					continue
 				}
-				if !c.ownRunRanLocked(dep) {
-					c.markEntryLocked(dep.id)
+				seen[walked{engine, id}] = true
+				dep := c.resultsByID[id]
+				if dep == nil {
+					continue
 				}
+				if dep.run != nil && dep.run.Cache == engine {
+					if c.ownRunRanLocked(dep) && !dep.noValueLocked() {
+						continue
+					}
+					if !c.ownRunRanLocked(dep) {
+						c.markEntryLocked(dep.id)
+					}
+				}
+				queue = append(queue, dep)
 			}
-			queue = append(queue, dep)
 		}
 	}
 }
@@ -461,8 +472,9 @@ func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) {
 	// it complete.
 	adopted := run
 	res.run, res.runRan = &adopted, runRanByProof
-	// What the record's run was known by was another run's.
-	res.runContent = ""
+	// The record's run is now the adopted one, known by what its holding
+	// reports, if anything.
+	res.runContent = c.runHoldingContentLocked(adopted)
 	// The entry's class mates answer for its parts by its run
 	// (lendsLocked): they are named too, so kept answers ask again.
 	c.markEntryClassLocked(res.id, StampReplaced)
@@ -951,21 +963,23 @@ func (c *Cache) lendsLocked(res, other *sharedResult) bool {
 }
 
 // entryContentLocked is the content digest res's stored record's run is
-// known by (sharedResult.runContent), or else the one the holding of the
-// record's own run reports; "" when neither says. Both change only by
-// writes that name res and its classes, so an answer read from them is let
-// go when they change. The frame's content and the entry's taught digests
-// are the class's identity, which the body worker gives the frame in its
-// own time and carries across a replacement: they aren't read here.
+// known by (sharedResult.runContent); "" when nothing says. It changes only
+// by writes that name res and its classes, so an answer read from it is let
+// go when it changes. The frame's content and the entry's taught digests are
+// the class's identity, which the body worker gives the frame in its own
+// time and carries across a replacement, and a holding's report reaches it
+// only as it is noted (noteRunContentLocked): neither is read here.
 // Requires egraphMu.
 func (c *Cache) entryContentLocked(res *sharedResult) digest.Digest {
-	if res.runContent != "" {
-		return res.runContent
-	}
-	if res.run != nil {
-		if _, own := c.holdingLocked(HolderKey{Cache: res.run.Cache, Number: res.run.Number}); own != nil && own.replacements == res.run.Replacements {
-			return digest.Digest(handleString(own.contentDigest))
-		}
+	return res.runContent
+}
+
+// runHoldingContentLocked is the content digest the holding of run reports
+// of run's value, "" when it reports none or has moved on to another value.
+// Requires egraphMu.
+func (c *Cache) runHoldingContentLocked(run RunName) digest.Digest {
+	if _, h := c.holdingLocked(HolderKey{Cache: run.Cache, Number: run.Number}); h != nil && h.replacements == run.Replacements {
+		return digest.Digest(handleString(h.contentDigest))
 	}
 	return ""
 }

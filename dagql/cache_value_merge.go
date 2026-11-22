@@ -3033,6 +3033,15 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			errs = errors.Join(errs, err)
 		}
 	}
+	// A record installed whose run ran is over its dependencies now: those of
+	// its engine whose own run didn't may no longer be adopted.
+	var ran []*sharedResult
+	for _, row := range commit.rows {
+		if row.action.installs() && row.res.runRan != runNotRan {
+			ran = append(ran, row.res)
+		}
+	}
+	c.markRecipesUnderLocked(ran...)
 	// Requirements are recomputed one level deep, so dependencies first: in
 	// the final graph's order, which a recipe's best record can change from
 	// the bundle's. checkMergeGraphLocked refused any cycle.
@@ -3255,6 +3264,10 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 		res.run, res.runRan = &run, row.runRan
 		if rec.Call != nil {
 			res.runContent = rec.Call.ContentDigest()
+		}
+		if res.runContent == "" {
+			// What the run's holding reported before its record came.
+			res.runContent = c.runHoldingContentLocked(run)
 		}
 	}
 	// The record's own parts and offers decide its value's sources now.

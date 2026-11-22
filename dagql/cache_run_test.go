@@ -2122,3 +2122,150 @@ func TestARecordsRunContentIsntMovedByTheBodyWorker(t *testing.T) {
 	cloud.applyTaughtContent([]*sharedResult{res})
 	require.Equal(t, digest.FromString("B's content"), content(pA), "the worker's carrying of A's digests changes nothing of B's run")
 }
+
+// A record merged whose run ran is over the records it depends on: a recipe
+// of its engine below it, sent only as a row the Cloud holds, is named by
+// the merge, as its answer for another run turns from asking that run to
+// another run's.
+func TestAMergedRecordThatRanNamesARecipeBelowAHeldRow(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	ectx, e, esrv := transferTestCache(t)
+	p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: "a dep"})
+	q := persistedListTestResult(t, ectx, e, esrv, "replace-mid", &transferTestValue{Text: "a mid"})
+	transferTestDependency(e, ectx, q, p)
+	first := exportTestBundle(t, ectx, e, q)
+	reply, err := mergeExport(t, ctx, cloud, "cache-a", first)
+	require.NoError(t, err)
+	var pNumber uint64
+	for _, v := range reply.Values {
+		for _, sent := range first.Values {
+			if sent.Ordinal == v.Ordinal && sent.SenderNumber == uint64(p.cacheSharedResult().id) {
+				pNumber = v.Number
+			}
+		}
+	}
+	require.NotZero(t, pNumber)
+	recipe, ok := cloud.EntryRecipe(pNumber)
+	require.True(t, ok)
+	b := HolderKey{Cache: "cache-b", Number: 3}
+	_, err = cloud.AttachRemoteHolding(ctx, b, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	ask := func() PartAvailabilityState {
+		t.Helper()
+		got := cloud.AvailableParts([]PartQuery{{Number: pNumber, Address: testLiveOffer().Address, Holder: b}}, time.Now().Unix())
+		require.NoError(t, got[0].Err)
+		return got[0].State
+	}
+	require.Equal(t, PartUnavailable, ask(), "A's dep is a recipe")
+	// A's root over its mid proves a part complete; the mid goes held, as a
+	// row the Cloud already holds, and the dep below it isn't sent.
+	r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: "a root", Parts: []transferTestPart{{Part: "snapshot", State: "completed", Kind: "directory"}}})
+	transferTestDependency(e, ectx, r, q)
+	second := withoutRows(t, engineHeldTestBundle(t, e, exportTestBundle(t, ectx, e, r), q), p)
+	merged, err := cloud.MergeValues(ctx, "cache-a", second)
+	require.NoError(t, err)
+	require.True(t, merged.Committed)
+	require.Contains(t, merged.Change.Entries, pNumber, "a reader keeping A's dep's answers lets them go")
+	require.Equal(t, PartOtherRun, ask(), "A's root ran, so A's run of its dep happened")
+}
+
+// An adopted record's run is known by what that run's holding reported when
+// it was adopted, which stays with the record when the holding goes: a class
+// mate of another run shown equal by it keeps borrowing its part.
+func TestAnAdoptedRunsContentStaysWhenItsHoldingGoes(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, r, p := replaceTestRun(t, ctx, cloud, "cache-other")
+	cloud.egraphMu.Lock()
+	cloud.resultsByID[sharedResultID(r)].run = &RunName{Cache: "cache-third", Number: 1}
+	cloud.egraphMu.Unlock()
+	recipe, ok := cloud.EntryRecipe(p)
+	require.True(t, ok)
+	content := digest.FromString("B's content")
+	b := HolderKey{Cache: "cache-b", Number: 9}
+	_, err := cloud.AttachRemoteHolding(ctx, b, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}, ContentDigest: content})
+	require.NoError(t, err)
+	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p, Run: RunName{Cache: b.Cache, Number: b.Number}, Part: testLiveOffer()}})
+	require.NoError(t, err)
+	require.Equal(t, StoredPartResult{Stored: true, Adopted: true}, got[0], "the recipe takes B's run")
+	// M, another run's record with the same content, in P's class by a
+	// request digest.
+	ectx, e, esrv := transferTestCache(t)
+	m := persistedListTestResult(t, ectx, e, esrv, "other-dep", &transferTestValue{Text: "cache-m other"})
+	require.NoError(t, e.TeachContentDigest(ectx, m, content))
+	reply, err := mergeExport(t, ctx, cloud, "cache-m", exportTestBundle(t, ectx, e, m))
+	require.NoError(t, err)
+	pM := reply.Values[0].Number
+	request := digest.FromString("one call returned both")
+	for _, n := range []uint64{p, pM} {
+		rec, ok := cloud.EntryRecipe(n)
+		require.True(t, ok)
+		run, ok := entryRunName(cloud, n)
+		require.True(t, ok)
+		_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: rec, Replacements: run.Replacements, Request: request})
+		require.NoError(t, err)
+	}
+	av, err := cloud.AvailablePart(pM, testLiveOffer().Address, time.Now().Unix())
+	require.NoError(t, err)
+	require.Equal(t, PartStored, av.State, "M borrows P's part: the same content")
+	_, found, err := cloud.CollectRemoteHolding(ctx, b)
+	require.NoError(t, err)
+	require.True(t, found)
+	av, err = cloud.AvailablePart(pM, testLiveOffer().Address, time.Now().Unix())
+	require.NoError(t, err)
+	require.Equal(t, PartStored, av.State, "B's run's content stays with the record it was adopted onto")
+}
+
+// withoutRows drops results' rows from bundle, as an engine's export omits
+// what a held row stands for, and numbers the rest again in order.
+func withoutRows(t *testing.T, bundle ValueBundle, results ...AnyResult) ValueBundle {
+	t.Helper()
+	drop := map[uint64]bool{}
+	for _, res := range results {
+		drop[uint64(res.cacheSharedResult().id)] = true
+	}
+	renumber := map[TransferOrdinal]TransferOrdinal{}
+	out := bundle
+	out.Values = nil
+	for _, v := range bundle.Values {
+		if drop[v.SenderNumber] {
+			continue
+		}
+		renumber[v.Ordinal] = TransferOrdinal(len(out.Values) + 1)
+		out.Values = append(out.Values, v)
+	}
+	require.Len(t, out.Values, len(bundle.Values)-len(results))
+	for i := range out.Values {
+		v := &out.Values[i]
+		v.Ordinal = renumber[v.Ordinal]
+		var deps []uint64
+		for _, d := range v.DependencyIDs {
+			if n, ok := renumber[TransferOrdinal(d)]; ok {
+				deps = append(deps, uint64(n))
+			}
+		}
+		v.DependencyIDs = deps
+	}
+	out.Roots = slices.Clone(bundle.Roots)
+	for i := range out.Roots {
+		n, ok := renumber[out.Roots[i].Ordinal]
+		require.True(t, ok, "a root isn't dropped")
+		out.Roots[i].Ordinal = n
+	}
+	out.Outputs = nil
+	for _, o := range bundle.Outputs {
+		if n, ok := renumber[o.Ordinal]; ok {
+			o.Ordinal = n
+			out.Outputs = append(out.Outputs, o)
+		}
+	}
+	out.Calls = nil
+	for _, c := range bundle.Calls {
+		if n, ok := renumber[c.Value]; ok {
+			c.Value = n
+			out.Calls = append(out.Calls, c)
+		}
+	}
+	return out
+}
