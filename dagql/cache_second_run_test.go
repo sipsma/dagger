@@ -489,3 +489,85 @@ func TestARestoredCloudKeepsASecondRunAsOne(t *testing.T) {
 		})
 	}
 }
+
+// A third engine that was served a second run and then ran the step itself,
+// for want of its content, has a run of its own: a result it builds over its
+// run stands over a new entry of its run, never over the second run it was
+// served, and what was built over that second run stays over it.
+func TestARebuildOfAServedSecondRunIsARunOfItsOwn(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+	second, root := secondRunTestNumber(bundle, reply, s.bStep), secondRunTestNumber(bundle, reply, s.bRoot)
+
+	sent, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	cctx, c, csrv := transferTestCache(t)
+	creply, err := c.MergeValues(cctx, cloudCacheID, sent.Bundle)
+	require.NoError(t, err)
+	_, err = s.cloud.ApplyMergedReply(s.cctx, "cache-c", sent.Bundle, creply)
+	require.NoError(t, err)
+	var taken AnyResult
+	for _, value := range sent.Bundle.Values {
+		if value.SenderNumber != second {
+			continue
+		}
+		for _, merged := range creply.Values {
+			if merged.Ordinal == value.Ordinal {
+				taken, err = c.LoadResultByResultID(cctx, "test-session", csrv, merged.Number)
+				require.NoError(t, err)
+			}
+		}
+	}
+	require.NotNil(t, taken, "cache-c was served cache-b's run")
+	key := HolderKey{Cache: "cache-c", Number: uint64(taken.cacheSharedResult().id)}
+	held, ok := s.cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.Equal(t, second, held, "cache-c's holding sits on the run it was served")
+	// cache-c ran the step itself, for want of the second run's content.
+	runTestEvaluated(t, s.cctx, s.cloud, key, taken.cacheSharedResult().replacements, true)
+
+	cRoot := secondRunTestStep(t, cctx, c, csrv, "second-run-c-root", "c-root")
+	transferTestDependency(c, cctx, cRoot, taken)
+	cBundle, cReply := secondRunTestExport(t, cctx, c, nil, s.cloud, s.cctx, "cache-c", cRoot)
+	require.Empty(t, cReply.Stale)
+	third := secondRunTestNumber(cBundle, cReply, taken)
+	require.NotEqual(t, second, third, "cache-c's run is an entry of its own")
+	require.NotEqual(t, s.first, third)
+	require.Equal(t, RunName{Cache: "cache-c", Number: key.Number, Replacements: taken.cacheSharedResult().replacements}, runTestRan(t, s.cloud, third).Run)
+	s.cloud.egraphMu.RLock()
+	_, cOverThird := s.cloud.resultsByID[sharedResultID(secondRunTestNumber(cBundle, cReply, cRoot))].deps[sharedResultID(third)]
+	_, bOverSecond := s.cloud.resultsByID[sharedResultID(root)].deps[sharedResultID(second)]
+	s.cloud.egraphMu.RUnlock()
+	require.True(t, cOverThird, "cache-c's result stands over cache-c's run")
+	require.True(t, bOverSecond, "cache-b's result still stands over cache-b's run")
+	require.Equal(t, secondRunTestRun("cache-b", s.bStep), runTestRan(t, s.cloud, second).Run)
+}
+
+// A second run's root exported again keeps no retention of its own, as its
+// first export gave it none: the export asks for its recipe, which the
+// current entry stores. Its engine's end still releases it.
+func TestASecondRunsRootExportedAgainKeepsNoRetention(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	known := NewKnownRows()
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, known, s.cloud, s.cctx, "cache-b", s.bStep)
+	second := secondRunTestNumber(bundle, reply, s.bStep)
+	for _, k := range []*KnownRows{nil, known} {
+		_, again := secondRunTestExport(t, s.bctx, s.b, k, s.cloud, s.cctx, "cache-b", s.bStep)
+		require.Empty(t, again.Stale)
+	}
+	s.cloud.egraphMu.RLock()
+	_, retained := s.cloud.persistedEdgesByResult[sharedResultID(second)]
+	_, firstRetained := s.cloud.persistedEdgesByResult[sharedResultID(s.first)]
+	s.cloud.egraphMu.RUnlock()
+	require.False(t, retained, "the second run has no retention of its own")
+	require.True(t, firstRetained)
+
+	_, err := s.cloud.ReleaseSecondRuns(s.cctx, "cache-b", func(CacheID) bool { return false })
+	require.NoError(t, err)
+	_, ok := s.cloud.EntryRun(second)
+	require.False(t, ok, "released at cache-b's end")
+	_, ok = s.cloud.EntryRun(s.first)
+	require.True(t, ok)
+}
