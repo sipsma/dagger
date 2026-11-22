@@ -693,10 +693,23 @@ func (c *Cache) markCarriedUploadsLocked(commit *valueMergeCommit, reply *MergeR
 			continue
 		}
 		for _, key := range slices.Sorted(maps.Keys(parts)) {
-			if err := c.MarkPartUploading(uint64(res.id), parts[key]); err != nil {
+			// The commit starts the export's upload of the part, as its
+			// reader's start would (startPartLocked): where the part's class
+			// has it neither stored nor uploading, one upload serving the
+			// class. The export's reader takes the start over as its own
+			// claim, and ends it when the upload ends (EndPartUploads).
+			if av, held := c.heldPartLocked(res, key, commit.now); held && av.State == PartStored {
 				continue
 			}
-			reply.Uploading = append(reply.Uploading, PartUpload{Number: uint64(res.id), Address: parts[key]})
+			c.uploadsMu.Lock()
+			_, uploading := c.classUploadLocked(res, key)
+			if !uploading {
+				c.countUploadLocked(res.id, key)
+			}
+			c.uploadsMu.Unlock()
+			if !uploading {
+				reply.Uploading = append(reply.Uploading, PartUpload{Number: uint64(res.id), Address: parts[key]})
+			}
 		}
 		// The run's own export carries its content: it is on its way, so
 		// a fact that it won't come stands no longer.
@@ -786,7 +799,7 @@ func entriesOverLocked(c *Cache, from []*sharedResult) map[sharedResultID]*share
 // storedWithoutContentLocked reports whether res's stored record declares or
 // proves a part of content (recordParts.contentKeys), and the cache stores none of its
 // parts but metadata, nor has an upload of one in progress
-// (MarkPartUploading, by the reader's upload claims, which an upload's end
+// (StartPartUploads, by the reader's upload claims, which an upload's end
 // gives back): a run whose content no engine can fetch, nor is on its way.
 // Requires egraphMu.
 func (c *Cache) storedWithoutContentLocked(res *sharedResult) bool {

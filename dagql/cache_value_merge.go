@@ -557,15 +557,15 @@ type MergeReply struct {
 	Release func(context.Context) error
 	// Rows counts the bundle's records by what the commit did with each.
 	Rows MergeRowCounts
-	// Uploading are, on the Cloud, the uploads the commit marked in progress
-	// (MarkPartUploading), in the same hold: each part whose content the
-	// bundle carries, on each record of the sender's own run the commit left
-	// on an entry of that run. The sender's export uploads them next, and
-	// until its own claims are taken they are what says the content is on
-	// its way, so that no other run replaces the record meanwhile
-	// (storedWithoutContentLocked). The caller ends every one with
-	// EndPartUploads once it has taken its claims, on every path, whether or
-	// not it uploads the part.
+	// Uploading are, on the Cloud, the uploads the commit started, in the
+	// same hold, as a reader's start would (StartPartUploads): each part
+	// whose content the bundle carries, on each record of the sender's own
+	// run the commit left on an entry of that run, whose class has it
+	// neither stored nor uploading. The sender's export uploads them next,
+	// and they say the content is on its way, so that no other run replaces
+	// the record meanwhile (storedWithoutContentLocked). The caller takes
+	// each over as its export's claim on the part, and ends every one with
+	// EndPartUploads, on every path, whether or not it uploads the part.
 	Uploading []PartUpload
 	// Warm is how long the commit took to capture its targets' complete
 	// parts before it decided (warmMergeTargetParts). Each capture takes

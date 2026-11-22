@@ -766,14 +766,14 @@ func TestALaterRunDoesntReplaceARecordWithContent(t *testing.T) {
 }
 
 // A record whose content is being uploaded isn't without content: a later
-// run doesn't replace it while the upload's claim holds (MarkPartUploading).
+// run doesn't replace it while the upload's claim holds (StartPartUploads).
 func TestALaterRunDoesntReplaceARecordWhoseContentIsUploading(t *testing.T) {
 	t.Parallel()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
 	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
 	for _, n := range []uint64{r1, p1} {
 		replaceTestRan(t, ctx, cloud, n)
-		require.NoError(t, cloud.MarkPartUploading(n, testLiveOffer().Address))
+		require.NoError(t, runTestStartUpload(cloud, n, testLiveOffer().Address))
 	}
 	reply, r2, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
 	require.Zero(t, reply.Rows.RunsReplaced)
@@ -1197,7 +1197,7 @@ func TestAHeldRowIsntStaleWhileTheRunsUploadHoldsItsClaim(t *testing.T) {
 	b, p, _, full, _ := heldTestRun(t, ctx, cloud)
 	replaceTestRan(t, ctx, cloud, pA)
 	heldTestComputed(t, ctx, cloud, b, p)
-	require.NoError(t, cloud.MarkPartUploading(pA, testLiveOffer().Address))
+	require.NoError(t, runTestStartUpload(cloud, pA, testLiveOffer().Address))
 	held := engineHeldTestBundle(t, b, full, p)
 	reply, err := mergeExport(t, ctx, cloud, "cache-b", held)
 	require.NoError(t, err)
@@ -1623,7 +1623,7 @@ func TestAnEnginesEndNotesItsRunWhileAnotherRunsUploadIsInFlight(t *testing.T) {
 	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
 	replaceTestRanOnly(t, ctx, cloud, pA)
 	// B's upload of the entry is claimed, its bytes another run's.
-	require.NoError(t, cloud.MarkPartUploading(pA, testLiveOffer().Address))
+	require.NoError(t, runTestStartUpload(cloud, pA, testLiveOffer().Address))
 	change := cloud.NoteCacheGone("cache-a")
 	require.Contains(t, change.Entries, pA)
 	require.True(t, cloud.RunContentWontCome(pA))
@@ -1690,4 +1690,18 @@ func TestMergeValuesLeavesNoUploadMarked(t *testing.T) {
 	for _, v := range reply.Values {
 		require.False(t, cloud.PartUploading(v.Number, PersistedPartAddress{Part: "snapshot"}), "entry %d", v.Number)
 	}
+}
+
+// runTestStartUpload starts an upload of the part at address for the entry
+// numbered number, as a remote cache service's reader does
+// (StartPartUploads), and errs unless it started.
+func runTestStartUpload(cloud *Cache, number uint64, address PersistedPartAddress) error {
+	got, _ := cloud.StartPartUploads([]PartStartQuery{{PartQuery: PartQuery{Number: number, Address: address}}}, time.Now().Unix())
+	if got[0].Err != nil {
+		return got[0].Err
+	}
+	if !got[0].Started {
+		return fmt.Errorf("upload of %d not started: %+v", number, got[0])
+	}
+	return nil
 }

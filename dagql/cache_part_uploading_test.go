@@ -457,7 +457,7 @@ func TestAStoredOrAbsentPartAnswersBeforeAnUpload(t *testing.T) {
 		h := newHolderTestClass(t)
 		mount := storedPruneTestPart("mount:/stored", map[string]int64{"holder-r-stored": 10})
 		startUpload(t, h.cloud, h.m, mount.Address)
-		stored, _, err := h.cloud.SetStoredPart(h.ctx, h.r, mount, 0)
+		stored, _, err := h.cloud.SetStoredPart(h.ctx, h.r, storedPartRunOf(t, h.cloud, h.r), mount, 0)
 		require.NoError(t, err)
 		require.True(t, stored)
 		require.True(t, h.cloud.PartUploading(h.m, mount.Address), "M's upload is still counted")
