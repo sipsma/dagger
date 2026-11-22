@@ -263,7 +263,11 @@ const cachePersistenceSchemaVersion = "26"
 // (sharedResult.runWontCome). An older store says nothing of it, so a record
 // would read as one whose content is still on its way; they are wiped on
 // import.
-const blobBackedStoreFormat = "compressed-records-4"
+//
+// 5: a stored record's saved row names the content digest its run is known
+// by (sharedResult.runContent). An older store says nothing of it, so no
+// run would be shown equal to another by content; they are wiped on import.
+const blobBackedStoreFormat = "compressed-records-5"
 
 // persistenceSchemaVersion is the schema version the cache saves under, and
 // restores only from.
@@ -3339,6 +3343,12 @@ type sharedResult struct {
 	// (runContentWontComeLocked). All three go with the value. Guarded by
 	// egraphMu.
 	runReplaced, imageEntry, runWontCome bool
+	// runContent is, on the Cloud, the content digest the stored record's
+	// run is known by: its record's, as it was merged, or the last one a
+	// holding of that run, or a copy of it, reported
+	// (noteRunContentLocked). Unlike the frame's, it changes only by those
+	// writes, and it goes with the run. Guarded by egraphMu.
+	runContent digest.Digest
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in

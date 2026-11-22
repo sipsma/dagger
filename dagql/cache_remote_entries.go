@@ -524,6 +524,7 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		content = ""
 	}
 	c.teachRemoteIdentityLocked(ctx, entry, desc.Field, recipe, desc.Request, content, desc.Term)
+	c.noteRunContentLocked(entry, content)
 	change.Saved = c.keepCallLocked(entry, desc, kept)
 	if desc.TypeName != "" && desc.TypeName != handleString(h.typeName) {
 		h.typeName = internString(desc.TypeName)
@@ -830,6 +831,7 @@ func (c *Cache) applyHeldValueStateLocked(ctx context.Context, state *remoteCach
 		// only make the class depend on arrival order. The holding's own
 		// content digest follows the count below.
 		c.teachRemoteIdentityLocked(ctx, entry, entry.description, "", "", obs.ContentDigest, nil)
+		c.noteRunContentLocked(entry, obs.ContentDigest)
 	}
 	if obs.Replacements < h.replacements {
 		return nil
@@ -1455,9 +1457,6 @@ func (c *Cache) teachRemoteIdentityLocked(ctx context.Context, entry *sharedResu
 	if content != "" && entry != nil && entry.id != 0 {
 		if n := len(entry.taught); n == 0 || entry.taught[n-1] != content {
 			entry.taught = append(entry.taught, content)
-			// The record's content as the cache knows it changed: its own
-			// and its class mates' part answers read it (entryContentLocked).
-			c.markEntryClassLocked(entry.id, StampRunContent)
 		}
 		c.queueTaughtContentLocked(entry)
 	}

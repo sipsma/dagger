@@ -603,6 +603,7 @@ func encodeStoredRow(header *PersistedResultEnvelope, body *storedBody) ([]byte,
 	h.Envelope.StoredParts = header.StoredParts
 	h.Envelope.Run, h.Envelope.RunRan = header.Run, header.RunRan
 	h.Envelope.ImageEntry, h.Envelope.RunWontCome = header.ImageEntry, header.RunWontCome
+	h.Envelope.RunContent = header.RunContent
 	for _, part := range body.parts {
 		h.Parts = append(h.Parts, storedRowPart{Address: part.address, State: part.state, Kind: part.kind})
 	}

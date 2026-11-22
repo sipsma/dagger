@@ -126,7 +126,47 @@ func (c *Cache) noteHoldingRanLocked(key HolderKey, entry *sharedResult, h *hold
 	}
 	entry.runRan = by
 	c.markEntryLocked(entry.id)
+	c.markRecipesUnderLocked(entry)
 	return true
+}
+
+// markRecipesUnderLocked marks the entries below res, through its
+// dependencies, whose stored record is of the same engine as res's and
+// whose own run didn't run: whether one may be adopted reads whether a
+// record over it of its engine ran (canAdoptRunLocked's
+// ownEngineRanOverLocked), and res's run has just run. A branch stops at an
+// entry of that engine whose run ran, since what is under it already has a
+// record over it that ran. Requires egraphMu for writing.
+func (c *Cache) markRecipesUnderLocked(res *sharedResult) {
+	if !c.blobBacked || res.run == nil {
+		return
+	}
+	engine := res.run.Cache
+	seen := map[sharedResultID]bool{res.id: true}
+	queue := []*sharedResult{res}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for id := range cur.deps {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			dep := c.resultsByID[id]
+			if dep == nil {
+				continue
+			}
+			if dep.run != nil && dep.run.Cache == engine {
+				if c.ownRunRanLocked(dep) && !dep.noValueLocked() {
+					continue
+				}
+				if !c.ownRunRanLocked(dep) {
+					c.markEntryLocked(dep.id)
+				}
+			}
+			queue = append(queue, dep)
+		}
+	}
 }
 
 // ranPartsReported reports whether parts, an observation's complete part
@@ -421,9 +461,12 @@ func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) {
 	// it complete.
 	adopted := run
 	res.run, res.runRan = &adopted, runRanByProof
+	// What the record's run was known by was another run's.
+	res.runContent = ""
 	// The entry's class mates answer for its parts by its run
 	// (lendsLocked): they are named too, so kept answers ask again.
 	c.markEntryClassLocked(res.id, StampReplaced)
+	c.markRecipesUnderLocked(res)
 }
 
 // ownEngineRanOverLocked reports whether a stored record over res, directly
@@ -907,29 +950,17 @@ func (c *Cache) lendsLocked(res, other *sharedResult) bool {
 	return mine != "" && mine == theirs
 }
 
-// entryContentLocked is the content digest res's stored record is known by:
-// the last one it was taught (teachesEntryContentLocked), or else the one
-// its record names, or its frame's once decoded, or else the one the holding
-// of the record's own run reports; "" when none says. Each changes only by
-// a write that marks res and its classes (StampRunContent, or the record's
-// own install), so an answer read from it is let go when it changes. The
-// frame's taking of a taught digest, which the body worker does in its own
-// time, changes nothing here: the taught digest already answers. Requires
-// egraphMu.
+// entryContentLocked is the content digest res's stored record's run is
+// known by (sharedResult.runContent), or else the one the holding of the
+// record's own run reports; "" when neither says. Both change only by
+// writes that name res and its classes, so an answer read from them is let
+// go when they change. The frame's content and the entry's taught digests
+// are the class's identity, which the body worker gives the frame in its
+// own time and carries across a replacement: they aren't read here.
+// Requires egraphMu.
 func (c *Cache) entryContentLocked(res *sharedResult) digest.Digest {
-	if n := len(res.taught); n > 0 {
-		return res.taught[n-1]
-	}
-	res.resultCallMu.RLock()
-	known, content, call := res.frameContentKnown, res.frameContent, res.resultCall
-	res.resultCallMu.RUnlock()
-	if call != nil {
-		if d := call.ContentDigest(); d != "" {
-			return d
-		}
-	}
-	if known && content != "" {
-		return content
+	if res.runContent != "" {
+		return res.runContent
 	}
 	if res.run != nil {
 		if _, own := c.holdingLocked(HolderKey{Cache: res.run.Cache, Number: res.run.Number}); own != nil && own.replacements == res.run.Replacements {
@@ -937,6 +968,18 @@ func (c *Cache) entryContentLocked(res *sharedResult) digest.Digest {
 		}
 	}
 	return ""
+}
+
+// noteRunContentLocked notes content, which a holding of entry's record's
+// own run, or a copy of it, reported (teachesEntryContentLocked), as the
+// content the record's run is known by, and names the entry and its
+// classes, whose part answers read it. Requires egraphMu for writing.
+func (c *Cache) noteRunContentLocked(entry *sharedResult, content digest.Digest) {
+	if !c.blobBacked || entry == nil || entry.run == nil || content == "" || entry.runContent == content {
+		return
+	}
+	entry.runContent = content
+	c.markEntryClassLocked(entry.id, StampRunContent)
 }
 
 // holderOfOtherRunLocked reports whether the holding holder, of res's

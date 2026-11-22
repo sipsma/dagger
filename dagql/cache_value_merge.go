@@ -3249,10 +3249,13 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 	// On the Cloud, the stored record names the row's run, which goes with
 	// it, whether that run ran its step as far as the Cloud knows yet, and
 	// whether it is an image entry's.
-	res.run, res.runRan, res.imageEntry, res.runWontCome = nil, runNotRan, false, false
+	res.run, res.runRan, res.imageEntry, res.runWontCome, res.runContent = nil, runNotRan, false, false, ""
 	if c.blobBacked {
 		run := row.run
 		res.run, res.runRan = &run, row.runRan
+		if rec.Call != nil {
+			res.runContent = rec.Call.ContentDigest()
+		}
 	}
 	// The record's own parts and offers decide its value's sources now.
 	res.unavailableParts = nil

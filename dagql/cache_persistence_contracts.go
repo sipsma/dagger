@@ -5,6 +5,7 @@ import (
 	"time"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
+	"github.com/opencontainers/go-digest"
 )
 
 type cachePersistInputProvenanceKind string
@@ -37,6 +38,7 @@ type persistResultSnapshot struct {
 	runRan                runRanBy
 	imageEntry            bool
 	runWontCome           bool
+	runContent            digest.Digest
 	pendingOffers         []PersistedPartOffer
 	storedParts           []storedPart
 	resultID              sharedResultID

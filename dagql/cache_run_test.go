@@ -2046,3 +2046,79 @@ func TestARunsHoldingMovingOnNamesItsRecordsEntry(t *testing.T) {
 	require.True(t, cloud.RunContentWontCome(pA))
 	require.Contains(t, change.Entries, pA, "a reader keeping pA's answers lets them go")
 }
+
+// Whether a record may be adopted reads whether a record over it of its own
+// engine ran: once A's root reports it ran, the write names A's dep, whose
+// answer for B's own run of it turns from asking B to another run's.
+func TestARecordOverItRunningNamesARecipeBelow(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, r, p := replaceTestRun(t, ctx, cloud, "cache-a")
+	recipe, ok := cloud.EntryRecipe(p)
+	require.True(t, ok)
+	b := HolderKey{Cache: "cache-b", Number: 3}
+	_, err := cloud.AttachRemoteHolding(ctx, b, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	ask := func() PartAvailabilityState {
+		t.Helper()
+		got := cloud.AvailableParts([]PartQuery{{Number: p, Address: testLiveOffer().Address, Holder: b}}, time.Now().Unix())
+		require.NoError(t, got[0].Err)
+		return got[0].State
+	}
+	require.Equal(t, PartUnavailable, ask(), "A's dep is a recipe, which B's run may give its content")
+	run, ok := entryRunName(cloud, r)
+	require.True(t, ok)
+	change := runTestEvaluated(t, ctx, cloud, HolderKey{Cache: run.Cache, Number: run.Number}, run.Replacements, true)
+	require.Contains(t, change.Entries, p, "a reader keeping A's dep's answers lets them go")
+	require.Equal(t, PartOtherRun, ask(), "A's root ran, so A's run of its dep happened")
+}
+
+// What a record's run is known by changes only by a write: an expired
+// record replaced in place by another run's takes that run's content,
+// and the body worker carrying the replaced frame's digests onto the entry
+// (adoptReplacedContent, applyTaughtContent) doesn't change it.
+func TestARecordsRunContentIsntMovedByTheBodyWorker(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	// export merges from a fresh engine the replace test's dep, its frame
+	// carrying content, and returns its Cloud entry.
+	export := func(from CacheID, content digest.Digest) uint64 {
+		t.Helper()
+		ectx, e, esrv := transferTestCache(t)
+		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
+		p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
+		transferTestDependency(e, ectx, r, p)
+		require.NoError(t, e.TeachContentDigest(ectx, p, content))
+		bundle := withContent(t, exportTestBundle(t, ectx, e, r), r, p)
+		reply, err := mergeExport(t, ctx, cloud, from, bundle)
+		require.NoError(t, err)
+		for _, value := range reply.Values {
+			for _, sent := range bundle.Values {
+				if sent.Ordinal == value.Ordinal && sent.SenderNumber == uint64(p.cacheSharedResult().id) {
+					return value.Number
+				}
+			}
+		}
+		t.Fatal("the dep isn't in the reply")
+		return 0
+	}
+	content := func(n uint64) digest.Digest {
+		cloud.egraphMu.RLock()
+		defer cloud.egraphMu.RUnlock()
+		return cloud.entryContentLocked(cloud.resultsByID[sharedResultID(n)])
+	}
+	pA := export("cache-a", digest.FromString("A's content"))
+	require.Equal(t, digest.FromString("A's content"), content(pA))
+	cloud.egraphMu.Lock()
+	cloud.resultsByID[sharedResultID(pA)].expiresAtUnix = time.Now().Unix() - 10
+	cloud.egraphMu.Unlock()
+	pB := export("cache-b", digest.FromString("B's content"))
+	require.Equal(t, pA, pB, "B's record replaces A's expired one in place")
+	require.Equal(t, digest.FromString("B's content"), content(pA))
+	cloud.egraphMu.RLock()
+	res := cloud.resultsByID[sharedResultID(pA)]
+	cloud.egraphMu.RUnlock()
+	cloud.adoptReplacedContent(res)
+	cloud.applyTaughtContent([]*sharedResult{res})
+	require.Equal(t, digest.FromString("B's content"), content(pA), "the worker's carrying of A's digests changes nothing of B's run")
+}
