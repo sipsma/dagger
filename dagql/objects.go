@@ -725,6 +725,7 @@ func (r ObjectResult[T]) preselect(ctx context.Context, srv *Server, sel Selecto
 			Type:              NewResultCallType(astType),
 			Field:             sel.Field,
 			FollowsFromInputs: field.Spec.FollowsFromInputs,
+			ContentMayChange:  field.Spec.ContentMayChange(),
 			View:              view,
 			Nth:               int64(sel.Nth),
 			Receiver:          receiverRef,
@@ -1783,6 +1784,13 @@ func (field Field[T]) Reevaluate() Field[T] {
 	}
 	field.Spec.Reevaluate = true
 	return field
+}
+
+// ContentMayChange reports whether the field's result can change after it
+// is made, as its type says (CacheUsageMayChange). A call of the field
+// stamps its frame with it (ResultCall.ContentMayChange).
+func (spec *FieldSpec) ContentMayChange() bool {
+	return cacheUsageSizeMayChangeFromSelf(spec.Type)
 }
 
 // FollowsFromInputs marks the field's result as a function of its inputs

@@ -328,6 +328,7 @@ func (frame *ResultCall) cloneWith(memo resultCallCloneMemo) *ResultCall {
 		ProfileSkip:  frame.ProfileSkip,
 		// A pure function of the recipe, as ProfileSkip is.
 		FollowsFromInputs: frame.FollowsFromInputs,
+		ContentMayChange:  frame.ContentMayChange,
 		// Immutable once set, so the clone shares it.
 		ContentPreferred: frame.carriedContentPreferred(),
 	}
@@ -375,6 +376,7 @@ func (frame *ResultCall) fork() *ResultCall {
 		ProfileSkip: frame.ProfileSkip,
 		// An element of a list that follows from its inputs does too.
 		FollowsFromInputs: frame.FollowsFromInputs,
+		ContentMayChange:  frame.ContentMayChange,
 	}
 }
 

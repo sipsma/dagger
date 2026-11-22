@@ -56,7 +56,9 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 		if row.plan.row != nil {
 			call = row.plan.row.loadResultCall()
 		}
-		if call == nil || call.FollowsFromInputs {
+		// A step whose content may change is the engine's own state: it
+		// keeps its copy, and the value over it says its own declaration.
+		if call == nil || call.FollowsFromInputs || call.ContentMayChange {
 			continue
 		}
 		if c.engineRunLocked(row.target) != *row.value.Run {

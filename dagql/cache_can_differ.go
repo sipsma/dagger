@@ -16,7 +16,8 @@ import (
 // does one whose record and holdings, or two of whose holdings, disagree,
 // which the same call on the same build never does; the first disagreement
 // for an entry is logged. Every reader that asks whether a step can differ
-// asks here. Requires egraphMu.
+// asks here. An entry whose content may change can't differ as a run does
+// (entryContentMayChangeLocked). Requires egraphMu.
 func (c *Cache) entryCanDifferLocked(res *sharedResult) bool {
 	differ, _ := c.entryCanDifferWhyLocked(res)
 	return differ
@@ -26,6 +27,12 @@ func (c *Cache) entryCanDifferLocked(res *sharedResult) bool {
 // "undeclared", its record or call rows declaring nothing; "unknown", neither
 // saying; or "disagree". Requires egraphMu.
 func (c *Cache) entryCanDifferWhyLocked(res *sharedResult) (bool, string) {
+	// Content that may change after it is made is its engine's own state,
+	// not a run of a step: no store keeps it, and what is built over it
+	// says its own declaration.
+	if c.entryContentMayChangeLocked(res) {
+		return false, ""
+	}
 	declared, known, agree := false, false, true
 	note := func(follows bool) {
 		switch {

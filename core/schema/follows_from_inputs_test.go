@@ -281,6 +281,31 @@ func TestFieldsThatFollowFromInputsDeclareIt(t *testing.T) {
 	}
 }
 
+// The fields whose results are an engine's own mutable state, whose types
+// say their content may change, stamp it on their calls' frames
+// (ResultCall.ContentMayChange); a field that makes content doesn't.
+func TestFieldsWhoseContentMayChangeSayIt(t *testing.T) {
+	e := newFollowsTestEngine(t, transferTestSalt(t), "content-may-change")
+	for _, tc := range []struct {
+		typ, field string
+		mayChange  bool
+	}{
+		{"Query", "_remoteGitMirror", true},
+		{"Query", "_clientFilesyncMirror", true},
+		{"Query", "_httpState", true},
+		{"Query", "cacheVolume", true},
+		{"Query", "directory", false},
+		{"Container", "withExec", false},
+		{"GitRef", "tree", false},
+	} {
+		typ, ok := e.srv.ObjectType(tc.typ)
+		require.True(t, ok, tc.typ)
+		spec, ok := typ.FieldSpec(tc.field, "")
+		require.True(t, ok, tc.typ+"."+tc.field)
+		require.Equal(t, tc.mayChange, spec.ContentMayChange(), tc.typ+"."+tc.field)
+	}
+}
+
 // A git tree without .git is its commit's files, which its key's SHA
 // addresses, so its call says it follows from its inputs. One that keeps
 // .git doesn't (gitTreeFollowsFromInputs): its pack's bytes differ from run
