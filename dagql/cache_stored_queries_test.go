@@ -294,7 +294,7 @@ func TestAvailablePartCopiesAndNeedsABlobStore(t *testing.T) {
 func TestAvailablePartsAnswerAsAvailablePart(t *testing.T) {
 	t.Parallel()
 	ctx, cloud, first, second := storedQueriesTestClass(t)
-	stored, _, err := cloud.SetStoredPart(ctx, second, testLiveOffer(), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, second, storedPartRunOf(t, cloud, second), testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	now := time.Now().Unix()

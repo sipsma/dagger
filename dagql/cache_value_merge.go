@@ -211,6 +211,9 @@ type PreparedValueMerge struct {
 	// imageRows are the bundle's rows, by ordinal, that its sender's image
 	// ships (ImageEntries).
 	imageRows map[uint64]bool
+	// computedRows are the bundle's rows, by ordinal, that its sender
+	// evaluated itself (ComputedRows).
+	computedRows map[uint64]bool
 	// restore is set for a restore's merge (RestoreValues): its commit
 	// queues the offers it attaches in the prefetcher's backlog, and hold
 	// has it hold every entry it lands on until the reply's Release.
@@ -263,6 +266,21 @@ func (p *PreparedValueMerge) ImageEntries(ordinals ...TransferOrdinal) {
 	}
 	for _, ordinal := range ordinals {
 		p.imageRows[uint64(ordinal)] = true
+	}
+}
+
+// ComputedRows marks the bundle's rows, by ordinal, that its sender
+// evaluated itself, on the Cloud: a remote cache service knows them from the
+// engine's lazy rows, as an evaluation that installed no Cloud offer. With
+// an executed call its holding records, they are the held rows a merge may
+// answer stale for its sender's own run to replace another
+// (heldRowComputedLocked). Call it before CommitValueMerge.
+func (p *PreparedValueMerge) ComputedRows(ordinals ...TransferOrdinal) {
+	if p.computedRows == nil {
+		p.computedRows = map[uint64]bool{}
+	}
+	for _, ordinal := range ordinals {
+		p.computedRows[uint64(ordinal)] = true
 	}
 }
 
@@ -374,7 +392,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 	}
 	ctx = withCacheWork(ctx, work)
 	p.input, p.prep = ValueBundle{}, nil
-	prep.unretained, prep.imageRows = p.unretained, p.imageRows
+	prep.unretained, prep.imageRows, prep.computedRows = p.unretained, p.imageRows, p.computedRows
 	var origin *mergeOrigin
 	if !c.blobBacked {
 		origin = &mergeOrigin{route: p.source.Route, number: p.source.Merge, file: p.source.File}
@@ -430,7 +448,7 @@ func (c *Cache) CommitValueMerge(ctx context.Context, p *PreparedValueMerge) (Me
 				return MergeReply{}, err
 			}
 			prep.lockWaits.addAll(waited)
-			prep.unretained, prep.imageRows = p.unretained, p.imageRows
+			prep.unretained, prep.imageRows, prep.computedRows = p.unretained, p.imageRows, p.computedRows
 			prep.origin = origin
 			if len(prep.stale) > 0 {
 				return c.staleMergeReply(prep.stale), nil
@@ -662,9 +680,10 @@ type valueMergePrep struct {
 	// prepared record imported (mergeRunLocked).
 	senderImported map[uint64]bool
 	// imageRows are, on the Cloud, the rows its sender's image ships
-	// (PreparedValueMerge.ImageEntries), by ordinal.
-	imageRows map[uint64]bool
-	bundle    ValueBundle
+	// (PreparedValueMerge.ImageEntries), and computedRows those it evaluated
+	// itself (PreparedValueMerge.ComputedRows), by ordinal.
+	imageRows, computedRows map[uint64]bool
+	bundle                  ValueBundle
 	// unretained are the bundle's roots the commit gives no retention edge
 	// (PreparedValueMerge.Unretained).
 	unretained map[TransferOrdinal]bool
@@ -1739,10 +1758,14 @@ type valueMergeCommit struct {
 	// row of the merge retires itself (replaceRunsLocked): the commit
 	// retires them.
 	retireOver []*sharedResult
-	prep       *valueMergePrep
-	from       CacheID
-	rows       []*mergeRow
-	byOrdinal  map[uint64]*mergeRow
+	// staleRuns are, on the Cloud, the held rows on records a replacement of
+	// a run would replace or retire (replaceRunsLocked): the merge commits
+	// nothing, and answers them stale.
+	staleRuns []TransferOrdinal
+	prep      *valueMergePrep
+	from      CacheID
+	rows      []*mergeRow
+	byOrdinal map[uint64]*mergeRow
 	// byNumber maps each row's entry number to the entry it lands on, and
 	// installed each entry that takes a record to the row it takes.
 	byNumber  map[sharedResultID]*sharedResult
@@ -1797,6 +1820,9 @@ func (c *Cache) planValueMergeLocked(ctx context.Context, from CacheID, prep *va
 	}
 
 	c.decideMergeRowsLocked(commit)
+	if len(commit.staleRuns) > 0 {
+		return nil, &mergeStaleError{ordinals: commit.staleRuns}
+	}
 	// Everything after the decisions reads the payloads and parts of the
 	// records merge installs, which a light record doesn't have: the cache
 	// changed since the preparation.
@@ -1858,7 +1884,7 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 			c.decideMergeRowLocked(row, commit.targets.of(c, prep, row.ordinal), now, sharedResultID(prep.firstID+row.ordinal-1))
 		}
 	}
-	commit.overOtherRun, commit.retireOver = MergeRowCounts{}, nil
+	commit.overOtherRun, commit.retireOver, commit.staleRuns = MergeRowCounts{}, nil, nil
 	if c.blobBacked {
 		for _, row := range commit.rows {
 			row.run = c.mergeRunLocked(prep.from, row.value, prep.senderImported[row.ordinal])

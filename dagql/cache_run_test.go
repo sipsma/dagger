@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -334,16 +335,14 @@ func TestALaterRunDoesntReplaceARecordWhoseContentIsUploading(t *testing.T) {
 	_, r1, p1 := replaceTestRun(t, ctx, cloud, "cache-a")
 	for _, n := range []uint64{r1, p1} {
 		replaceTestRan(t, ctx, cloud, n)
-		_, err := cloud.MarkPartUploading(n, testLiveOffer().Address, true)
-		require.NoError(t, err)
+		require.NoError(t, cloud.MarkPartUploading(n, testLiveOffer().Address))
 	}
 	reply, r2, p2 := replaceTestRun(t, ctx, cloud, "cache-b")
 	require.Zero(t, reply.Rows.RunsReplaced)
 	require.Equal(t, []uint64{r1, p1}, []uint64{r2, p2}, "B's records land on A's entries")
 
-	_, err := cloud.MarkPartUploading(p1, testLiveOffer().Address, false)
-	require.NoError(t, err)
-	_, err = cloud.MarkPartUploading(r1, testLiveOffer().Address, false)
+	// The uploads end, their claims given back, with nothing stored.
+	_, err := cloud.EndPartUploads([]PartUpload{{Number: p1, Address: testLiveOffer().Address}, {Number: r1, Address: testLiveOffer().Address}})
 	require.NoError(t, err)
 	replaceTestRan(t, ctx, cloud, p1)
 	replaceTestRan(t, ctx, cloud, r1)
@@ -632,4 +631,146 @@ func TestARefusedPartLeavesTheRecipesRun(t *testing.T) {
 	run, ok := cloud.EntryRun(p)
 	require.True(t, ok)
 	require.Equal(t, before, run, "the recipe keeps its run")
+}
+
+// heldTestRun has engine B, of its own cache, compute P and R over it, and
+// merge its full export into cloud as cache-b. It returns B's cache, its P
+// and R, the full bundle, and the Cloud's numbers for B's P and R.
+func heldTestRun(t *testing.T, ctx context.Context, cloud *Cache) (*Cache, AnyResult, AnyResult, ValueBundle, MergeReply) {
+	t.Helper()
+	bctx, b, bsrv := transferTestCache(t)
+	heldTestContexts.Store(b, bctx)
+	r := persistedListTestResult(t, bctx, b, bsrv, "replace-root", &transferTestValue{Text: "b root"})
+	p := persistedListTestResult(t, bctx, b, bsrv, "replace-dep", &transferTestValue{Text: "b dep"})
+	transferTestDependency(b, bctx, r, p)
+	full := exportTestBundle(t, bctx, b, r)
+	reply, err := cloud.MergeValues(ctx, "cache-b", full)
+	require.NoError(t, err)
+	return b, p, r, full, reply
+}
+
+// heldTestContexts are the contexts of heldTestRun's engine caches.
+var heldTestContexts sync.Map
+
+// bctxOf is the context of heldTestRun's engine cache b.
+func bctxOf(t *testing.T, b *Cache) context.Context {
+	t.Helper()
+	ctx, ok := heldTestContexts.Load(b)
+	require.True(t, ok)
+	return ctx.(context.Context)
+}
+
+// heldTestComputed records that B's holding of res executed its call, as an
+// executed call row of B's says.
+func heldTestComputed(t *testing.T, ctx context.Context, cloud *Cache, b *Cache, res AnyResult) {
+	t.Helper()
+	recipe, err := res.cacheSharedResult().loadResultCall().deriveRecipeDigest(b)
+	require.NoError(t, err)
+	_, err = cloud.AttachRemoteHolding(ctx, HolderKey{Cache: "cache-b", Number: uint64(res.cacheSharedResult().id)}, RemoteHolding{Recipe: recipe, Executed: true})
+	require.NoError(t, err)
+}
+
+// The first trial's refusals, in one engine's exports. B's full record of a
+// step lands on A's record while A's run hasn't yet reported running, and
+// is kept: B's engine counts the row as one the Cloud holds. A's run then
+// reports it ran, and its content never comes. B's next export sends the row
+// held. A full record of B's own run, which B computed, would replace A's,
+// so the Cloud doesn't hold what B believes: the merge answers B's held row
+// stale; so it does a held row of B's on A's record over it, which the
+// replacement would retire. B sends them in
+// full, its run replaces A's, and B's content is stored as B's run.
+func TestAHeldRowOfAnEnginesOwnRunOverARunWithoutContentIsStale(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	b, p, r, full, first := heldTestRun(t, ctx, cloud)
+	require.Zero(t, first.Rows.RunsReplaced, "A's run hasn't reported running: B's record is kept")
+	replaceTestRan(t, ctx, cloud, pA)
+	heldTestComputed(t, ctx, cloud, b, p)
+
+	held := engineHeldTestBundle(t, b, full, p)
+	reply, err := cloud.MergeValues(ctx, "cache-b", held)
+	require.NoError(t, err)
+	require.False(t, reply.Committed)
+	require.Len(t, reply.Stale, 1, "B's held row on A's record is stale")
+
+	// With P in full and R held over it, R's held row lands on A's record
+	// over P, which the replacement would retire: stale too.
+	both := exportTestBundle(t, bctxOf(t, b), b, r, p)
+	reply, err = cloud.MergeValues(ctx, "cache-b", engineHeldTestBundle(t, b, both, r))
+	require.NoError(t, err)
+	require.False(t, reply.Committed)
+	require.Len(t, reply.Stale, 1, "B's held row on A's record over it is stale")
+
+	again, err := cloud.MergeValues(ctx, "cache-b", full)
+	require.NoError(t, err)
+	require.Equal(t, 1, again.Rows.RunsReplaced, "B's run replaces A's")
+	var pB uint64
+	var run RunName
+	for _, v := range again.Values {
+		for _, sent := range full.Values {
+			if sent.Ordinal == v.Ordinal && sent.SenderNumber == uint64(p.cacheSharedResult().id) {
+				pB, run = v.Number, v.Run
+			}
+		}
+	}
+	require.NotEqual(t, pA, pB)
+	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: pB, Run: run, Part: testLiveOffer()}})
+	require.NoError(t, err)
+	require.Equal(t, []StoredPartResult{{Stored: true}}, got, "B's content is stored as B's run")
+}
+
+// A held row whose sender took the Cloud's copy of the step, without
+// computing it, isn't stale: the Cloud holds the run it holds.
+func TestAHeldRowOfACopyTakenFromTheCloudIsntStale(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	b, p, _, full, _ := heldTestRun(t, ctx, cloud)
+	replaceTestRan(t, ctx, cloud, pA)
+	reply, err := cloud.MergeValues(ctx, "cache-b", engineHeldTestBundle(t, b, full, p))
+	require.NoError(t, err)
+	require.Empty(t, reply.Stale)
+	require.True(t, reply.Committed)
+}
+
+// While A's upload of its content holds its claim, the content is on its way:
+// B's held row isn't stale. Once the upload ends with nothing stored, its
+// claim given back, it is.
+func TestAHeldRowIsntStaleWhileTheRunsUploadHoldsItsClaim(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	b, p, _, full, _ := heldTestRun(t, ctx, cloud)
+	replaceTestRan(t, ctx, cloud, pA)
+	heldTestComputed(t, ctx, cloud, b, p)
+	require.NoError(t, cloud.MarkPartUploading(pA, testLiveOffer().Address))
+	held := engineHeldTestBundle(t, b, full, p)
+	reply, err := cloud.MergeValues(ctx, "cache-b", held)
+	require.NoError(t, err)
+	require.Empty(t, reply.Stale, "A's content is on its way")
+
+	_, err = cloud.EndPartUploads([]PartUpload{{Number: pA, Address: testLiveOffer().Address}})
+	require.NoError(t, err)
+	reply, err = cloud.MergeValues(ctx, "cache-b", held)
+	require.NoError(t, err)
+	require.Len(t, reply.Stale, 1, "A's upload ended with nothing stored")
+}
+
+// A held row over a record whose run ran and has its content isn't stale:
+// the first run stored wins, and B's part is refused, as before.
+func TestAHeldRowOverARunWithContentIsntStale(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	b, p, _, full, _ := heldTestRun(t, ctx, cloud)
+	replaceTestRan(t, ctx, cloud, pA)
+	stored, _, err := cloud.SetStoredPart(ctx, pA, storedPartRunOf(t, cloud, pA), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	heldTestComputed(t, ctx, cloud, b, p)
+	reply, err := cloud.MergeValues(ctx, "cache-b", engineHeldTestBundle(t, b, full, p))
+	require.NoError(t, err)
+	require.Empty(t, reply.Stale)
+	require.True(t, reply.Committed)
 }

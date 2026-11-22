@@ -3,6 +3,7 @@ package dagql
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 )
@@ -107,34 +108,47 @@ func (c *Cache) EntryRun(number uint64) (RunName, bool) {
 // to commit.overOtherRun. Requires egraphMu.
 func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRow) bool) {
 	var replaced []*sharedResult
+	heldReplaces := false
 	for _, row := range commit.rows {
 		cur := row.target
 		// Only a live record is replaced here: an expired one the merge
 		// replaces as it does today (decideMergeRowLocked). A row the
 		// sender imported, an image entry's among them, replaces nothing.
-		if !isBest(row) || row.action != mergeKeep || row.expired || row.value.Held != "" || commit.prep.senderImported[row.ordinal] || cur == nil || cur.runReplaced {
+		if !isBest(row) || row.action != mergeKeep || row.expired || commit.prep.senderImported[row.ordinal] || cur == nil {
 			continue
 		}
-		// Only a record whose own run ran, with its content not stored, is
-		// replaced: a record whose run never ran is a recipe, and the run of
-		// an image entry whose content the image ships is the image's.
-		if cur.noValueLocked() || cur.imageEntry || c.runOfLocked(cur) == row.run || !c.storedWithoutContentLocked(cur) || !c.ownRunRanLocked(cur) {
+		if row.value.Held != "" {
+			// A held row of the sender's own run, which it computed, would
+			// replace the record if it came in full: its sender believes
+			// the Cloud holds its run, and the Cloud holds another.
+			if c.heldRowComputedLocked(commit.prep, row) && c.replaceableLocked(cur, row.run, commit.now) {
+				replaced = append(replaced, cur)
+				heldReplaces = true
+			}
 			continue
 		}
-		replaced = append(replaced, cur)
+		if c.replaceableLocked(cur, row.run, commit.now) {
+			replaced = append(replaced, cur)
+		}
 	}
 	if len(replaced) == 0 {
 		return
 	}
 	over := entriesOverLocked(c, replaced)
+	// A held row stands for the record it lands on, and carries no record to
+	// install in its place: one on a record the replacement would replace or
+	// retire is stale. The merge commits nothing, and its sender sends those
+	// rows in full, which the replacement then decides on (KnownRows.Stale).
+	var stale []TransferOrdinal
 	for _, row := range commit.rows {
 		if _, ok := over[row.target.idOrZero()]; ok && row.value.Held != "" {
-			// A held row stands for the record it lands on, which the
-			// replacement would retire: it carries no record to install
-			// in its place. The merge replaces nothing; a later merge of
-			// the run's records whole does.
-			return
+			stale = append(stale, TransferOrdinal(row.ordinal))
 		}
+	}
+	if len(stale) > 0 || heldReplaces {
+		slices.Sort(stale)
+		commit.staleRuns = stale
+		return
 	}
 	for _, row := range commit.rows {
 		cur := row.target
@@ -305,6 +319,42 @@ func (res *sharedResult) idOrZero() sharedResultID {
 	return res.id
 }
 
+// replaceableLocked reports whether a full record of run would replace res's
+// stored record (replaceRunsLocked): res is live at now, not retired, and
+// stores a record of another run, whose own run ran (ownRunRanLocked), of
+// which no content but metadata is stored or being uploaded
+// (storedWithoutContentLocked), and which isn't an image result. Requires
+// egraphMu.
+func (c *Cache) replaceableLocked(res *sharedResult, run RunName, now int64) bool {
+	if res == nil || res.runReplaced || res.noValueLocked() || res.imageEntry || c.resultExpiredAtLocked(res, now) {
+		return false
+	}
+	return c.runOfLocked(res) != run && c.storedWithoutContentLocked(res) && c.ownRunRanLocked(res)
+}
+
+// ReplaceableBy reports whether a full record of run would replace the
+// stored record of the entry numbered number, now (replaceableLocked): a
+// remote cache service's selection asks a holding of run for the entry's
+// parts only then, or when run is the record's own.
+func (c *Cache) ReplaceableBy(number uint64, run RunName) bool {
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	return c.replaceableLocked(c.resultsByID[sharedResultID(number)], run, time.Now().Unix())
+}
+
+// heldRowComputedLocked reports whether a held row's sender computed the
+// row's step itself: its holding of the row says it executed the call, at
+// the row's replacement count, or the merge's caller says the engine
+// evaluated it (PreparedValueMerge.ComputedRows). A holding that took the
+// Cloud's copy did neither. Requires egraphMu.
+func (c *Cache) heldRowComputedLocked(prep *valueMergePrep, row *mergeRow) bool {
+	if prep.computedRows[row.ordinal] {
+		return true
+	}
+	_, h := c.holdingLocked(HolderKey{Cache: prep.from, Number: row.value.SenderNumber})
+	return h != nil && h.executed && h.replacements == row.value.SenderReplacements
+}
+
 // entriesOverLocked returns from and every entry that depends on one of
 // them, directly or through others, by number. Requires egraphMu.
 func entriesOverLocked(c *Cache, from []*sharedResult) map[sharedResultID]*sharedResult {
@@ -334,10 +384,11 @@ func entriesOverLocked(c *Cache, from []*sharedResult) map[sharedResultID]*share
 // storedWithoutContentLocked reports whether res's stored record declares or
 // proves a part besides its metadata, and the cache stores none of its
 // parts but metadata, nor has an upload of one in progress
-// (MarkPartUploading): a run whose content no engine can fetch, nor is on
-// its way. Requires egraphMu.
+// (MarkPartUploading, by the reader's upload claims, which an upload's end
+// gives back): a run whose content no engine can fetch, nor is on its way.
+// Requires egraphMu.
 func (c *Cache) storedWithoutContentLocked(res *sharedResult) bool {
-	if len(res.uploading) > 0 {
+	if c.uploadingAny(res.id) {
 		return false
 	}
 	for _, part := range res.storedPartsLocked() {
