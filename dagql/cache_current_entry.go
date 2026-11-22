@@ -92,6 +92,9 @@ func (c *Cache) resultInUseLocked(res *sharedResult) bool {
 // hasn't expired (replaceRunsLocked), it is marked so (runReplaced).
 // Requires egraphMu.
 func (c *Cache) retireResultLocked(res *sharedResult) {
+	if c.blobBacked && len(res.recipeKeys) > 0 {
+		res.retiredRecipes = append(res.retiredRecipes, res.recipeKeys...)
+	}
 	c.unindexRecipesLocked(res)
 	if c.blobBacked && !res.runReplaced {
 		res.runReplaced = true
@@ -267,7 +270,27 @@ func (c *Cache) indexRestoredEntries(indexed map[sharedResultID]struct{}) error 
 			rows = append(rows, res)
 		}
 	}
+	// On the Cloud, an entry the index didn't name is one a later run
+	// replaced or retired with it: its recipe is kept apart, as retiring
+	// keeps it (retiredRecipes).
+	var retired []*sharedResult
+	if c.blobBacked {
+		for id, res := range c.resultsByID {
+			if _, ok := indexed[id]; !ok && res.loadResultCall() != nil {
+				retired = append(retired, res)
+			}
+		}
+	}
 	c.egraphMu.RUnlock()
+	slices.SortFunc(retired, compareSharedResults)
+	retiredRecipes := make([]digest.Digest, len(retired))
+	for i, res := range retired {
+		recipe, err := res.loadResultCall().deriveRecipeDigest(c)
+		if err != nil {
+			return fmt.Errorf("restored retired result %d: %w", res.id, err)
+		}
+		retiredRecipes[i] = recipe
+	}
 	slices.SortFunc(rows, compareSharedResults)
 	recipes := make([]digest.Digest, len(rows))
 	for i, res := range rows {
@@ -294,6 +317,9 @@ func (c *Cache) indexRestoredEntries(indexed map[sharedResultID]struct{}) error 
 			if _, ok := indexed[id]; !ok {
 				res.runReplaced = true
 			}
+		}
+		for i, res := range retired {
+			res.retiredRecipes = []digest.Digest{retiredRecipes[i]}
 		}
 	}
 	return nil

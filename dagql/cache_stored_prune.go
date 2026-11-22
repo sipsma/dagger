@@ -128,6 +128,7 @@ func (c *Cache) dropValueLocked(ctx context.Context, res *sharedResult) ([]*shar
 	// The run goes with the value: a record that fills the entry again names
 	// its own.
 	res.run, res.runRan, res.imageEntry, res.runWontCome, res.runContent = nil, runNotRan, false, false, ""
+	res.retiredRecipes = nil
 	c.setStoredRecordBytesLocked(res, 0)
 	res.storedTransfer.Store(nil)
 	res.dependencyOwnershipRevision++

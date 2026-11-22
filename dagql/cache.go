@@ -3410,6 +3410,12 @@ type sharedResult struct {
 	// egraphMu.
 	holders    *entryHolders
 	recipeKeys []digest.Digest
+	// retiredRecipes are, on the Cloud, the recipes of an entry a later run
+	// replaced or retired with it (runReplaced), which has left their index:
+	// the recipes it shares with their current entries, which a bundle
+	// carrying both carries both in full (storedBundleWholeWalkLocked).
+	// Guarded by egraphMu.
+	retiredRecipes []digest.Digest
 	// calls are, on the Cloud, the calls its engines reported returning this
 	// entry other than its own, by request digest, which StoredBundle sends
 	// with the entry (cache_call_records.go). They own nothing and go with

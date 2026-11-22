@@ -2269,3 +2269,47 @@ func withoutRows(t *testing.T, bundle ValueBundle, results ...AnyResult) ValueBu
 	}
 	return out
 }
+
+// A record a later run retired keeps its recipe, which its replacement
+// shares: a bundle reaching both, the recipient holding one, carries both in
+// full, as an engine's export carries a held row whose recipe a full row
+// shares, and the recipient merges it.
+func TestABundleCarriesARetiredEntryAndItsReplacementInFull(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	_, rA, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRan(t, ctx, cloud, pA)
+	reply, rB, pB := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Equal(t, 1, reply.Rows.RunsReplaced)
+	require.NotEqual(t, pA, pB)
+	now := time.Now().Unix()
+	also := func(number uint64) bool { return number == pA }
+	got, err := cloud.StoredBundle(ctx, []uint64{rA, rB}, now, &HeldBy{Cache: "cache-fresh", Also: also})
+	require.NoError(t, err)
+	for _, v := range got.Bundle.Values {
+		require.Empty(t, v.Held, "entry %d: a held row whose recipe a full row shares goes in full", v.SenderNumber)
+	}
+	bctx, b, _ := transferTestCache(t)
+	_, err = b.MergeValues(bctx, cloudCacheID, got.Bundle)
+	require.NoError(t, err, "the recipient merges both")
+	// And over a restart, which derives the retired entry's recipe again.
+	require.NoError(t, cloud.Close(ctx))
+	ctx, cloud = storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	got, err = cloud.StoredBundle(ctx, []uint64{rA, rB}, now, &HeldBy{Cache: "cache-fresh", Also: also})
+	require.NoError(t, err)
+	for _, v := range got.Bundle.Values {
+		require.Empty(t, v.Held, "after a restart, entry %d goes in full", v.SenderNumber)
+	}
+	// A build with no retired entry reads no recipe and holds what it may.
+	only, err := cloud.StoredBundle(ctx, []uint64{rB}, now, &HeldBy{Cache: "cache-fresh", Also: func(number uint64) bool { return number == pB }})
+	require.NoError(t, err)
+	held := 0
+	for _, v := range only.Bundle.Values {
+		if v.Held != "" {
+			held++
+		}
+	}
+	require.Equal(t, 1, held, "B's dep goes held")
+}

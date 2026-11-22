@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+
+	"github.com/opencontainers/go-digest"
 )
 
 // StoredBundleResult is StoredBundle's answer.
@@ -339,26 +341,40 @@ func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int6
 }
 
 // storedBundleWholeWalkLocked walks the roots' closures into a build
-// (storedBundleWalkLocked) and, with held.Whole, walks them again while the
-// build holds a held row the recipient doesn't hold whole, which then goes
-// in full, as a caller building again would walk it. It returns the last
-// build and those rows, in the order found. Requires egraphMu.
+// (storedBundleWalkLocked), and walks them again while the build holds a
+// held row that must go in full, as a caller building again would walk it:
+//   - with held.Whole, one the recipient doesn't hold whole, which it
+//     returns, in the order found;
+//   - on the Cloud, one whose recipe a row the build carries in full shares
+//     (sharedHeldRecipesLocked), as an engine's export does
+//     (deriveHeldRecipes): a recipient refuses a bundle of both, as the
+//     held row is checked against the recipe's current entry, which the
+//     full row could replace.
+//
+// It returns the last build. Requires egraphMu.
 func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy) (*storedBundleBuild, []uint64, error) {
 	build, err := c.storedBundleWalkLocked(rootEntries, nowUnix, held, nil)
-	if err != nil || held == nil || !held.Whole {
+	if err != nil || held == nil {
 		return build, nil, err
 	}
-	whole := &wholeHolds{cache: held.Cache, byFile: held.ByFile, known: map[uint64]bool{}}
+	var whole *wholeHolds
+	if held.Whole {
+		whole = &wholeHolds{cache: held.Cache, byFile: held.ByFile, known: map[uint64]bool{}}
+	}
 	var all []uint64
 	var notWhole map[sharedResultID]bool
 	for {
 		var found []uint64
-		for _, res := range build.order {
-			if build.held[res.id] && !c.holdsWholeLocked(whole, res) {
-				found = append(found, uint64(res.id))
+		if whole != nil {
+			for _, res := range build.order {
+				if build.held[res.id] && !c.holdsWholeLocked(whole, res) {
+					found = append(found, uint64(res.id))
+				}
 			}
 		}
-		if len(found) == 0 {
+		all = append(all, found...)
+		shared := c.sharedHeldRecipesLocked(build)
+		if len(found) == 0 && len(shared) == 0 {
 			return build, all, nil
 		}
 		if notWhole == nil {
@@ -367,11 +383,58 @@ func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix
 		for _, number := range found {
 			notWhole[sharedResultID(number)] = true
 		}
-		all = append(all, found...)
+		for _, id := range shared {
+			notWhole[id] = true
+		}
 		if build, err = c.storedBundleWalkLocked(rootEntries, nowUnix, held, notWhole); err != nil {
 			return nil, nil, err
 		}
 	}
+}
+
+// sharedHeldRecipesLocked returns, on the Cloud, the held rows of build whose
+// recipe a row it carries in full shares: an entry a later run retired
+// (retiredRecipes) and its recipe's current entry, which one closure can
+// reach. A build with no retired entry has none, and reads no recipe.
+// Requires egraphMu.
+func (c *Cache) sharedHeldRecipesLocked(build *storedBundleBuild) []sharedResultID {
+	if !c.blobBacked {
+		return nil
+	}
+	retired := false
+	for _, res := range build.order {
+		if res.runReplaced && len(res.retiredRecipes) > 0 {
+			retired = true
+			break
+		}
+	}
+	if !retired {
+		return nil
+	}
+	recipesOf := func(res *sharedResult) []digest.Digest {
+		if res.runReplaced {
+			return res.retiredRecipes
+		}
+		return res.recipeKeys
+	}
+	full := map[digest.Digest]bool{}
+	for _, res := range build.order {
+		if !build.held[res.id] {
+			for _, recipe := range recipesOf(res) {
+				full[recipe] = true
+			}
+		}
+	}
+	var shared []sharedResultID
+	for _, res := range build.order {
+		if !build.held[res.id] {
+			continue
+		}
+		if slices.ContainsFunc(recipesOf(res), func(recipe digest.Digest) bool { return full[recipe] }) {
+			shared = append(shared, res.id)
+		}
+	}
+	return shared
 }
 
 // wholeHolds is what a build has found of which holdings of one engine
