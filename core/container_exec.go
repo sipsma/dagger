@@ -1412,6 +1412,29 @@ func (ssh *execSSHMountInstance) Mount() ([]ctrdmount.Mount, func() error, error
 	}}, release, nil
 }
 
+// execReadScope is what the part reads of the requests an exec's process
+// makes count as (ContainerExecState.readScope).
+//
+// Trial only, never to land: a module entrypoint's nested exec runs its
+// module's process for the function call the entrypoint's client answers, so
+// the process's requests count as made under that call, as they do when
+// ContainerRuntime.Call starts the process with the call, and not under the
+// entrypoint's withExec, which a session-bound function keys per session
+// through its callDigest argument, where ResultCall.SessionBound doesn't see
+// it.
+func execReadScope(ctx context.Context, opts ContainerExecOpts) dagql.ReadScope {
+	if opts.ExperimentalPrivilegedNesting {
+		if md, err := engine.ClientMetadataFromContext(ctx); err == nil && md.SDKEntrypoint {
+			if query, err := CurrentQuery(ctx); err == nil {
+				if fnCall, err := query.CurrentFunctionCall(ctx); err == nil && fnCall != nil {
+					return fnCall.ReadScope()
+				}
+			}
+		}
+	}
+	return dagql.CurrentReadScope(ctx)
+}
+
 // mutates container caller must have handled cloning or creating a new child.
 func (container *Container) WithExec(
 	ctx context.Context,
@@ -1434,7 +1457,7 @@ func (container *Container) WithExec(
 		EngineWork:     functionCall.EngineWork() || IsEngineWork(ctx),
 		originalExecMD: copyExecInputMetadata(execMD),
 		callerRecipe:   dagql.CallerRecipe(ctx),
-		readScope:      dagql.CurrentReadScope(ctx),
+		readScope:      execReadScope(ctx, opts),
 	}
 	container.Lazy = &ContainerExecLazy{State: state}
 	container.ImageRef = ""
