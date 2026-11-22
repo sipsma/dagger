@@ -227,6 +227,12 @@ func TestCloudCountsRecordsOverAnotherRunOfAnInput(t *testing.T) {
 // part: the export carries the run's content of them.
 func withContent(t *testing.T, bundle ValueBundle, results ...AnyResult) ValueBundle {
 	t.Helper()
+	return withParts(t, bundle, []string{"snapshot"}, results...)
+}
+
+// withParts puts, on bundle's rows of results, an output of each of parts.
+func withParts(t *testing.T, bundle ValueBundle, parts []string, results ...AnyResult) ValueBundle {
+	t.Helper()
 	out := bundle
 	out.Outputs = slices.Clone(bundle.Outputs)
 	for _, res := range results {
@@ -235,8 +241,10 @@ func withContent(t *testing.T, bundle ValueBundle, results ...AnyResult) ValueBu
 			if v.SenderNumber != uint64(res.cacheSharedResult().id) {
 				continue
 			}
-			part := storedPruneTestPart("snapshot", map[string]int64{fmt.Sprintf("content-%d-%s", v.SenderNumber, t.Name()): 10})
-			out.Outputs = append(out.Outputs, TransferredOutput{Ordinal: v.Ordinal, Address: part.Address, State: "completed", Value: &part.Value, Chain: &part.Chain, Owner: &part.Owner})
+			for _, name := range parts {
+				part := storedPruneTestPart(name, map[string]int64{fmt.Sprintf("content-%d-%s-%s", v.SenderNumber, name, t.Name()): 10})
+				out.Outputs = append(out.Outputs, TransferredOutput{Ordinal: v.Ordinal, Address: part.Address, State: "completed", Value: &part.Value, Chain: &part.Chain, Owner: &part.Owner})
+			}
 			found = true
 		}
 		require.True(t, found, "the bundle carries entry %d", res.cacheSharedResult().id)
@@ -805,7 +813,7 @@ func TestAHeldRowOverARunWithContentIsntStale(t *testing.T) {
 func TestTwoRunsWithoutContentDontReplaceEachOther(t *testing.T) {
 	t.Parallel()
 	ctx, cloud := storedPartTestCache(t, WithBlobStore())
-	export := func(from CacheID, content bool) MergeReply {
+	export := func(from CacheID, content bool, pending ...bool) MergeReply {
 		t.Helper()
 		ectx, e, esrv := transferTestCache(t)
 		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
@@ -814,6 +822,15 @@ func TestTwoRunsWithoutContentDontReplaceEachOther(t *testing.T) {
 		bundle := exportTestBundle(t, ectx, e, r)
 		if content {
 			bundle = withContent(t, bundle, p)
+		}
+		if len(pending) > 0 && pending[0] {
+			// An output of the pending part, as an export selects one: it
+			// names the part and carries nothing.
+			for _, v := range bundle.Values {
+				if v.SenderNumber == uint64(p.cacheSharedResult().id) {
+					bundle.Outputs = append(bundle.Outputs, TransferredOutput{Ordinal: v.Ordinal, Address: PersistedPartAddress{Part: "snapshot"}, State: "pending"})
+				}
+			}
 		}
 		reply, err := cloud.MergeValues(ctx, from, bundle)
 		require.NoError(t, err)
@@ -831,6 +848,9 @@ func TestTwoRunsWithoutContentDontReplaceEachOther(t *testing.T) {
 	second := export("cache-b", false)
 	require.Zero(t, second.Rows.RunsReplaced, "B brings no content of the step: nothing to replace A's with")
 	require.Empty(t, second.Stale)
+	pendingOnly := export("cache-d", false, true)
+	require.Zero(t, pendingOnly.Rows.RunsReplaced, "D's output of the pending part carries nothing either")
+	require.Empty(t, pendingOnly.Stale)
 	third := export("cache-c", true)
 	require.Equal(t, 1, third.Rows.RunsReplaced, "C brings its content: its run replaces A's, once")
 }
@@ -866,4 +886,35 @@ func TestAnExecutedCallDescribesOnlyTheValueItComputed(t *testing.T) {
 	reply, err := cloud.MergeValues(ctx, "cache-b", held)
 	require.NoError(t, err)
 	require.Empty(t, reply.Stale, "B's imported value isn't its own run")
+}
+
+// A run replaces another's record only with its whole content of the step:
+// B's export carries one of the step's two parts and replaces nothing; C's
+// carries both and replaces, once.
+func TestARunReplacesOnlyWithItsWholeContent(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	parts := []transferTestPart{{Part: "snapshot", State: "pending", Kind: "directory"}, {Part: "other", State: "pending", Kind: "directory"}}
+	export := func(from CacheID, carried ...string) MergeReply {
+		t.Helper()
+		ectx, e, esrv := transferTestCache(t)
+		r := persistedListTestResult(t, ectx, e, esrv, "whole-root", &transferTestValue{Text: string(from) + " root"})
+		p := persistedListTestResult(t, ectx, e, esrv, "whole-dep", &transferTestValue{Text: string(from) + " dep", Parts: parts})
+		transferTestDependency(e, ectx, r, p)
+		reply, err := cloud.MergeValues(ctx, from, withParts(t, exportTestBundle(t, ectx, e, r), carried, p))
+		require.NoError(t, err)
+		return reply
+	}
+	first := export("cache-a")
+	var pA uint64
+	for _, v := range first.Values {
+		if len(v.Deps) == 0 {
+			pA = v.Number
+		}
+	}
+	replaceTestRan(t, ctx, cloud, pA)
+	half := export("cache-b", "snapshot")
+	require.Zero(t, half.Rows.RunsReplaced, "B carries half of the step's content")
+	whole := export("cache-c", "snapshot", "other")
+	require.Equal(t, 1, whole.Rows.RunsReplaced, "C carries all of it")
 }

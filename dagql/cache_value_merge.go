@@ -683,9 +683,9 @@ type valueMergePrep struct {
 	// (PreparedValueMerge.ImageEntries), and computedRows those it evaluated
 	// itself (PreparedValueMerge.ComputedRows), by ordinal.
 	imageRows, computedRows map[uint64]bool
-	// contentRows are, on the Cloud, the rows whose content besides
-	// metadata the bundle carries as outputs, by ordinal (contentRowsOf).
-	contentRows map[uint64]bool
+	// contentRows are, on the Cloud, the parts besides metadata whose
+	// content the bundle carries for each row, by ordinal (contentRowsOf).
+	contentRows map[uint64]map[string]bool
 	bundle      ValueBundle
 	// unretained are the bundle's roots the commit gives no retention edge
 	// (PreparedValueMerge.Unretained).
@@ -839,7 +839,7 @@ func (c *Cache) checkValueMerge(from CacheID, input ValueBundle) (*valueMergePre
 	// rows whose content the bundle carries are noted first: a run replaces
 	// another's record only with its content (replaceRunsLocked).
 	var heldParts map[uint64][]TransferredOutput
-	var contentRows map[uint64]bool
+	var contentRows map[uint64]map[string]bool
 	if c.blobBacked {
 		heldParts = heldRowOutputs(bundle)
 		contentRows = contentRowsOf(bundle)
@@ -1967,18 +1967,28 @@ func (c *Cache) staleHeldRowsLocked(prep *valueMergePrep, targets mergeTargets, 
 	return stale
 }
 
-// contentRowsOf returns the bundle's rows that it carries an output of a part
-// besides metadata for, by ordinal.
-func contentRowsOf(bundle ValueBundle) map[uint64]bool {
-	var rows map[uint64]bool
+// contentRowsOf returns, by ordinal, the parts besides metadata whose content
+// the bundle carries for each row, by part address key: a completed output
+// with the chain of layers it uploads, its prefix resolved
+// (ResolveChainPrefixes). An output of a pending part names the part and
+// carries nothing.
+func contentRowsOf(bundle ValueBundle) map[uint64]map[string]bool {
+	var rows map[uint64]map[string]bool
 	for _, output := range bundle.Outputs {
-		if output.Address.Part == "metadata" {
+		if output.Address.Part == "metadata" || output.State != "completed" || output.Chain == nil || len(output.Chain.Layers) == 0 {
+			continue
+		}
+		key, err := partAddressKey(output.Address)
+		if err != nil {
 			continue
 		}
 		if rows == nil {
-			rows = map[uint64]bool{}
+			rows = map[uint64]map[string]bool{}
 		}
-		rows[uint64(output.Ordinal)] = true
+		if rows[uint64(output.Ordinal)] == nil {
+			rows[uint64(output.Ordinal)] = map[string]bool{}
+		}
+		rows[uint64(output.Ordinal)][key] = true
 	}
 	return rows
 }

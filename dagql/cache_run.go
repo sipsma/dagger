@@ -117,11 +117,13 @@ func (c *Cache) replaceRunsLocked(commit *valueMergeCommit, isBest func(*mergeRo
 		if !isBest(row) || row.action != mergeKeep || row.expired || commit.prep.senderImported[row.ordinal] || cur == nil {
 			continue
 		}
-		// A run replaces another's record only with its own content of the
-		// step, which this export carries: without it, it gains nothing over
-		// the record it would replace, and two runs that both left no
-		// content would replace each other's records in turn.
-		if !commit.prep.contentRows[row.ordinal] {
+		// A run replaces another's record only with its whole content of
+		// the step, which this export carries: without it, it gains nothing
+		// over the record it would replace, and two runs that both left no
+		// content would replace each other's records in turn; with part of
+		// it, its record would keep some content and no later run could
+		// make it whole.
+		if !c.carriesWholeLocked(cur, commit.prep.contentRows[row.ordinal]) {
 			continue
 		}
 		if row.value.Held != "" {
@@ -347,6 +349,36 @@ func (c *Cache) ReplaceableBy(number uint64, run RunName) bool {
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
 	return c.replaceableLocked(c.resultsByID[sharedResultID(number)], run, time.Now().Unix())
+}
+
+// carriesWholeLocked reports whether parts, the part keys an export carries
+// content of, hold every part besides metadata that res's stored record
+// declares or proves complete: the step's whole content, as a run of it
+// writes. Requires egraphMu.
+func (c *Cache) carriesWholeLocked(res *sharedResult, parts map[string]bool) bool {
+	if res == nil || len(parts) == 0 {
+		return false
+	}
+	record, ok := c.recordPartsLocked(res)
+	if !ok {
+		return false
+	}
+	var keys []string
+	for _, part := range record.declared {
+		keys = append(keys, part.key)
+	}
+	if record.complete != nil {
+		keys = append(keys, record.complete.list()...)
+	}
+	for key := range record.mapped {
+		keys = append(keys, key)
+	}
+	for _, key := range keys {
+		if !parts[key] && !strings.Contains(key, metadataPartField) {
+			return false
+		}
+	}
+	return true
 }
 
 // heldRowComputedLocked reports whether a held row's sender computed the
