@@ -193,8 +193,9 @@ func TestCacheReportsAPartReadWhileItsWorkRuns(t *testing.T) {
 // under does, is reported once per part and session, with the session, the
 // recipe of the cached call it was made under and when it was made, beside
 // the engine-wide report. A second read of a part in the session isn't
-// reported again, and a cached call made under the uncached call reads on its
-// own account, as any cached call does: its reads carry no session.
+// reported again. A cached call made under the uncached call, and the
+// evaluation of a result the uncached call reads, read on their own account,
+// as any cached call's run does: their reads carry no session.
 func TestCacheReportsPartsReadUnderAnUncachedCall(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
@@ -212,6 +213,10 @@ func TestCacheReportsPartsReadUnderAnUncachedCall(t *testing.T) {
 	srv := cacheTestPartsServer(t)
 
 	dep := newPartsReadTestValue(t, c, ctx, "read-by-the-uncached-call", nil)
+	readByEvaluation := newPartsReadTestValue(t, c, ctx, "read-by-an-evaluation", nil)
+	evaluated := newPartsReadTestValue(t, c, ctx, "evaluated-for-the-uncached-call", func(ctx context.Context) error {
+		return c.EvaluateParts(ctx, readByEvaluation, partsTestPartFS)
+	})
 	byCached := newPartsReadTestValue(t, c, ctx, "read-by-a-cached-call", nil)
 	call := func(ctx context.Context, field string, uncached bool, fn func(context.Context) error) {
 		t.Helper()
@@ -234,6 +239,11 @@ func TestCacheReportsPartsReadUnderAnUncachedCall(t *testing.T) {
 			return err
 		}
 		if err := c.EvaluateParts(ctx, dep, partsTestPartFS); err != nil {
+			return err
+		}
+		// The uncached call reads evaluated; what evaluated's own
+		// evaluation reads is that result's call's.
+		if err := c.EvaluateParts(ctx, evaluated, partsTestPartFS); err != nil {
 			return err
 		}
 		call(ctx, "cached-under-the-uncached-call", false, func(ctx context.Context) error {
@@ -264,7 +274,9 @@ func TestCacheReportsPartsReadUnderAnUncachedCall(t *testing.T) {
 	assert.DeepEqual(t, []PartRead{
 		{ResultID: id(dep), Part: partsTestPartXMeta, Session: session, Caller: caller},
 		{ResultID: id(dep), Part: partsTestPartFS, Session: session, Caller: caller},
+		{ResultID: id(evaluated), Part: partsTestPartFS, Session: session, Caller: caller},
 	}, sessionReads)
+	assert.DeepEqual(t, []PartKey{partsTestPartFS}, engineWide[id(readByEvaluation)])
 	assert.DeepEqual(t, []PartKey{partsTestPartFS}, engineWide[id(byCached)])
 	assert.Assert(t, len(engineWide[id(dep)]) > 0, "the engine-wide report still names the entry")
 }
