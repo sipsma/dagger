@@ -731,7 +731,6 @@ func (c *Cache) applyMergedTargetsLocked(ctx context.Context, cache CacheID, clo
 				served.run, served.ran, served.known = t.served.run, t.served.ran, true
 			}
 			h.served = &served
-			c.servedOverOwnSecondRunLocked(key, entry, h)
 		}
 	}
 }
@@ -836,6 +835,11 @@ func (c *Cache) updateRemoteHoldingLocked(ctx context.Context, key HolderKey, up
 	// An evaluation that reported a part complete ran the value at its
 	// count.
 	if update.Evaluated && ranPartsReported(parts) && c.noteHoldingRanLocked(key, entry, h, update.Replacements, runRanByEvaluation) {
+		change.Saved = true
+	}
+	// A second run's own engine that installed its content is the run
+	// with content, whatever the content came from (noteSecondRunContentLocked).
+	if !update.Evaluated && ranPartsReported(parts) && c.noteSecondRunContentLocked(key, entry, update.Replacements) {
 		change.Saved = true
 	}
 	return change, true

@@ -51,29 +51,30 @@ func (c *Cache) markKeptUnderLocked(res *sharedResult) {
 	}
 }
 
-// servedOverOwnSecondRunLocked makes entry, a second run whose record names
-// the run of key's engine at the count h was just served at, name the run
-// served instead, when the engine's own run never ran and the served one
-// did. The engine's record went to the Cloud before its step ran, as the
-// records stream sends a lazy chain, and the merge kept it as the engine's
-// run; then the engine's lookup was answered with another run, and that run
-// is its value of the step: what it builds over the entry is built over the
-// served run's content. So the entry is that run, and the withholding rule
-// asks that run whole of it, rather than answering what stands over it over
-// a recipe that a third engine would run beside that content. A served run
-// that never ran says nothing yet: the engine runs the step itself, and its
-// own run's report marks the entry (noteHoldingRanLocked). Requires egraphMu
-// for writing.
-func (c *Cache) servedOverOwnSecondRunLocked(key HolderKey, entry *sharedResult, h *holding) {
-	if entry.secondRunOf == "" || entry.run == nil || entry.runRan != runNotRan || h.served == nil || !h.served.known || h.served.ran == runNotRan {
-		return
+// noteSecondRunContentLocked marks entry, a second run whose record names
+// the run of key at count replacements, as a run that ran, when that run's
+// own holding reports a part besides its metadata complete from a Cloud
+// offer rather than an evaluation, and reports whether it marked it. Its
+// engine's record went to the Cloud before its step ran, as the records
+// stream sends a lazy chain, and the merge kept it as the engine's run; then
+// the engine installed content the Cloud offered it, another run's, rather
+// than running the step. That content is the engine's value of the step,
+// and what it builds over the entry is built over it: the entry's run has
+// content now, which the entry doesn't store, so the withholding rule
+// withholds what stands over it until the entry stores the content its
+// engine holds, which selection asks of that engine. A recipe's current
+// entry is left as it is: an install of its own offers is no run.
+// Requires egraphMu for writing.
+func (c *Cache) noteSecondRunContentLocked(key HolderKey, entry *sharedResult, replacements uint64) bool {
+	if !c.blobBacked || entry == nil || entry.secondRunOf == "" || entry.run == nil || entry.runRan != runNotRan {
+		return false
 	}
-	if run := *entry.run; run.Cache != key.Cache || run.Number != key.Number || run.Replacements != h.served.replacements || h.ran {
-		return
+	if run := *entry.run; run.Cache != key.Cache || run.Number != key.Number || run.Replacements != replacements {
+		return false
 	}
-	served := h.served.run
-	entry.run, entry.runRan = &served, h.served.ran
+	entry.runRan = runRanByOffer
 	c.markEntryLocked(entry.id)
+	return true
 }
 
 // ReleaseSecondRuns releases, on the Cloud, what the engine cache cache kept
