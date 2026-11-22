@@ -1886,6 +1886,8 @@ func (c *Cache) cleanupReleasedSession(plan *cacheSessionReleasePlan) error {
 	delete(c.sessionLazySpansProvisional, plan.sessionID)
 	delete(c.sessionResultInstallSpans, plan.sessionID)
 	delete(c.sessionLazyAnchors, plan.sessionID)
+	// The session's reads under uncached calls are reported or never will be.
+	c.partReads.forgetSession(plan.sessionID)
 	delete(c.sessionResourcesBySession, plan.sessionID)
 	delete(c.sessionVolatileVarsBySession, plan.sessionID)
 	delete(c.sessionHandlesBySession, plan.sessionID)
@@ -5668,7 +5670,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 
 	// Work read the entry once it asked for it, though the entry may still
 	// be running.
-	c.partReads.record(shared.id, nil)
+	c.recordPartRead(ctx, shared.id, nil)
 	watch := partReselectWatch{loop: "evaluateOne"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
@@ -5707,7 +5709,7 @@ func (c *Cache) EvaluateParts(ctx context.Context, res AnyResult, parts ...PartK
 
 	// Work read the parts once it asked for them, though they may still be
 	// being made.
-	c.partReads.record(shared.id, parts)
+	c.recordPartRead(ctx, shared.id, parts)
 	watch := partReselectWatch{loop: "EvaluateParts"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
@@ -7021,6 +7023,18 @@ func (c *Cache) getOrInitCallTakingOver(
 	}
 }
 
+// uncachedCallCtx marks a context that runs an uncached call's own work:
+// below the call, and above any cached call it makes (underUncachedCall).
+type uncachedCallCtx struct{}
+
+// underUncachedCall reports whether ctx runs an uncached call's own work. Such
+// a call runs whenever the call it is made under does, so what it reads there
+// is read on every run of that call (recordPartRead).
+func underUncachedCall(ctx context.Context) bool {
+	under, _ := ctx.Value(uncachedCallCtx{}).(bool)
+	return under
+}
+
 //nolint:gocyclo // Core cache lookup/insert flow is intentionally centralized here.
 func (c *Cache) getOrInitCallInner(
 	ctx context.Context,
@@ -7055,7 +7069,7 @@ func (c *Cache) getOrInitCallInner(
 			ev.Outcome = CacheOutcomeUncached
 		}
 
-		val, err := fn(ctx)
+		val, err := fn(context.WithValue(ctx, uncachedCallCtx{}, true))
 		if err != nil {
 			return nil, err
 		}
@@ -7110,6 +7124,11 @@ func (c *Cache) getOrInitCallInner(
 		return Result[Typed]{shared: detached}, nil
 	}
 
+	if underUncachedCall(ctx) {
+		// What a cached call reads depends on whether it runs, not on the
+		// uncached call it was made under.
+		ctx = context.WithValue(ctx, uncachedCallCtx{}, false)
+	}
 	callDigest, err := req.deriveRecipeDigest(c)
 	if err != nil {
 		return nil, fmt.Errorf("derive request digest: %w", err)
