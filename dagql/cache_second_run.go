@@ -96,6 +96,42 @@ func (c *Cache) holdingReportedContentLocked(key HolderKey, replacements uint64)
 	return false
 }
 
+// recheckKeptUnderLocked clears res's kept-under mark when no stored entry
+// that is its recipe's current entry, or a second run kept under one, still
+// stands over it through a dependency edge (depParents), and does the same,
+// in turn, for each second run below it that held its mark only through it:
+// a result replaced in place on expiry, or dropped, takes its edges, and the
+// runs below it are then needed by nothing stored. Each entry it clears is
+// named. Requires egraphMu for writing.
+func (c *Cache) recheckKeptUnderLocked(res *sharedResult) {
+	stack := []*sharedResult{res}
+	for len(stack) > 0 {
+		cur := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if cur == nil || cur.secondRunOf == "" || !cur.keptUnder || c.keptUnderByParentLocked(cur) {
+			continue
+		}
+		cur.keptUnder = false
+		c.markEntryLocked(cur.id)
+		for depID := range cur.deps {
+			stack = append(stack, c.resultsByID[depID])
+		}
+	}
+}
+
+// keptUnderByParentLocked reports whether a stored entry that is its
+// recipe's current entry, or a second run kept under one, depends on res.
+// Requires egraphMu.
+func (c *Cache) keptUnderByParentLocked(res *sharedResult) bool {
+	for parentID := range res.depParents {
+		parent := c.resultsByID[parentID]
+		if parent != nil && (parent.secondRunOf == "" || parent.keptUnder) && parent.hasOwnValueLocked() {
+			return true
+		}
+	}
+	return false
+}
+
 // ReleaseSecondRuns releases, on the Cloud, what the engine cache cache kept
 // apart once it has ended: each second run it holds that nothing stored
 // stands over loses its value, as a prune drops a value only holdings keep

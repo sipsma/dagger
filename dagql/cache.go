@@ -4707,6 +4707,9 @@ func (c *Cache) forgetDependencyEdgeLocked(parentID sharedResultID, depID shared
 	if len(depRes.depParents) == 0 {
 		depRes.depParents = nil
 	}
+	// A second run's mark that something stored stands over it goes with
+	// its last such parent's edge.
+	c.recheckKeptUnderLocked(depRes)
 }
 
 type Result[T Typed] struct {
