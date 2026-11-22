@@ -1870,6 +1870,59 @@ func TestAnotherRunsContentIsntTaughtToTheEntryItIsKeptOn(t *testing.T) {
 	require.True(t, got[0].OtherRun, "B's bytes are another run's")
 }
 
+// The run an observation's content digest is of is the holding's own when
+// the observation runs the value or the holding ran it already: a first
+// executed call that reports content, a later hit, and a first evaluation
+// teach A's entry nothing of their runs, and their bytes stay refused.
+func TestAnotherRunsFirstReportAndLaterHitDontTeachTheEntry(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	run, ok := entryRunName(cloud, pA)
+	require.True(t, ok)
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: recipe, Replacements: run.Replacements, ContentDigest: digest.FromString("A's content")})
+	require.NoError(t, err)
+	content := func() digest.Digest {
+		cloud.egraphMu.RLock()
+		res := cloud.resultsByID[sharedResultID(pA)]
+		cloud.egraphMu.RUnlock()
+		cloud.applyTaughtContent([]*sharedResult{res})
+		cloud.egraphMu.RLock()
+		defer cloud.egraphMu.RUnlock()
+		return cloud.entryContentLocked(res)
+	}
+	require.Equal(t, digest.FromString("A's content"), content())
+	refused := func(by RunName) {
+		t.Helper()
+		got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: pA, Run: by, Part: testLiveOffer()}})
+		require.NoError(t, err)
+		require.True(t, got[0].OtherRun, "%s's bytes are another run's", by.Cache)
+	}
+	part := []PersistedPartAddress{testLiveOffer().Address}
+	// C's first call runs the step and reports its content at once.
+	c := HolderKey{Cache: "cache-c", Number: 4}
+	_, err = cloud.AttachRemoteHolding(ctx, c, RemoteHolding{Recipe: recipe, Executed: true, Parts: part, ContentDigest: digest.FromString("C's content")})
+	require.NoError(t, err)
+	require.Equal(t, digest.FromString("A's content"), content(), "C's first report teaches A's entry nothing")
+	// A later hit on C's own value reports another content digest.
+	_, err = cloud.AttachRemoteHolding(ctx, c, RemoteHolding{Recipe: recipe, ContentDigest: digest.FromString("C's content, again")})
+	require.NoError(t, err)
+	require.Equal(t, digest.FromString("A's content"), content(), "nor does a later hit on it")
+	refused(RunName{Cache: c.Cache, Number: c.Number})
+	// D's call returns a lazy value, which D's evaluation then runs.
+	d := HolderKey{Cache: "cache-d", Number: 5}
+	_, err = cloud.AttachRemoteHolding(ctx, d, RemoteHolding{Recipe: recipe, Executed: true})
+	require.NoError(t, err)
+	_, found, err := cloud.UpdateRemoteHolding(ctx, d, RemoteHoldingUpdate{Evaluated: true, Parts: part, ContentDigest: digest.FromString("D's content")})
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, digest.FromString("A's content"), content(), "nor does D's first evaluation")
+	refused(RunName{Cache: d.Cache, Number: d.Number})
+}
+
 // A class can join two runs' entries by a request digest alone, the same
 // call returning both: that doesn't make them one value, so a class mate of
 // another run whose content isn't shown equal lends nothing.

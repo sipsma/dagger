@@ -980,14 +980,20 @@ func (c *Cache) holderOfOtherRunLocked(res *sharedResult, holder HolderKey, nowU
 
 // teachesEntryContentLocked reports whether a content digest the holding key
 // reports, at replacement count replacements, is evidence of entry's stored
-// record's content, which the entry may learn: off the Cloud always; on it,
-// when the holding is of the record's own run, or didn't run its value
-// itself (ran), so holds the record's copy. A holding that ran another run
-// kept on the entry reports that run's content, which would rewrite the
-// record as another value's; it keeps its digest as its own
-// (holding.contentDigest). Requires egraphMu.
+// record's content, which the entry may learn. Off the Cloud it always is.
+// On it, the digest is of the run the observation describes: the holding's
+// own, when the observation runs the value (ran: an executed call or an
+// evaluation) or the holding ran it at that count already (holding.ran),
+// whatever the observation is; else the copy of the record it took. It is
+// evidence when that run is the record's. Another run kept on the entry
+// reports its own content, which would rewrite the record as another
+// value's; the holding keeps it as its own (holding.contentDigest). Requires
+// egraphMu.
 func (c *Cache) teachesEntryContentLocked(entry *sharedResult, key HolderKey, replacements uint64, ran bool) bool {
-	if !c.blobBacked || entry == nil || entry.run == nil || !ran {
+	if !c.blobBacked || entry == nil || entry.run == nil {
+		return true
+	}
+	if !ran && !c.holdingRanLocked(key, replacements) {
 		return true
 	}
 	return *entry.run == RunName{Cache: key.Cache, Number: key.Number, Replacements: replacements}

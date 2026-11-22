@@ -197,6 +197,10 @@ type HeldValueState struct {
 	OfferedParts  []PersistedPartAddress
 	ExpiresAtUnix int64
 	ContentDigest digest.Digest
+	// Ran is whether the observation is of the holding running the value
+	// itself, an executed call or an evaluation: its content digest is then
+	// the holding's own run's (teachesEntryContentLocked).
+	Ran bool
 }
 
 // RetentionObservation is one observation of an entry's retention edge in its
@@ -531,6 +535,7 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 		Deps:          desc.Deps,
 		ExpiresAtUnix: desc.ExpiresAtUnix,
 		ContentDigest: desc.ContentDigest,
+		Ran:           desc.Executed,
 	}, parts, nil)
 	// An executed call computed the value at its replacement count: the
 	// holding's, once the state above is applied, or an older one, which it
@@ -790,6 +795,7 @@ func (c *Cache) updateRemoteHoldingLocked(ctx context.Context, key HolderKey, up
 		Replacements:  update.Replacements,
 		Deps:          update.Deps,
 		ContentDigest: update.ContentDigest,
+		Ran:           update.Evaluated,
 	}, parts, nil)
 	// An evaluation that reported a part complete ran the value at its
 	// count.
@@ -818,7 +824,7 @@ func (c *Cache) updateRemoteHoldingLocked(ctx context.Context, key HolderKey, up
 // keys. It returns the dropped dependencies' holdings. Requires egraphMu for
 // writing.
 func (c *Cache) applyHeldValueStateLocked(ctx context.Context, state *remoteCacheState, key HolderKey, entry *sharedResult, h *holding, obs HeldValueState, parts, offered []string) []HolderKey {
-	if obs.ContentDigest != "" && string(obs.ContentDigest) != handleString(h.contentDigest) && c.teachesEntryContentLocked(entry, key, obs.Replacements, h.ran) {
+	if obs.ContentDigest != "" && string(obs.ContentDigest) != handleString(h.contentDigest) && c.teachesEntryContentLocked(entry, key, obs.Replacements, obs.Ran) {
 		// The class learns a content digest from every observation, whatever
 		// its count: a union is never undone, and gating it by count would
 		// only make the class depend on arrival order. The holding's own

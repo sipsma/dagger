@@ -42,6 +42,9 @@ func newHolderTestClass(t *testing.T) *holderTestClass {
 	mRecipe, mField := changeTestRecipe(cloud, h.m)
 	content := testDigest("holder-content")
 	h.mRecipe = RemoteHolding{Recipe: mRecipe, Request: mRecipe, Field: mField, TypeName: "Directory", ContentDigest: content}
+	// R's own run reports R's content: on the Cloud only the record's run,
+	// or a copy of it, teaches the record's entry its content.
+	h.attach(t, HolderKey{"cache-a", uint64(rRes.cacheSharedResult().id)}, RemoteHolding{Recipe: rRecipe, ContentDigest: content})
 	h.attach(t, HolderKey{"cache-c", 10}, RemoteHolding{Recipe: rRecipe, Request: rRecipe, Field: rField, TypeName: "Directory", ContentDigest: content, Parts: []PersistedPartAddress{h.snapshot}, Executed: true})
 	h.attach(t, HolderKey{"cache-c", 11}, h.mRecipe)
 	stored, _, err := cloud.SetStoredPart(ctx, h.r, storedPartRunOf(t, cloud, h.r), storedPruneTestPart("snapshot", map[string]int64{"holder-r-layer": 10}), 0)
