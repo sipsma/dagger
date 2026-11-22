@@ -10,6 +10,7 @@ import (
 	"github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/dagger/dagger/engine/snapshots/testutil"
 	"github.com/dagger/dagger/internal/buildkit/util/compression"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,7 +36,12 @@ func TestPartDelegationMountRoles(t *testing.T) {
 			}
 			base := makeParent(aStore)
 			parent := attachTransferObject(t, actx, a, asrv, "a", "mountRoleParent", base)
-			attachTransferObject(t, bctx, b, bsrv, "b", "mountRoleParent", makeParent(bStore))
+			own := attachTransferObject(t, bctx, b, bsrv, "b", "mountRoleParent", makeParent(bStore))
+			// The two parents hold the same files: shown equal by content,
+			// B's own parent stands for A's (keepOwnRunsLocked).
+			parentContent := digest.FromString("mount role parent")
+			require.NoError(t, a.TeachContentDigest(actx, parent, parentContent))
+			require.NoError(t, b.TeachContentDigest(bctx, own, parentContent))
 			child := NewContainer(base.Platform)
 			var err error
 			child.Mounts, err = CloneContainerMounts(actx, base.Mounts[1:])
@@ -96,7 +102,8 @@ func TestPartDelegationMountRoles(t *testing.T) {
 				for _, field := range []string{"paddingOne", "paddingTwo", "paddingThree"} {
 					attachTransferObject(t, cctx, c, csrv, "c", field, NewContainer(base.Platform))
 				}
-				attachTransferObject(t, cctx, c, csrv, "c", "mountRoleParent", makeParent(cStore))
+				cParent := attachTransferObject(t, cctx, c, csrv, "c", "mountRoleParent", makeParent(cStore))
+				require.NoError(t, c.TeachContentDigest(cctx, cParent, parentContent))
 				require.NoError(t, b.WithExportedValues(bctx, dagql.ValueSelection{Roots: []dagql.AnyResult{got}}, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(_ context.Context, forwarded *dagql.ExportedValues) error {
 					for _, value := range forwarded.Bundle.Values {
 						require.Empty(t, value.Record.SnapshotLinks)

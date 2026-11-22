@@ -16,6 +16,7 @@ import (
 	"github.com/dagger/dagger/engine/snapshots/testutil"
 	"github.com/dagger/dagger/internal/buildkit/util/compression"
 	"github.com/dagger/dagger/internal/testutil/cachetest"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
 )
@@ -80,6 +81,10 @@ func attachDelegationChild(t testing.TB, ctx context.Context, cache *dagql.Cache
 	return result.(dagql.ObjectResult[*Container])
 }
 
+// delegationBaseContent is the content digest of the delegation tests'
+// parent, whose files every engine that builds it holds alike.
+var delegationBaseContent = digest.FromString("delegation base")
+
 func TestPartDelegationRealStore(t *testing.T) {
 	for _, mode := range []string{"ready-parent", "pending-parent", "borrowed-sync", "native-restart", "ready-parent-over-chain", "ordinary-ready-tie", "child-chain-first", "late-child", "child-and-parent-failure"} {
 		t.Run(mode, func(t *testing.T) {
@@ -107,7 +112,11 @@ func TestPartDelegationRealStore(t *testing.T) {
 				localRef, _ := bStore.Build(t, nil, "payload", "delegated bytes")
 				local := NewContainer(base.Platform)
 				local.FS.setValue(partTestDirectory(localRef, "/"))
-				attachTransferObject(t, bctx, b, bsrv, "b", "delegationBase", local)
+				own := attachTransferObject(t, bctx, b, bsrv, "b", "delegationBase", local)
+				// B's own parent holds the same files as A's: shown equal by
+				// content, it stands for A's (keepOwnRunsLocked).
+				require.NoError(t, a.TeachContentDigest(actx, parent, delegationBaseContent))
+				require.NoError(t, b.TeachContentDigest(bctx, own, delegationBaseContent))
 			}
 			selection := dagql.ValueSelection{Roots: []dagql.AnyResult{result}, Outputs: []dagql.SelectedValueOutput{{Result: parent, Address: dagql.PersistedPartAddress{Part: "fs"}}}}
 			if mode == "ready-parent-over-chain" || mode == "child-chain-first" || mode == "child-and-parent-failure" {
