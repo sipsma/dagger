@@ -7034,10 +7034,11 @@ func (c *Cache) getOrInitCallTakingOver(
 // (recordPartRead). A read counts when the call it is made in is uncached, or
 // session-bound (keyed per session, so every session makes it again), or when
 // it is made at the session's top, outside any call; it carries as its caller
-// the nearest call above it that is neither, which runs only when its own
-// lookup misses, or an empty caller when there is none up to the session's
-// top, since a session-bound call's recipe names its session and so can't be
-// matched on another engine.
+// the outermost call above it that is neither, which runs only when its own
+// lookup misses, and whose run is the earliest a next engine knows the read
+// will come; or an empty caller when there is none up to the session's top.
+// A session-bound call is never the caller, at any depth, since its recipe
+// names its session and so can't be matched on another engine.
 type partReadScope struct {
 	counts bool
 	caller digest.Digest
@@ -7067,7 +7068,7 @@ func withReadScope(ctx context.Context, scope partReadScope) context.Context {
 // cross: a module function's call, or the call of an exec whose process
 // calls back in. It is carried beside the call's recipe (CallerRecipe),
 // which can't stand for it: a session-bound or uncached call names itself or
-// the call above it there, while its reads count under the nearest call
+// the call above it there, while its reads count under the outermost call
 // above it that is neither (partReadScope). The zero ReadScope carries
 // nothing.
 type ReadScope struct {
@@ -7202,11 +7203,11 @@ func (c *Cache) getOrInitCallInner(
 	}
 	// A session-bound call is made again by every session: its own reads
 	// count, under the caller above it. Any other cached call runs only when
-	// its lookup misses: its reads don't count, and it is the caller of the
-	// calls under it, when its span is reported.
+	// its lookup misses: its reads don't count, and the outermost such call
+	// whose span is reported is the caller of the reads under it.
 	scope := readScope(ctx)
 	scope.counts = req.ResultCall.SessionBound()
-	if !scope.counts && req.CacheReported {
+	if !scope.counts && req.CacheReported && scope.caller == "" {
 		scope.caller = callDigest
 	}
 	ctx = withReadScope(ctx, scope)
