@@ -110,6 +110,13 @@ func (c *Cache) startPartLocked(q PartStartQuery, key string, nowUnix int64, out
 	if held && av.State == PartStored {
 		return nil
 	}
+	// A holding whose run may not give the record its part starts nothing:
+	// the store would refuse its bytes, and its count would answer the
+	// record's own run as uploading (holderOfOtherRunLocked).
+	if !held && q.Holder.Cache != "" && c.holderOfOtherRunLocked(res, q.Holder, nowUnix) {
+		out.State, out.Donor = PartOtherRun, uint64(res.id)
+		return nil
+	}
 	c.uploadsMu.Lock()
 	if donor, uploading := c.classUploadLocked(res, key); uploading {
 		out.UploadedBy = uint64(donor)

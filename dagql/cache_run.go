@@ -421,7 +421,9 @@ func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) {
 	// it complete.
 	adopted := run
 	res.run, res.runRan = &adopted, runRanByProof
-	c.markEntryLocked(res.id)
+	// The entry's class mates answer for its parts by its run
+	// (lendsLocked): they are named too, so kept answers ask again.
+	c.markEntryClassLocked(res.id, StampReplaced)
 }
 
 // ownEngineRanOverLocked reports whether a stored record over res, directly
@@ -899,4 +901,85 @@ func compareRunContent(incoming *ResultCall, res *sharedResult) int {
 	default:
 		return -1
 	}
+}
+
+// lendsLocked reports whether other, an entry of res's class, may answer for
+// res's parts. A class mate the class holds for a content digest or a term
+// it shares is the same value, by the cache's own model, and may. One that is
+// only the same call, an entry of a recipe res shares, is another run of it,
+// whose bytes differ for a step that can differ: on the Cloud it may only
+// when it is res's own record's run, or shown equal to it by content digest
+// (entryContentLocked), or either names no run. The store refuses another
+// run's bytes onto res (SetStoredParts), and a bundle doesn't lend them, so
+// they neither store nor upload res's part. Off the Cloud every class mate
+// may. Requires egraphMu.
+func (c *Cache) lendsLocked(res, other *sharedResult) bool {
+	if !c.blobBacked || other == res || res.run == nil || other.run == nil || *res.run == *other.run {
+		return true
+	}
+	// A retired entry has left the recipe index, so it shares no recipe
+	// key, but it is the run a later one replaced: it lends only to its own.
+	if !other.runReplaced && !res.runReplaced && !sharesRecipe(res, other) {
+		return true
+	}
+	mine, theirs := c.entryContentLocked(res), c.entryContentLocked(other)
+	return mine != "" && mine == theirs
+}
+
+// sharesRecipe reports whether a and b are entries of one recipe, the same
+// call: a recipe key of one is the other's. A retired entry has left the
+// recipe index and keeps no keys; it shares none.
+func sharesRecipe(a, b *sharedResult) bool {
+	for _, ka := range a.recipeKeys {
+		if slices.Contains(b.recipeKeys, ka) {
+			return true
+		}
+	}
+	return false
+}
+
+// entryContentLocked is the content digest res's stored record is known by:
+// its frame's, as taught or recorded (compareRunContent's reading), or else
+// the one the holding of the record's own run reports; "" when neither says.
+// Requires egraphMu.
+func (c *Cache) entryContentLocked(res *sharedResult) digest.Digest {
+	res.resultCallMu.RLock()
+	known, content, call := res.frameContentKnown, res.frameContent, res.resultCall
+	res.resultCallMu.RUnlock()
+	switch {
+	case known && content != "":
+		return content
+	case call != nil:
+		if d := call.ContentDigest(); d != "" {
+			return d
+		}
+	}
+	if res.run != nil {
+		if _, own := c.holdingLocked(HolderKey{Cache: res.run.Cache, Number: res.run.Number}); own != nil && own.replacements == res.run.Replacements {
+			return digest.Digest(handleString(own.contentDigest))
+		}
+	}
+	return ""
+}
+
+// holderOfOtherRunLocked reports whether the holding holder, of res's
+// entry, is of another run than res's stored record, not shown equal to it
+// by content, while the record neither takes another run's part
+// (canAdoptRunLocked) nor may be replaced by holder's run
+// (replaceableLocked): what holder's engine would upload for the entry, the
+// store refuses. A holding the cache doesn't have, or an entry that names no
+// run, isn't. Requires egraphMu.
+func (c *Cache) holderOfOtherRunLocked(res *sharedResult, holder HolderKey, nowUnix int64) bool {
+	if !c.blobBacked || res.run == nil {
+		return false
+	}
+	_, h := c.holdingLocked(holder)
+	if h == nil {
+		return false
+	}
+	run := RunName{Cache: holder.Cache, Number: holder.Number, Replacements: h.replacements}
+	if run == *res.run || c.runsShownEqualLocked(res, run) || c.canAdoptRunLocked(res) {
+		return false
+	}
+	return !c.replaceableLocked(res, run, nowUnix)
 }

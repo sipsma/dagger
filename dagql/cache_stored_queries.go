@@ -86,6 +86,12 @@ const (
 	// PartUploading: neither stored nor absent, and an upload of the part is
 	// in progress for the entry or an entry of its class (StartPartUploads).
 	PartUploading
+	// PartOtherRun: on the Cloud, the query names a holding (PartQuery.Holder)
+	// whose run isn't the run of the entry's stored record, nor shown equal
+	// to it by content, and the record neither takes another run's part nor
+	// may be replaced by one: the part isn't stored, and this holding's
+	// content isn't what the record needs (SetStoredParts would refuse it).
+	PartOtherRun
 )
 
 // PartAvailability is AvailablePart's answer. Donor is the number of the
@@ -134,13 +140,17 @@ func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress, nowUn
 	}
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
-	return c.availablePartLocked(number, key, nowUnix)
+	return c.availablePartLocked(number, key, HolderKey{}, nowUnix)
 }
 
 // PartQuery is a part of an entry a reader asks about (AvailableParts).
 type PartQuery struct {
 	Number  uint64
 	Address PersistedPartAddress
+	// Holder, when set, is the engine holding the query asks for, a holding
+	// on the entry: on the Cloud, the answer is PartOtherRun when its run
+	// may not give the entry's record the part.
+	Holder HolderKey
 }
 
 // PartAnswer is AvailablePart's answer for one PartQuery, or the error it
@@ -179,7 +189,7 @@ func (c *Cache) AvailableParts(queries []PartQuery, nowUnix int64) []PartAnswer 
 	defer c.egraphMu.RUnlock()
 	for i, q := range queries {
 		if out[i].Err == nil {
-			out[i].PartAvailability, out[i].Err = c.availablePartLocked(q.Number, keys[i], nowUnix)
+			out[i].PartAvailability, out[i].Err = c.availablePartLocked(q.Number, keys[i], q.Holder, nowUnix)
 		}
 		if c.testBatchAnswered != nil {
 			c.testBatchAnswered(i)
@@ -212,13 +222,17 @@ func (c *Cache) giveWayLocked() {
 
 // availablePartLocked is AvailablePart's answer for the part key of the
 // entry numbered number. Requires egraphMu.
-func (c *Cache) availablePartLocked(number uint64, key string, nowUnix int64) (PartAvailability, error) {
+func (c *Cache) availablePartLocked(number uint64, key string, holder HolderKey, nowUnix int64) (PartAvailability, error) {
 	res := c.resultsByID[sharedResultID(number)]
 	if res == nil {
 		return PartAvailability{}, fmt.Errorf("available part of %d: %w", number, ErrUnknownEntry)
 	}
 	av, held := c.heldPartLocked(res, key, nowUnix)
 	if held {
+		return av, nil
+	}
+	if holder.Cache != "" && c.holderOfOtherRunLocked(res, holder, nowUnix) {
+		av.State, av.Donor = PartOtherRun, uint64(res.id)
 		return av, nil
 	}
 	// An upload in progress answers after stored and absent: a reader needs
@@ -275,6 +289,13 @@ func (c *Cache) heldPartLocked(res *sharedResult, key string, nowUnix int64) (Pa
 		if candidate == res && c.resultExpiredAtLocked(res, nowUnix) {
 			continue
 		}
+		// A class mate's stored part answers only when the entry may lend
+		// it: of the entry's own run, or one shown equal by content
+		// (lendsLocked). Another run's bytes the store refuses onto this
+		// entry, and a bundle doesn't lend them.
+		if candidate != res && !c.lendsLocked(res, candidate) {
+			continue
+		}
 		if _, ok := candidate.storedParts[key]; ok {
 			return PartAvailability{State: PartStored, Donor: uint64(candidate.id), ValidUntilUnix: validUntil}, true
 		}
@@ -317,7 +338,9 @@ func (c *Cache) classUploadLocked(res *sharedResult, key string) (sharedResultID
 	consider(res.id)
 	for root := range c.outputEqClassRootsLocked(res.id) {
 		for id := range c.outputEqClassResults[root] {
-			if c.resultsByID[id] != nil {
+			// Another run's upload brings bytes the store refuses onto
+			// res (lendsLocked): it serves only its own run's entries.
+			if other := c.resultsByID[id]; other != nil && c.lendsLocked(res, other) {
 				consider(id)
 			}
 		}

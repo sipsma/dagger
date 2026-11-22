@@ -95,7 +95,9 @@ func (c *Cache) retireResultLocked(res *sharedResult) {
 	c.unindexRecipesLocked(res)
 	if c.blobBacked && !res.runReplaced {
 		res.runReplaced = true
-		c.markEntryLocked(res.id)
+		// Its class mates answered for their parts by its run
+		// (lendsLocked): they are named too, so kept answers ask again.
+		c.markEntryClassLocked(res.id, StampReplaced)
 	}
 }
 

@@ -1705,3 +1705,75 @@ func runTestStartUpload(cloud *Cache, number uint64, address PersistedPartAddres
 	}
 	return nil
 }
+
+// A retired entry is the run a later one replaced: its stored part doesn't
+// answer for the entry that took its place, whose bytes are another run's.
+// A's root stores its content over A's dep; B's run replaces A's dep and
+// retires A's root over it; B's root, of the same call as A's, doesn't count
+// A's root's part as stored.
+func TestAPartAnswerCountsOnlyWhatTheEntryMayLend(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, rA, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	stored, _, err := cloud.SetStoredPart(ctx, rA, storedPartRunOf(t, cloud, rA), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	replaceTestRan(t, ctx, cloud, pA)
+	reply, rB, _ := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Equal(t, 1, reply.Rows.RunsReplaced)
+	require.NotEqual(t, rA, rB)
+	av, err := cloud.AvailablePart(rB, testLiveOffer().Address, time.Now().Unix())
+	require.NoError(t, err)
+	require.NotEqual(t, PartStored, av.State, "A's root's bytes are another run's")
+	av, err = cloud.AvailablePart(rA, testLiveOffer().Address, time.Now().Unix())
+	require.NoError(t, err)
+	require.Equal(t, PartStored, av.State, "A's root keeps its content for what names it")
+}
+
+// An upload of a part a holding's run may not give the entry's record isn't
+// started: the store would refuse its bytes, and its count would answer the
+// record's own run as uploading.
+func TestAnUploadOfAnotherRunsPartIsNotStarted(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	b := HolderKey{Cache: "cache-b", Number: 3}
+	_, err := cloud.AttachRemoteHolding(ctx, b, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	got, _ := cloud.StartPartUploads([]PartStartQuery{{PartQuery: PartQuery{Number: pA, Address: testLiveOffer().Address, Holder: b}}}, time.Now().Unix())
+	require.NoError(t, got[0].Err)
+	require.False(t, got[0].Started, "B's bytes would be refused")
+	require.Equal(t, PartOtherRun, got[0].State)
+	require.False(t, cloud.PartUploading(pA, testLiveOffer().Address), "and A's own run isn't answered as uploading")
+}
+
+// A query naming a holding of another run than the entry's record, which
+// may not give the record its part, is answered PartOtherRun; once the
+// record is replaceable, it is answered as any other.
+func TestAPartAnswerForAHoldingOfAnotherRunSaysSo(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	b := HolderKey{Cache: "cache-b", Number: 3}
+	_, err := cloud.AttachRemoteHolding(ctx, b, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	ask := func(holder HolderKey) PartAvailabilityState {
+		t.Helper()
+		got := cloud.AvailableParts([]PartQuery{{Number: pA, Address: testLiveOffer().Address, Holder: holder}}, time.Now().Unix())
+		require.NoError(t, got[0].Err)
+		return got[0].State
+	}
+	run, ok := entryRunName(cloud, pA)
+	require.True(t, ok)
+	require.Equal(t, PartUnavailable, ask(HolderKey{Cache: run.Cache, Number: run.Number}), "the record's own run is asked")
+	require.Equal(t, PartOtherRun, ask(b), "B's run may not give A's record its part")
+	require.Equal(t, PartUnavailable, ask(HolderKey{}), "an entry's answer names no holding")
+	cloud.NoteRunContent(pA, run, true)
+	require.Equal(t, PartUnavailable, ask(b), "once A's content won't come, B's whole run may replace it")
+}
