@@ -7045,6 +7045,13 @@ func (c *Cache) getOrInitCallTakingOver(
 // session, while any other cached call runs only when its lookup misses.
 type partReadScope struct {
 	counts bool
+	// Trial only, for telemetry: under is the number of cached calls that
+	// aren't session-bound above a read, up to the session's top, counting
+	// the evaluation of a result a read reads as that result's call, or -1
+	// when it can't be told; top is the recipe of the outermost of them, or
+	// empty when that is an evaluation.
+	under int
+	top   digest.Digest
 }
 
 type partReadScopeCtx struct{}
@@ -7056,7 +7063,10 @@ func readScope(ctx context.Context) partReadScope {
 	if scope, ok := ctx.Value(partReadScopeCtx{}).(partReadScope); ok {
 		return scope
 	}
-	return partReadScope{counts: CallerRecipe(ctx) == ""}
+	if CallerRecipe(ctx) == "" {
+		return partReadScope{counts: true}
+	}
+	return partReadScope{under: -1}
 }
 
 // withReadScope is ctx with its part reads scoped as scope.
@@ -7099,10 +7109,10 @@ func ContextWithReadScope(ctx context.Context, scope ReadScope) context.Context 
 // counted.
 func outsideCountedReads(ctx context.Context) context.Context {
 	scope := readScope(ctx)
-	if !scope.counts {
-		return ctx
-	}
 	scope.counts = false
+	if scope.under >= 0 {
+		scope.under++
+	}
 	return withReadScope(ctx, scope)
 }
 
@@ -7209,6 +7219,12 @@ func (c *Cache) getOrInitCallInner(
 	scope := readScope(ctx)
 	if !req.ResultCall.SessionBound() {
 		scope.counts = false
+		if scope.under == 0 {
+			scope.top = callDigest
+		}
+		if scope.under >= 0 {
+			scope.under++
+		}
 	}
 	ctx = withReadScope(ctx, scope)
 	// The call names the cached call it was made under, and is the caller of

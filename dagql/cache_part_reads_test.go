@@ -243,7 +243,7 @@ func sessionReadsOf(t *testing.T, reported []PartRead, before time.Time) []PartR
 	t.Helper()
 	var out []PartRead
 	for _, read := range reported {
-		if read.Session == "" {
+		if read.Session == "" || read.Under != 0 {
 			continue
 		}
 		assert.Assert(t, !read.At.Before(before) && !read.At.After(time.Now()), "a read's time is when it was made")
@@ -386,4 +386,65 @@ func TestCacheReportsPartsReadUnderANestedClientsRequest(t *testing.T) {
 		{ResultID: id(atTopUnderSessionBound), Part: partsTestPartFS, Session: session},
 		{ResultID: id(uncachedUnderSessionBound), Part: partsTestPartFS, Session: session},
 	}, sessionReadsOf(t, *reported, before))
+}
+
+// Trial only: a read made under a cached call is reported once per part,
+// session and class, with how many cached calls that aren't session-bound
+// stand above it: 1 when none stands between it and the outermost, which it
+// names, 2 when one does. Uncached and session-bound calls stand nowhere,
+// and the evaluation of a result a read reads stands as that result's call,
+// with no recipe when it is the outermost.
+func TestCacheReportsHowManyCachedCallsStandAboveARead(t *testing.T) {
+	t.Parallel()
+	ctx, c, _, reported, mu, call := readsTestCache(t)
+	direct := newPartsReadTestValue(t, c, ctx, "read-by-the-outermost-cached-call", nil)
+	throughUncached := newPartsReadTestValue(t, c, ctx, "read-through-uncached-and-session-bound-calls", nil)
+	nested := newPartsReadTestValue(t, c, ctx, "read-by-a-cached-call-under-it", nil)
+	readByEvaluation := newPartsReadTestValue(t, c, ctx, "read-by-an-evaluation", nil)
+	evaluated := newPartsReadTestValue(t, c, ctx, "evaluated-at-the-top", func(ctx context.Context) error {
+		return c.EvaluateParts(ctx, readByEvaluation, partsTestPartFS)
+	})
+	before := time.Now()
+	assert.NilError(t, c.EvaluateParts(ctx, evaluated, partsTestPartFS))
+	call(ctx, "cached-at-the-top", false, false, func(ctx context.Context) error {
+		if err := c.EvaluateParts(ctx, direct, partsTestPartFS); err != nil {
+			return err
+		}
+		if err := c.EvaluateParts(ctx, direct, partsTestPartFS); err != nil {
+			return err
+		}
+		call(ctx, "uncached-under-it", false, true, func(ctx context.Context) error {
+			call(ctx, "session-bound-under-that", true, false, func(ctx context.Context) error {
+				return c.EvaluateParts(ctx, throughUncached, partsTestPartFS)
+			})
+			return nil
+		})
+		call(ctx, "cached-under-it", false, false, func(ctx context.Context) error {
+			return c.EvaluateParts(ctx, nested, partsTestPartFS)
+		})
+		return nil
+	})
+	c.partReads.flush()
+
+	id := func(r ObjectResult[*cacheTestPartsObject]) uint64 { return uint64(r.cacheSharedResult().id) }
+	mu.Lock()
+	defer mu.Unlock()
+	got := map[uint64][]PartRead{}
+	for _, read := range *reported {
+		if read.Under == 0 {
+			continue
+		}
+		assert.Assert(t, read.Session != "" && !read.At.Before(before), "a read under a call has its session and time")
+		read.Session, read.At = "", time.Time{}
+		got[read.ResultID] = append(got[read.ResultID], read)
+	}
+	assert.Equal(t, len(got[id(readByEvaluation)]), 1)
+	assert.Equal(t, got[id(readByEvaluation)][0].Under, 1)
+	assert.Equal(t, got[id(readByEvaluation)][0].Top, "", "an evaluation outermost names no recipe")
+	top := got[id(direct)]
+	assert.Equal(t, len(top), 1, "a part read twice in a session is reported once")
+	assert.Equal(t, top[0].Under, 1)
+	assert.Assert(t, top[0].Top != "", "the outermost cached call is named")
+	assert.DeepEqual(t, got[id(throughUncached)], []PartRead{{ResultID: id(throughUncached), Part: partsTestPartFS, Under: 1, Top: top[0].Top}})
+	assert.DeepEqual(t, got[id(nested)], []PartRead{{ResultID: id(nested), Part: partsTestPartFS, Under: 2}})
 }

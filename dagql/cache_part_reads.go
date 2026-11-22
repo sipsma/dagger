@@ -19,6 +19,13 @@ type PartRead struct {
 	Part     PartKey
 	Session  string
 	At       time.Time
+	// Trial only, for telemetry: Under is set on a read made under a cached
+	// call (partReadScope.under): 1 when no other cached call stands between
+	// it and the outermost one, 2 when one does, -1 when it can't be told.
+	// Top is the outermost call's recipe on a read with Under 1, or empty
+	// when that is an evaluation.
+	Under int
+	Top   string
 }
 
 // WithPartReadReport makes the cache report the parts of entries that work
@@ -63,8 +70,9 @@ type partReadLog struct {
 // sessionPartRead is a part, or with no part the whole, of an entry that a
 // session's read that counts read.
 type sessionPartRead struct {
-	id   sharedResultID
-	part PartKey
+	id    sharedResultID
+	part  PartKey
+	under int
 }
 
 type partReadsSeen struct {
@@ -121,11 +129,16 @@ func (c *Cache) recordPartRead(ctx context.Context, id sharedResultID, parts []P
 		return
 	}
 	scope := readScope(ctx)
-	if !scope.counts {
-		return
-	}
 	session, err := partSession(ctx)
 	if err != nil {
+		return
+	}
+	if !scope.counts {
+		under, top := min(scope.under, 2), ""
+		if under == 1 {
+			top = scope.top.String()
+		}
+		c.partReads.recordSessionUnder(session, time.Now(), id, parts, under, top)
 		return
 	}
 	c.partReads.recordSession(session, time.Now(), id, parts)
@@ -135,6 +148,13 @@ func (c *Cache) recordPartRead(ctx context.Context, id sharedResultID, parts []P
 // parts is empty, that counted for session, and arranges for each part the
 // session hasn't read so to be reported.
 func (l *partReadLog) recordSession(session string, at time.Time, id sharedResultID, parts []PartKey) {
+	l.recordSessionUnder(session, at, id, parts, 0, "")
+}
+
+// recordSessionUnder is recordSession for a read under a cached call, of
+// class under and outermost call top (PartRead.Under), or a read that counts
+// with under 0: once per part, session and class. Trial only.
+func (l *partReadLog) recordSessionUnder(session string, at time.Time, id sharedResultID, parts []PartKey, under int, top string) {
 	if l == nil || session == "" {
 		return
 	}
@@ -145,7 +165,7 @@ func (l *partReadLog) recordSession(session string, at time.Time, id sharedResul
 		seen = map[sessionPartRead]struct{}{}
 		l.sessions[session] = seen
 	}
-	if _, whole := seen[sessionPartRead{id: id}]; whole {
+	if _, whole := seen[sessionPartRead{id: id, under: under}]; whole {
 		return
 	}
 	if len(parts) == 0 {
@@ -153,12 +173,12 @@ func (l *partReadLog) recordSession(session string, at time.Time, id sharedResul
 	}
 	added := false
 	for _, part := range parts {
-		key := sessionPartRead{id: id, part: part}
+		key := sessionPartRead{id: id, part: part, under: under}
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		seen[key] = struct{}{}
-		l.sessionReads = append(l.sessionReads, PartRead{ResultID: uint64(id), Part: part, Session: session, At: at})
+		l.sessionReads = append(l.sessionReads, PartRead{ResultID: uint64(id), Part: part, Session: session, At: at, Under: under, Top: top})
 		added = true
 	}
 	if added && l.timer == nil {

@@ -1136,6 +1136,10 @@ const (
 	EngineEventRead = "engine.read"
 	// EngineEventStop: the engine closed its cache (EngineStopEvent).
 	EngineEventStop = "engine.stop"
+	// EngineEventReadUnder: trial only, for telemetry: a session's part
+	// reads made under a cached call (EngineReadEvent with Under set), which
+	// the service doesn't know and skips.
+	EngineEventReadUnder = "engine.read.under"
 )
 
 // EngineStartEvent is the body of an engine.start event.
@@ -1215,6 +1219,10 @@ type EngineRead struct {
 	// report of the entry, which leaves both empty.
 	Session string `json:"session,omitempty"`
 	At      int64  `json:"at,omitempty"`
+	// Under and Top: trial only, on an engine.read.under event
+	// (dagql.PartRead's).
+	Under int    `json:"under,omitempty"`
+	Top   string `json:"top,omitempty"`
 }
 
 // EngineStopEvent is the body of an engine.stop event.
