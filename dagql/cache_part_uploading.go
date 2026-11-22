@@ -105,13 +105,13 @@ func (c *Cache) startPartLocked(q PartStartQuery, key string, nowUnix int64, out
 		out.Err = fmt.Errorf("start part upload of %d: %w", q.Number, ErrUnknownEntry)
 		return nil
 	}
-	av, held := c.heldPartLocked(res, key, nowUnix)
+	av, held := c.heldPartLocked(res, key, nowUnix, q.Own)
 	out.PartAvailability = av
 	if held && av.State == PartStored {
 		return nil
 	}
 	c.uploadsMu.Lock()
-	if donor, uploading := c.classUploadLocked(res, key); uploading {
+	if donor, uploading := c.classUploadLocked(res, key, q.Own); uploading {
 		out.UploadedBy = uint64(donor)
 		if !held {
 			out.State, out.Donor = PartUploading, uint64(donor)

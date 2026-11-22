@@ -462,3 +462,53 @@ func TestAvailablePartStateCopiesNothing(t *testing.T) {
 	t.Logf("an answer for a stored part allocates %d bytes with 1 layer, %d with 64", one, many)
 	require.Less(t, many, one+512, "an answer that reads only the state grew with the part's layers")
 }
+
+// A query asked of the entry alone (PartQuery.Own, a trial's) answers from
+// the entry's own holdings and uploads: a class mate's stored part leaves it
+// unavailable, and a start counts the entry's own upload beside the mate's
+// stored part and beside the mate's upload in progress. Asked of the class,
+// both answer as before.
+func TestAPartAskedOfItsOwnEntryIgnoresItsClass(t *testing.T) {
+	t.Parallel()
+	address := PersistedPartAddress{Part: "snapshot"}
+	t.Run("a class mate stores it", func(t *testing.T) {
+		t.Parallel()
+		ctx, cloud, first, second := storedQueriesTestClass(t)
+		stored, _, err := cloud.SetStoredPart(ctx, second, testLiveOffer(), 0)
+		require.NoError(t, err)
+		require.True(t, stored)
+		now := time.Now().Unix()
+		got := cloud.AvailableParts([]PartQuery{{Number: first, Address: address}, {Number: first, Address: address, Own: true}}, now)
+		require.NoError(t, got[0].Err)
+		require.Equal(t, PartStored, got[0].State, "asked of the class")
+		require.Equal(t, second, got[0].Donor)
+		require.NoError(t, got[1].Err)
+		require.Equal(t, PartUnavailable, got[1].State, "asked of the entry alone")
+
+		starts, _ := cloud.StartPartUploads([]PartStartQuery{{PartQuery: PartQuery{Number: first, Address: address}}}, now)
+		require.False(t, starts[0].Started, "the class has it")
+		starts, _ = cloud.StartPartUploads([]PartStartQuery{{PartQuery: PartQuery{Number: first, Address: address, Own: true}}}, now)
+		require.True(t, starts[0].Started, "the entry hasn't")
+		require.Zero(t, starts[0].UploadedBy)
+
+		stored, _, err = cloud.SetStoredPart(ctx, first, testLiveOffer(), 0)
+		require.NoError(t, err)
+		require.True(t, stored, "the entry's own part is stored beside its mate's")
+		got = cloud.AvailableParts([]PartQuery{{Number: first, Address: address, Own: true}}, now)
+		require.Equal(t, PartStored, got[0].State)
+		require.Equal(t, first, got[0].Donor)
+	})
+	t.Run("a class mate uploads it", func(t *testing.T) {
+		t.Parallel()
+		_, cloud, first, second := storedQueriesTestClass(t)
+		now := time.Now().Unix()
+		starts, _ := cloud.StartPartUploads([]PartStartQuery{{PartQuery: PartQuery{Number: second, Address: address}}}, now)
+		require.True(t, starts[0].Started)
+		starts, _ = cloud.StartPartUploads([]PartStartQuery{{PartQuery: PartQuery{Number: first, Address: address}}}, now)
+		require.False(t, starts[0].Started, "the class uploads it")
+		require.Equal(t, second, starts[0].UploadedBy)
+		starts, _ = cloud.StartPartUploads([]PartStartQuery{{PartQuery: PartQuery{Number: first, Address: address, Own: true}}}, now)
+		require.True(t, starts[0].Started, "the entry doesn't")
+		require.Equal(t, map[uint64]int{first: 1, second: 1}, cloud.UploadCounts())
+	})
+}
