@@ -14,9 +14,9 @@ const partReadFlushInterval = time.Second
 
 // PartRead is a part of an entry that work read; Part is empty when it read
 // the whole entry. Session, Caller and At are set on a read that counts
-// (partReadScope): the session, the recipe digest of the nearest call above
-// it that is neither uncached nor session-bound (empty when there is none up
-// to the session's top), and when. They are empty on the engine-wide report
+// (partReadScope): the session, the recipe digest of the outermost call
+// above it that is neither uncached nor session-bound (empty when there is
+// none up to the session's top), and when. They are empty on the engine-wide report
 // of the entry.
 type PartRead struct {
 	ResultID uint64

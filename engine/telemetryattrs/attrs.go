@@ -1210,10 +1210,11 @@ type EngineRead struct {
 	// counts for the session: when it was made in an uncached call or a
 	// session-bound one, which every session that reaches it makes again, or
 	// at the session's top, outside any call. They are the session, the
-	// recipe digest of the nearest call above the read that is neither,
-	// which runs only when its lookup misses (empty when there is none up to
-	// the session's top), and when, in Unix nanoseconds on the engine's
-	// clock. Such a read is reported once per part and session, beside the
+	// recipe digest of the outermost call above the read that is neither,
+	// which runs only when its lookup misses, and is the call a next engine
+	// fetches the part once it starts to run (empty when there is none up to
+	// the session's top, for a fetch at once), and when, in Unix nanoseconds
+	// on the engine's clock. Such a read is reported once per part and session, beside the
 	// engine-wide report of the entry, which leaves all three empty.
 	Session string `json:"session,omitempty"`
 	Caller  string `json:"caller,omitempty"`
