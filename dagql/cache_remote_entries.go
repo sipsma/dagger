@@ -113,6 +113,13 @@ type RemoteHolding struct {
 	// Executed reports that the call computed the entry: it executed or
 	// joined the call, as the service counts executed evidence.
 	Executed bool
+	// FollowsFromInputs is the call's declaration that its result follows
+	// from its inputs (ResultCall.FollowsFromInputs), as its row stamps it
+	// (dagger.io/cache.follows_from_inputs). It says so only with CallRow.
+	FollowsFromInputs bool
+	// CallRow reports that the description is a call row's, which stamps
+	// the declaration, unlike one a caller makes of a record it holds.
+	CallRow bool
 	// BeforeLastDrop reports that the call's row reached the Cloud before
 	// its latest drop of values. Once the cache has dropped a value, only a
 	// computation after the drop may bring it back (holding.executed), so
@@ -317,6 +324,13 @@ type holding struct {
 	// it: it tells whether the run a stored record names ran
 	// (noteHoldingRanLocked).
 	ran bool
+	// follows is the declaration the holding's latest call row stamped, that
+	// the entry's result follows from its inputs
+	// (RemoteHolding.FollowsFromInputs): one of the two places the Cloud
+	// keeps it (entryCanDifferLocked). rowed marks a holding a call row has
+	// reported, whose follows says so: a merge's holding of its sender has
+	// none.
+	follows, rowed bool
 }
 
 // hasUnexpiredHoldingLocked reports whether another cache holds a copy of res
@@ -499,6 +513,10 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 	}
 	if desc.Executed && !desc.BeforeLastDrop && !h.executed {
 		h.executed = true
+		c.markHoldingLocked(key)
+	}
+	if desc.CallRow && (!h.rowed || desc.FollowsFromInputs != h.follows) {
+		h.follows, h.rowed = desc.FollowsFromInputs, true
 		c.markHoldingLocked(key)
 	}
 	touchSharedResultLastUsed(entry, desc.UsedAtUnixNano)
@@ -1739,6 +1757,9 @@ type RemoteHoldingInfo struct {
 	// Executed reports that the holding's cache computed the entry since
 	// the cache last dropped the entry's value (RemoteHolding.Executed).
 	Executed bool
+	// FollowsFromInputs and CallRow are the holding's word on the
+	// declaration, as a call row's description set it (Declares).
+	FollowsFromInputs, CallRow bool
 }
 
 // RemoteEntryInfo returns what the cache holds for the entry of one holding,
@@ -2066,16 +2087,18 @@ func (c *Cache) remoteEntryInfoLocked(entry *sharedResult) RemoteEntryInfo {
 
 func holdingInfo(key HolderKey, h *holding) RemoteHoldingInfo {
 	info := RemoteHoldingInfo{
-		Key:           key,
-		TypeName:      handleString(h.typeName),
-		ContentDigest: digest.Digest(handleString(h.contentDigest)),
-		ExpiresAtUnix: h.expiresAtUnix,
-		Retained:      h.retention.retained,
-		Dependents:    int(h.dependents),
-		Replacements:  h.replacements,
-		Executed:      h.executed,
-		Deps:          slices.Clone(h.deps),
-		UnknownDeps:   slices.Clone(h.unknownDeps),
+		Key:               key,
+		TypeName:          handleString(h.typeName),
+		ContentDigest:     digest.Digest(handleString(h.contentDigest)),
+		ExpiresAtUnix:     h.expiresAtUnix,
+		Retained:          h.retention.retained,
+		Dependents:        int(h.dependents),
+		Replacements:      h.replacements,
+		Executed:          h.executed,
+		FollowsFromInputs: h.follows,
+		CallRow:           h.rowed,
+		Deps:              slices.Clone(h.deps),
+		UnknownDeps:       slices.Clone(h.unknownDeps),
 	}
 	if h.retention.retained {
 		info.RetentionExpiresAtUnix = h.retention.expiresAtUnix
@@ -2123,8 +2146,11 @@ type HoldingFacts struct {
 	RetentionExpiresAtUnix int64
 	Replacements           uint64
 	Executed               bool
-	Deps                   []uint64
-	UnknownDeps            []uint64
+	// FollowsFromInputs and CallRow are the holding's word on the
+	// declaration, as a call row's description set it (Declares).
+	FollowsFromInputs, CallRow bool
+	Deps                       []uint64
+	UnknownDeps                []uint64
 	// Parts are the copy's complete parts, as RemoteHoldingInfo.Parts.
 	Parts []PersistedPartAddress
 }
@@ -2140,14 +2166,16 @@ func (c *Cache) HoldingFacts(key HolderKey) (HoldingFacts, bool) {
 		return HoldingFacts{}, false
 	}
 	facts := HoldingFacts{
-		Number:        uint64(entry.id),
-		TypeName:      handleString(h.typeName),
-		ExpiresAtUnix: h.expiresAtUnix,
-		Retained:      h.retention.retained,
-		Replacements:  h.replacements,
-		Executed:      h.executed,
-		Deps:          h.deps,
-		UnknownDeps:   h.unknownDeps,
+		Number:            uint64(entry.id),
+		TypeName:          handleString(h.typeName),
+		ExpiresAtUnix:     h.expiresAtUnix,
+		Retained:          h.retention.retained,
+		Replacements:      h.replacements,
+		Executed:          h.executed,
+		FollowsFromInputs: h.follows,
+		CallRow:           h.rowed,
+		Deps:              h.deps,
+		UnknownDeps:       h.unknownDeps,
 	}
 	if !entry.noValueLocked() {
 		facts.Stored, facts.StoredExpiresAtUnix = true, entry.expiresAtUnix
