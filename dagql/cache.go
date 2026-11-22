@@ -3332,6 +3332,16 @@ type sharedResult struct {
 	// engine built over the entry (overFoldedRunLocked). They go with the
 	// entry through replacement and saves. Guarded by egraphMu.
 	foldedRuns []RunName
+	// secondRunOf is, on the Cloud, the recipe the entry is a second run of:
+	// another engine's run of a recipe whose current entry stores another
+	// run, kept beside that entry for what was built over it, and never
+	// indexed under the recipe (mergeBeside). It stays with the entry when
+	// its value goes. keptUnder marks one that a stored entry that is its
+	// recipe's current entry stands over, through second runs only
+	// (markKeptUnderLocked): such a run outlives its engine, and only its
+	// content is needed. It goes with the value. Both guarded by egraphMu.
+	secondRunOf digest.Digest
+	keptUnder   bool
 	// storedParts are the parts whose layer chains are in this cache's own
 	// blob store, by part address key, their layers the cache's
 	// (storedLayers). Only a blob-backed cache (the Cloud) sets them, in

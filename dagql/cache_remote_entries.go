@@ -1908,7 +1908,7 @@ func (c *Cache) remoteHoldingInfoLocked(key HolderKey) (RemoteHeldEntry, bool) {
 	if h == nil {
 		return RemoteHeldEntry{}, false
 	}
-	held := RemoteHeldEntry{Holding: holdingInfo(key, h)}
+	held := RemoteHeldEntry{Holding: holdingInfo(key, h, entry)}
 	held.Number, held.Stored, held.StoredExpiresAtUnix, held.Recipes = entryFactsLocked(entry)
 	held.RunParts, held.RunPartsKnown = c.runPartsLocked(entry)
 	return held, true
@@ -1947,10 +1947,16 @@ func (c *Cache) EntryRecipe(number uint64) (digest.Digest, bool) {
 // entryRecipeLocked is EntryRecipe's answer. Requires egraphMu.
 func (c *Cache) entryRecipeLocked(number uint64) (digest.Digest, bool) {
 	entry := c.resultsByID[sharedResultID(number)]
-	if entry == nil || len(entry.recipeKeys) == 0 {
+	switch {
+	case entry == nil:
 		return "", false
+	case len(entry.recipeKeys) > 0:
+		return entry.recipeKeys[0], true
+	case entry.secondRunOf != "":
+		// A second run, which no index key names.
+		return entry.secondRunOf, true
 	}
-	return entry.recipeKeys[0], true
+	return "", false
 }
 
 // EntryClass is an entry's own facts, as RemoteEntryInfo reports them, and
@@ -2023,7 +2029,7 @@ func (c *Cache) CacheHoldings(cache CacheID, numbers []uint64) []RemoteHeldEntry
 		held.Number, held.Stored, held.StoredExpiresAtUnix, held.Recipes = entryFactsLocked(entry)
 		held.RunParts, held.RunPartsKnown = c.runPartsLocked(entry)
 		for _, ref := range refs {
-			held.Holding = holdingInfo(ref.key, ref.h)
+			held.Holding = holdingInfo(ref.key, ref.h, entry)
 			out = append(out, held)
 		}
 	}
@@ -2117,6 +2123,7 @@ func (c *Cache) EntriesFacts(numbers []uint64) []EntryFacts {
 		var facts EntryFacts
 		facts.Number, facts.Stored, facts.StoredExpiresAtUnix, facts.Recipes = entryFactsLocked(entry)
 		facts.RunParts, facts.RunPartsKnown = c.runPartsLocked(entry)
+		facts.SecondRun, facts.KeptUnder = entry.secondRunOf != "", entry.keptUnder
 		out = append(out, facts)
 		if c.testBatchAnswered != nil {
 			c.testBatchAnswered(len(out) - 1)
@@ -2126,12 +2133,17 @@ func (c *Cache) EntriesFacts(numbers []uint64) []EntryFacts {
 }
 
 // entryFactsLocked returns entry's number, whether it stores a record and
-// that record's expiry, and its recipes, sorted. Requires egraphMu.
+// that record's expiry, and its recipes, sorted: its index keys, or, for a
+// second run, which no key names, the recipe it is a second run of.
+// Requires egraphMu.
 func entryFactsLocked(entry *sharedResult) (number uint64, stored bool, storedExpiresAtUnix int64, recipes []digest.Digest) {
 	if !entry.noValueLocked() {
 		stored, storedExpiresAtUnix = true, entry.expiresAtUnix
 	}
 	recipes = slices.Clone(entry.recipeKeys)
+	if len(recipes) == 0 && entry.secondRunOf != "" {
+		recipes = []digest.Digest{entry.secondRunOf}
+	}
 	slices.Sort(recipes)
 	return uint64(entry.id), stored, storedExpiresAtUnix, recipes
 }
@@ -2162,13 +2174,16 @@ func (c *Cache) remoteEntryInfoLocked(entry *sharedResult) RemoteEntryInfo {
 	info.ClassDigests = sortedKeys(classDigests)
 	slices.SortFunc(info.Terms, compareTerms)
 	for _, ref := range entry.holderRefsLocked() {
-		info.Holdings = append(info.Holdings, holdingInfo(ref.key, ref.h))
+		info.Holdings = append(info.Holdings, holdingInfo(ref.key, ref.h, entry))
 	}
 	return info
 }
 
-func holdingInfo(key HolderKey, h *holding) RemoteHoldingInfo {
+// holdingInfo describes the holding key, h, which sits on entry.
+func holdingInfo(key HolderKey, h *holding, entry *sharedResult) RemoteHoldingInfo {
 	info := RemoteHoldingInfo{
+		SecondRun:         entry.secondRunOf != "",
+		KeptUnder:         entry.keptUnder,
 		Key:               key,
 		TypeName:          handleString(h.typeName),
 		ContentDigest:     digest.Digest(handleString(h.contentDigest)),
@@ -2239,6 +2254,9 @@ type HoldingFacts struct {
 	// reports them.
 	RunParts      []PersistedPartAddress
 	RunPartsKnown bool
+	// SecondRun and KeptUnder are the entry's, as RemoteHoldingInfo
+	// reports them.
+	SecondRun, KeptUnder bool
 }
 
 // HoldingFacts returns the facts of the holding key and its entry, read under
@@ -2262,6 +2280,8 @@ func (c *Cache) HoldingFacts(key HolderKey) (HoldingFacts, bool) {
 		CallRow:           h.rowed,
 		Deps:              h.deps,
 		UnknownDeps:       h.unknownDeps,
+		SecondRun:         entry.secondRunOf != "",
+		KeptUnder:         entry.keptUnder,
 	}
 	if !entry.noValueLocked() {
 		facts.Stored, facts.StoredExpiresAtUnix = true, entry.expiresAtUnix

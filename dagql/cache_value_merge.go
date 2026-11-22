@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/opencontainers/go-digest"
+
 	"github.com/dagger/dagger/dagql/call/callpbv1"
 	"github.com/dagger/dagger/engine/wcprof"
 )
@@ -1261,7 +1263,7 @@ func (c *Cache) resolveHeldRows(ctx context.Context, prep *valueMergePrep) map[u
 		}
 		id := uint64(row.Ordinal)
 		prep.held[id] = true
-		cur := c.currentEntryForRecipeLocked(row.Held)
+		cur := c.mergeTargetLocked(prep.from, row.SenderNumber, row.Held)
 		var frame entryFrame
 		if !c.heldRowStaleLocked(cur, row.ExpiresAtUnix, now) {
 			frame = cur.entryFrameLocked()
@@ -1609,25 +1611,40 @@ func (c *Cache) warmMergeTargetParts(ctx context.Context, prep *valueMergePrep) 
 type mergeTargets []*sharedResult
 
 // mergeTargetsLocked returns each of prep's rows' current entry, by
-// ordinal. Requires egraphMu, and holds only while it is held.
+// ordinal (mergeTargetLocked). Requires egraphMu, and holds only while it is
+// held.
 func (c *Cache) mergeTargetsLocked(prep *valueMergePrep) mergeTargets {
 	targets := make(mergeTargets, len(prep.bundle.Values)+1)
 	for _, id := range prep.order {
 		if id < uint64(len(targets)) {
-			targets[id] = c.currentEntryForRecipeLocked(prep.plans[id].recipe)
+			targets[id] = c.mergeTargetLocked(prep.from, prep.index[id].SenderNumber, prep.plans[id].recipe)
 		}
 	}
 	return targets
 }
 
 // of returns the current entry of the row of ordinal id: from the hold's
-// targets when it has them, and from the recipe index otherwise, as an
-// engine's early decision reads it (earlyMergeRows). Requires egraphMu.
+// targets when it has them, and as mergeTargetLocked finds it otherwise, as
+// an engine's early decision reads it (earlyMergeRows). Requires egraphMu.
 func (targets mergeTargets) of(c *Cache, prep *valueMergePrep, id uint64) *sharedResult {
 	if id < uint64(len(targets)) {
 		return targets[id]
 	}
-	return c.currentEntryForRecipeLocked(prep.plans[id].recipe)
+	return c.mergeTargetLocked(prep.from, prep.index[id].SenderNumber, prep.plans[id].recipe)
+}
+
+// mergeTargetLocked returns the entry a row of recipe from the cache from,
+// its number there sender, is decided against: on the Cloud, the sender's
+// own second run of the recipe when its holding of that number sits on one
+// (secondRunOf), as a later export of a run the Cloud kept apart lands on
+// it; else the recipe's current entry. Requires egraphMu.
+func (c *Cache) mergeTargetLocked(from CacheID, sender uint64, recipe digest.Digest) *sharedResult {
+	if c.blobBacked {
+		if entry, h := c.holdingLocked(HolderKey{Cache: from, Number: sender}); h != nil && entry.secondRunOf == recipe {
+			return entry
+		}
+	}
+	return c.currentEntryForRecipeLocked(recipe)
 }
 
 // mergeAttachmentWaitLocked returns the attachment to wait on when a record's
@@ -1664,6 +1681,12 @@ const (
 	// mergeRetire: the current entry's expired value is in use; the entry is
 	// retired and a new entry stores the record.
 	mergeRetire
+	// mergeBeside: on the Cloud, the record is another run of the recipe
+	// than the one its current entry stores (keepsApartLocked); a new entry
+	// beside the current one stores it, and the recipe's index keeps naming
+	// the current entry, as one engine's cache keeps another value of a
+	// recipe beside its current entry for what uses it.
+	mergeBeside
 )
 
 // installs reports whether the action stores the record as a value.
@@ -1717,6 +1740,9 @@ type mergeRow struct {
 
 // valueMergeCommit is a merge decided and checked, ready to change the cache.
 type valueMergeCommit struct {
+	// unheld are, on the Cloud, the entries a sender's holding moved off
+	// left with no owner (moveHoldingLocked), which the commit collects.
+	unheld    collectionQueue
 	prep      *valueMergePrep
 	from      CacheID
 	rows      []*mergeRow
@@ -1775,6 +1801,9 @@ func (c *Cache) planValueMergeLocked(ctx context.Context, from CacheID, prep *va
 	}
 
 	c.decideMergeRowsLocked(commit)
+	if stale := c.otherRunHeldRowsLocked(commit); len(stale) > 0 {
+		return nil, &mergeStaleError{ordinals: stale}
+	}
 	// Everything after the decisions reads the payloads and parts of the
 	// records merge installs, which a light record doesn't have: the cache
 	// changed since the preparation.
@@ -1833,7 +1862,11 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 	}
 	for _, row := range commit.rows {
 		if b := best[row.plan.recipe.String()]; b == row {
-			c.decideMergeRowLocked(row, commit.targets.of(c, prep, row.ordinal), now, sharedResultID(prep.firstID+row.ordinal-1))
+			fresh := sharedResultID(prep.firstID + row.ordinal - 1)
+			c.decideMergeRowLocked(row, commit.targets.of(c, prep, row.ordinal), now, fresh)
+			if c.blobBacked && row.action == mergeKeep && !row.keptExpired && !prep.held[row.ordinal] && c.keepsApartLocked(prep, best, row) {
+				row.action, row.res = mergeBeside, &sharedResult{id: fresh}
+			}
 		}
 	}
 	for _, row := range commit.rows {
@@ -1846,6 +1879,97 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 		row.action, row.target, row.res = mergeKeep, b.res, b.res
 		row.keptExpired = b.keptExpired || b.action.installs() && b.expired
 	}
+}
+
+// keepsApartLocked reports, on the Cloud, whether row, a full record merge
+// would keep on its target's value, is a second run of its recipe, which
+// merge keeps beside the recipe's current entry (mergeBeside): its run
+// (mergeRunLocked) is another than the one the current entry's record names,
+// and its step can differ, or follows from its inputs with one of them a
+// second run, best deciding which entry each input row lands on: a copy over
+// another run of its input is another value. A copy of the current entry's
+// own run lands on it, and so does a record whose run the Cloud can't name,
+// or a current entry whose record names none: nothing tells those apart. A
+// target that is a second run is the sender's own (mergeTargetLocked), which
+// its record lands on. Requires egraphMu.
+func (c *Cache) keepsApartLocked(prep *valueMergePrep, best map[string]*mergeRow, row *mergeRow) bool {
+	cur := row.target
+	if cur == nil || cur.secondRunOf != "" || cur.run == nil {
+		return false
+	}
+	run, _ := c.mergeRunLocked(prep, row)
+	if run == (RunName{}) || run == *cur.run {
+		return false
+	}
+	if call := prep.records[row.ordinal].Call; call == nil || !call.FollowsFromInputs {
+		return true
+	}
+	for _, dep := range row.value.DependencyIDs {
+		b := best[prep.plans[dep].recipe.String()]
+		if b == nil || b.res == nil || b.action == mergeBeside || b.res.secondRunOf != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// otherRunHeldRowsLocked returns, on the Cloud, the held rows that a record
+// the commit installs depends on and that land on an entry whose stored
+// record names another run than the sender's run of the step
+// (heldRowOfOtherRunLocked), by ordinal, sorted. A result is never installed
+// over an entry that isn't its engine's run of the step below it: refused as
+// stale, those rows come in full, and merge keeps them apart. Requires
+// egraphMu.
+func (c *Cache) otherRunHeldRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
+	if !c.blobBacked {
+		return nil
+	}
+	seen := map[uint64]bool{}
+	var stale []TransferOrdinal
+	for _, row := range commit.rows {
+		if !row.action.installs() {
+			continue
+		}
+		for _, dep := range row.value.DependencyIDs {
+			if seen[dep] || !commit.prep.held[dep] {
+				continue
+			}
+			seen[dep] = true
+			if held := commit.byOrdinal[dep]; held != nil && c.heldRowOfOtherRunLocked(commit.from, held) {
+				stale = append(stale, TransferOrdinal(dep))
+			}
+		}
+	}
+	slices.Sort(stale)
+	return stale
+}
+
+// heldRowOfOtherRunLocked reports whether row, a held row of the cache from,
+// lands on an entry whose stored record names another run than from's run
+// of the step: from's own, when its holding ran the value at the row's
+// replacement count (holdingRanLocked), or else the run the Cloud served it
+// (holding.served), for a step that can differ. A run the Cloud can't name,
+// the sender's or the entry's, says nothing: the row holds as it did.
+// Requires egraphMu.
+func (c *Cache) heldRowOfOtherRunLocked(from CacheID, row *mergeRow) bool {
+	entry := row.res
+	if entry == nil || entry.run == nil {
+		return false
+	}
+	key := HolderKey{Cache: from, Number: row.value.SenderNumber}
+	_, h := c.holdingLocked(key)
+	var run RunName
+	switch {
+	case h == nil:
+		return false
+	case c.holdingRanLocked(key, row.value.SenderReplacements):
+		run = RunName{Cache: from, Number: key.Number, Replacements: row.value.SenderReplacements}
+	case h.served != nil && h.served.known && h.served.replacements == row.value.SenderReplacements:
+		run = h.served.run
+	default:
+		return false
+	}
+	return run != *entry.run && c.entryCanDifferLocked(entry)
 }
 
 // liveClosure returns the rows the bundle's unexpired roots need, judged at
@@ -2842,6 +2966,14 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			row.res.onRelease = c.resultSnapshotLeaseCleanup(row.res)
 			c.indexRecipeLocked(row.plan.recipe, row.res)
 			created = append(created, row.res)
+		case mergeBeside:
+			// Beside the recipe's current entry, which its index keeps
+			// naming.
+			c.installMergedRecordLocked(row.res, row, origin)
+			c.putResultLocked(row.res)
+			row.res.onRelease = c.resultSnapshotLeaseCleanup(row.res)
+			row.res.secondRunOf = row.plan.recipe
+			created = append(created, row.res)
 		case mergeStore:
 			c.installMergedRecordLocked(row.res, row, origin)
 			if row.res.onRelease == nil {
@@ -2908,6 +3040,15 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			}
 		}
 	}
+	// A second run a recipe's current entry now stands over is kept under
+	// it.
+	if c.blobBacked {
+		for _, row := range commit.rows {
+			if row.action.installs() && (row.res.secondRunOf == "" || row.res.keptUnder) {
+				c.markKeptUnderLocked(row.res)
+			}
+		}
+	}
 	// Requirements are recomputed one level deep, so dependencies first: in
 	// the final graph's order, which a recipe's best record can change from
 	// the bundle's. checkMergeGraphLocked refused any cycle.
@@ -2919,6 +3060,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 
 	// Identity, and the sender's holding.
 	c.applyMergedIdentitiesLocked(ctx, commit, &change)
+	queue = append(queue, commit.unheld...)
 
 	// Retention: an engine's retention edge, or the Cloud's stored root,
 	// but for a root the caller left unretained (Unretained).
@@ -2927,7 +3069,13 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			continue
 		}
 		row := commit.byOrdinal[uint64(root.Ordinal)]
-		c.upsertPersistedEdgeLocked(ctx, row.res, root.ExpiresAtUnix, false)
+		res := row.res
+		if row.action == mergeBeside {
+			// A second run keeps no retention of its own: the export asked
+			// for its recipe, which the current entry stores.
+			res = row.target
+		}
+		c.upsertPersistedEdgeLocked(ctx, res, root.ExpiresAtUnix, false)
 	}
 
 	// Parts: an engine admits the incoming offers by what each target kept.
@@ -3189,9 +3337,19 @@ func (c *Cache) installMergedRecordLocked(res *sharedResult, row *mergeRow, orig
 func (c *Cache) mergeSenderHoldingLocked(ctx context.Context, state *remoteCacheState, commit *valueMergeCommit, row *mergeRow, change *RemoteChange) {
 	key := HolderKey{Cache: commit.from, Number: row.value.SenderNumber}
 	entry, h := c.holdingLocked(key)
-	if h == nil {
+	switch {
+	case h == nil && row.action == mergeBeside:
+		// Its own run's entry, which no recipe index names.
+		entry, h = row.res, c.addHoldingLocked(ctx, state, key, row.res)
+		change.Candidates = append(change.Candidates, key)
+	case h == nil:
 		entry, h = c.newHoldingLocked(ctx, state, key, RemoteHolding{Recipe: row.plan.recipe, Field: row.res.description})
 		change.Candidates = append(change.Candidates, key)
+	case row.action == mergeBeside && entry != row.res:
+		// Its call row put it on the recipe's current entry, another run:
+		// it goes to its own run's.
+		commit.unheld = append(commit.unheld, c.moveHoldingLocked(ctx, state, key, h, entry, row.res, change)...)
+		entry = row.res
 	}
 	deps := make([]uint64, 0, len(row.value.DependencyIDs))
 	for _, dep := range row.value.DependencyIDs {
@@ -3199,6 +3357,24 @@ func (c *Cache) mergeSenderHoldingLocked(ctx context.Context, state *remoteCache
 	}
 	candidates := c.applyHeldValueStateLocked(ctx, state, key, entry, h, HeldValueState{Replacements: row.value.SenderReplacements, Deps: deps}, nil, nil)
 	change.Candidates = append(change.Candidates, candidates...)
+}
+
+// moveHoldingLocked moves the holding key, h, from the entry from to the
+// entry to, with the ownership unit it is, and names both entries and the
+// holding. It returns the entries the move left with no owner, for the
+// caller to collect. Requires egraphMu for writing.
+func (c *Cache) moveHoldingLocked(ctx context.Context, state *remoteCacheState, key HolderKey, h *holding, from, to *sharedResult, change *RemoteChange) collectionQueue {
+	from.deleteHolderLocked(key)
+	unheld, _ := c.decrementIncomingOwnershipLocked(ctx, from, nil)
+	to.putHolderLocked(key, h)
+	c.incrementIncomingOwnershipLocked(ctx, to)
+	state.entries[key.Number] = to.id
+	state.graphVersion++
+	c.markHoldingLocked(key)
+	c.markEntryLocked(from.id)
+	c.markEntryLocked(to.id)
+	change.Holdings = append(change.Holdings, key)
+	return unheld
 }
 
 // mergeHeldSenderHoldingLocked records, on the Cloud, the sending engine's
