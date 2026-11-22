@@ -160,6 +160,9 @@ func (c *Cache) replaceResultValueInPlaceLocked(ctx context.Context, cur, fresh 
 	// A capture reads these with the value (loadPayloadState), outside
 	// egraphMu: on the Cloud a replacement doesn't wait for one to end.
 	cur.imported = fresh.imported
+	// Whether the recipe ran here is the value's, not the entry's: the new
+	// value hasn't run here because the old one did (recipeRanHere).
+	cur.recipeRanHere.Store(fresh.recipeRanHere.Load())
 	cur.sessionResourceHandle = fresh.sessionResourceHandle
 	cur.boundSession = fresh.boundSession
 	cur.self = fresh.self

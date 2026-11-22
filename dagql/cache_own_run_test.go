@@ -1072,3 +1072,33 @@ func TestOwnRunBelowAnEntryTakenOverIt(t *testing.T) {
 	})
 }
 
+// A value that replaces an expired one in place is the new value alone: that
+// the old value's recipe ran here says nothing of the new one, which came
+// from another cache. Records of the run it came from, over it, land.
+func TestMergeValuesReplacementInPlaceIsNotTheOldValuesRun(t *testing.T) {
+	t.Parallel()
+	ctx, c, srv := transferTestCache(t)
+	old := takenTestResult(t, ctx, c, srv, "replaced-b", &transferTestValue{Text: "first b"})
+	entry := old.cacheSharedResult()
+	// As running the taken record's recipe here marks it (runLazyTask).
+	entry.noteRecipeRunHere()
+	require.NoError(t, c.ReleaseSession(ctx, "test-session"))
+	mergeTestExpire(c, entry)
+
+	actx, a, asrv := transferTestCache(t)
+	sentB := persistedListTestResult(t, actx, a, asrv, "replaced-b", &transferTestValue{Text: "second b"})
+	replaced, err := c.MergeValues(ctx, cloudCacheID, exportTestBundle(t, actx, a, sentB))
+	require.NoError(t, err)
+	require.Equal(t, uint64(entry.id), replaced.Imported()[0].ResultID, "B's expired value is replaced in place")
+	require.Equal(t, uint64(1), replaced.Values[0].Replacements)
+
+	// The Cloud sends the run on with B's stored part, so B's record isn't
+	// a plain value to compare.
+	sentC := persistedListTestResult(t, actx, a, asrv, "replaced-c", &transferTestValue{Text: "second c"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentC, sentB, "test"))
+	mergeTestOfferOn(t, actx, a, sentB, "/b")
+	reply, err := c.MergeValues(ctx, cloudCacheID, cloudTestBundle(t, actx, a, sentC))
+	require.NoError(t, err)
+	require.Empty(t, reply.OtherRun)
+	require.Len(t, reply.Imported(), 1, "C, over the new B, lands")
+}
