@@ -95,6 +95,9 @@ type RemoteHolding struct {
 	Request digest.Digest
 	// Field is the name of the call's field, for description.
 	Field string
+	// Entry is the Cloud entry the holding's copy came from, when the
+	// caller knows it, as a set file's handover does.
+	Entry uint64
 	// Term is the call's structural term, when the call derived one.
 	Term *RemoteTerm
 	// ContentDigest is the entry's content digest, when known.

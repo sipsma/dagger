@@ -423,3 +423,28 @@ func TestAnEnginesEndLeavesALiveEnginesSecondRuns(t *testing.T) {
 	require.Empty(t, rootReply.Stale)
 	s.checkKeptApart(t, secondRunTestNumber(rootBundle, rootReply, s.bStep), secondRunTestNumber(rootBundle, rootReply, s.bRoot))
 }
+
+// A holding the Cloud learns of other than by its engine's call row, such as
+// a set file's handover, names the Cloud entry its engine got: a second
+// run's holding sits on the second run, not on its recipe's current entry,
+// so that what the engine builds over it later lands over the run it holds.
+func TestAHoldingThatNamesASecondRunSitsOnIt(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+	second := secondRunTestNumber(bundle, reply, s.bStep)
+	key := HolderKey{Cache: "cache-c", Number: 7}
+	_, err := s.cloud.AttachRemoteHolding(s.cctx, key, RemoteHolding{Recipe: secondRunTestRecipe(t, s.cloud, second), Entry: second})
+	require.NoError(t, err)
+	held, ok := s.cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.Equal(t, second, held)
+
+	// One that names an entry of another recipe sits on its own recipe's.
+	other := HolderKey{Cache: "cache-c", Number: 8}
+	_, err = s.cloud.AttachRemoteHolding(s.cctx, other, RemoteHolding{Recipe: s.recipe, Entry: secondRunTestNumber(bundle, reply, s.bRoot)})
+	require.NoError(t, err)
+	held, ok = s.cloud.HolderEntry(other)
+	require.True(t, ok)
+	require.Equal(t, s.first, held)
+}
