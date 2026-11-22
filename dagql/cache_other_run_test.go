@@ -108,3 +108,20 @@ func TestAMergeRefusesAValueOverAnotherRunOfAStepTheEngineHolds(t *testing.T) {
 		require.Equal(t, []TransferOrdinal{TransferOrdinal(p)}, reply.OtherRun, "the run it was served is not the second bundle's")
 	})
 }
+
+// A bundle for an engine that answered it holds another run of a step
+// withholds what is over that step, and names why; for another engine it
+// carries it.
+func TestAStoredBundleWithholdsAValueOverARunTheRecipientHoldsAnotherOf(t *testing.T) {
+	t.Parallel()
+	ctx, cloud, r, p, _, _ := withholdTestCloud(t, false)
+	now := time.Now().Unix()
+	got, err := cloud.StoredBundle(ctx, []uint64{r}, now, &HeldBy{Cache: "cache-b", OtherRun: map[uint64]bool{p: true}})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{r}, got.Withheld)
+	require.Equal(t, []uint64{p}, got.WithheldOn)
+	require.Equal(t, []string{"withhold-dep/otherRun"}, got.WithheldOnField)
+	got, err = cloud.StoredBundle(ctx, []uint64{r}, now, &HeldBy{Cache: "cache-c"})
+	require.NoError(t, err)
+	require.Empty(t, got.Withheld, "another engine holds no other run of it")
+}

@@ -99,6 +99,11 @@ type HeldBy struct {
 	// holding's closure whole (Whole). It is called under the cache's lock,
 	// as Also is.
 	ByFile func(number uint64) bool
+	// OtherRun names, by number, the entries the recipient answered it
+	// holds another run of (MergeReply.OtherRun): a value over one of them
+	// would stand over a run the recipient doesn't hold, so the bundle
+	// withholds it (withholdBuild).
+	OtherRun map[uint64]bool
 }
 
 // heldLocked reports whether the recipient holds res at nowUnix. A nil
@@ -242,7 +247,7 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 			rootEntries = append(rootEntries, res)
 		}
 	}
-	withhold := c.newWithholdBuild()
+	withhold := c.newWithholdBuild(held)
 	rootEntries = withhold.keptRootsLocked(rootEntries, &out)
 	if len(rootEntries) == 0 {
 		return out, nil, nil

@@ -131,7 +131,7 @@ func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, 
 	var withhold *withholdBuild
 	var kept map[sharedResultID]bool
 	if o.withholding {
-		withhold = c.newWithholdBuild()
+		withhold = c.newWithholdBuild(held)
 		release := c.storedSizesRLock()
 		kept = withhold.keptStoredRootsLocked(roots)
 		release()
@@ -669,7 +669,7 @@ func (c *Cache) StoredClosure(ctx context.Context, roots []uint64, nowUnix int64
 	if held != nil && held.Whole {
 		return out, fmt.Errorf("stored closure: a recipient held whole isn't listed")
 	}
-	withhold := c.newWithholdBuild()
+	withhold := c.newWithholdBuild(held)
 	release := c.storedSizesRLock()
 	kept := withhold.keptStoredRootsLocked(roots)
 	release()
@@ -733,7 +733,7 @@ func (c *Cache) StoredLowerHalf(ctx context.Context, root uint64, nowUnix int64,
 	}
 	defer c.storedSizesRLock()()
 	res := c.resultsByID[sharedResultID(root)]
-	withhold := c.newWithholdBuild()
+	withhold := c.newWithholdBuild(held)
 	if res == nil || res.noValueLocked() || !withhold.keptStoredRootsLocked([]uint64{root})[res.id] {
 		return nil, 0, nil
 	}

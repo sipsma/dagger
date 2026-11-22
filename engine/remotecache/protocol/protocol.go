@@ -440,6 +440,11 @@ type Merged struct {
 	// its own, or an expired one the row hasn't outlived. A reply with Stale
 	// committed nothing, and its Values, Retained and Skipped are empty.
 	Stale []dagql.TransferOrdinal `json:"stale"`
+	// OtherRun are the bundle's rows of steps that can differ the engine
+	// holds another run of, which merge would have kept onto that run
+	// (dagql.MergeReply.OtherRun). A reply with OtherRun committed nothing,
+	// as one with Stale.
+	OtherRun []dagql.TransferOrdinal `json:"otherRun,omitempty"`
 }
 
 // MergedValue is the engine entry a bundle record landed on, and its value

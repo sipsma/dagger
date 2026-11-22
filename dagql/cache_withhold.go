@@ -77,6 +77,10 @@ func (c *Cache) runNotStoredWholeLocked(res *sharedResult) bool {
 // the recipient holds.
 type withholdBuild struct {
 	c *Cache
+	// held is what the bundle's recipient holds: an entry it answered it
+	// holds another run of (HeldBy.OtherRun) is withheld with what is over
+	// it.
+	held *HeldBy
 	// memo has, for each entry read, the first entry of its closure found
 	// that withholds it, or 0.
 	memo map[sharedResultID]sharedResultID
@@ -89,9 +93,9 @@ type withholdBuild struct {
 // newWithholdBuild returns a withholding judgment for one stored bundle's
 // build, or for one walk that prices or lists what such a bundle carries
 // without building it (StoredSizes, StoredClosure, StoredLowerHalf), so
-// that each withholds what the bundle would.
-func (c *Cache) newWithholdBuild() *withholdBuild {
-	return &withholdBuild{c: c, memo: map[sharedResultID]sharedResultID{}, reach: map[sharedResultID][]CacheID{}}
+// that each withholds what the bundle would, for the recipient held.
+func (c *Cache) newWithholdBuild(held *HeldBy) *withholdBuild {
+	return &withholdBuild{c: c, held: held, memo: map[sharedResultID]sharedResultID{}, reach: map[sharedResultID][]CacheID{}}
 }
 
 // keptRootsLocked returns, in order, the roots a bundle of them keeps, and
@@ -105,7 +109,10 @@ func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundle
 			out.Withheld = append(out.Withheld, uint64(res.id))
 			out.WithheldOn = append(out.WithheldOn, uint64(by))
 			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
-			if w.overFoldedRunLocked(c.resultsByID[by]) {
+			switch {
+			case w.held != nil && w.held.OtherRun[uint64(by)]:
+				why = "otherRun"
+			case w.overFoldedRunLocked(c.resultsByID[by]):
 				why = "overFoldedRun"
 			}
 			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
@@ -164,7 +171,7 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	// A cycle is the walk's to report; inside one, nothing is withheld yet.
 	w.memo[res.id] = 0
 	var by sharedResultID
-	if w.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
+	if w.held != nil && w.held.OtherRun[uint64(res.id)] || w.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
 		by = res.id
 	}
 	for _, id := range storedClosureChildrenLocked(res) {

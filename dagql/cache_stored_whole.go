@@ -11,7 +11,7 @@ func (c *Cache) StoredWhole(numbers []uint64) []bool {
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
 	out := make([]bool, len(numbers))
-	withhold := c.newWithholdBuild()
+	withhold := c.newWithholdBuild(nil)
 	for i, number := range numbers {
 		res := c.resultsByID[sharedResultID(number)]
 		if res == nil || res.noValueLocked() {

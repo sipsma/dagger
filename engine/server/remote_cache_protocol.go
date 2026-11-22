@@ -596,6 +596,9 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 	if err == nil && len(reply.Stale) > 0 {
 		return protocol.Merged{Generation: reply.Generation, EngineTime: reply.EngineTimeUnixNano, Values: []protocol.MergedValue{}, Retained: []protocol.RetainedRoot{}, Stale: reply.Stale}, nil
 	}
+	if err == nil && len(reply.OtherRun) > 0 {
+		return protocol.Merged{Generation: reply.Generation, EngineTime: reply.EngineTimeUnixNano, Values: []protocol.MergedValue{}, Retained: []protocol.RetainedRoot{}, OtherRun: reply.OtherRun}, nil
+	}
 	if !reply.Committed {
 		return protocol.Merged{}, err
 	}
