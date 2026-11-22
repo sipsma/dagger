@@ -407,3 +407,69 @@ func TestAFoldOntoAnEntryTheSameMergeCreatesIsJudged(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, built.Withheld, tNumber, "T is built over S₁, not S₂")
 }
+
+// Engine b's run S₁ of a step is folded under a's record, and T, which b
+// built over S₁, is withheld. Once a's record has expired, a later run of
+// b's, S₂, replaces it in place. S₁ is still folded under the entry, now
+// S₂'s, so T, built over S₁, is still withheld.
+func TestAReplacementByAnotherRunOfTheSameEngineKeepsItsFold(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+
+	actx, a, asrv := transferTestCache(t)
+	fromA := CacheID(a.Identity().ID)
+	sA := persistedListTestResult(t, actx, a, asrv, "replaced-fold-step", &transferTestValue{Text: "a's bytes"})
+	canDiffer(t, a, sA)
+	exportedA := exportTestBundle(t, actx, a, sA)
+	replyA, err := cloud.MergeValues(ctx, fromA, exportedA)
+	require.NoError(t, err)
+	sNumber := cloudNumberOf(t, exportedA, replyA, sA)
+
+	bctx, b, bsrv := transferTestCache(t)
+	fromB := CacheID(b.Identity().ID)
+	s1 := persistedListTestResult(t, bctx, b, bsrv, "replaced-fold-step", &transferTestValue{Text: "b's first run"})
+	canDiffer(t, b, s1)
+	top := persistedListTestResult(t, bctx, b, bsrv, "replaced-fold-top", &transferTestValue{Text: "T over S₁"})
+	transferTestDependency(b, bctx, top, s1)
+	exportedB := exportTestBundle(t, bctx, b, top)
+	replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
+	require.NoError(t, err)
+	require.Equal(t, sNumber, cloudNumberOf(t, exportedB, replyB, s1))
+	tNumber := cloudNumberOf(t, exportedB, replyB, top)
+	foldedRunTestHolding(t, ctx, cloud, sNumber, HolderKey{Cache: fromB, Number: uint64(s1.cacheSharedResult().id)}, true)
+
+	// a's record expires, and b's later run S₂ of the recipe replaces it.
+	var s1Row TransferredValue
+	for _, value := range exportedB.Values {
+		if value.SenderNumber == uint64(s1.cacheSharedResult().id) {
+			s1Row = value
+		}
+	}
+	cloud.egraphMu.Lock()
+	cloud.resultsByID[sharedResultID(sNumber)].expiresAtUnix = time.Now().Add(-time.Hour).Unix()
+	cloud.egraphMu.Unlock()
+	s2 := s1Row
+	s2.Ordinal = 1
+	s2.SenderNumber, s2.Record.ResultID, s2.Record.Envelope.ResultID = 9999, 9999, 9999
+	s2.DependencyIDs = nil
+	s2.ExpiresAtUnix = 0
+	replyS2, err := cloud.MergeValues(ctx, fromB, ValueBundle{Version: exportedB.Version, Values: []TransferredValue{s2}, Roots: []TransferredRoot{{Ordinal: 1}}})
+	require.NoError(t, err)
+	require.Equal(t, sNumber, replyS2.Values[0].Number, "S₂ replaces the entry's record in place")
+	cloud.egraphMu.RLock()
+	run := *cloud.resultsByID[sharedResultID(sNumber)].run
+	cloud.egraphMu.RUnlock()
+	require.Equal(t, RunName{Cache: fromB, Number: 9999}, run, "the entry names S₂'s run")
+	withholdTestRan(t, ctx, cloud, sNumber, HolderKey{Cache: fromB, Number: 9999}, 0, false)
+	stored, _, err := cloud.SetStoredPart(ctx, sNumber, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	withholdTestRan(t, ctx, cloud, tNumber, HolderKey{Cache: fromB, Number: uint64(top.cacheSharedResult().id)}, 0, true)
+	stored, _, err = cloud.SetStoredPart(ctx, tNumber, testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+
+	built, err := cloud.StoredBundle(ctx, []uint64{tNumber}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Contains(t, built.Withheld, tNumber, "T is built over S₁, still folded")
+}
