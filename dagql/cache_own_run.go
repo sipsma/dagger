@@ -521,10 +521,16 @@ func (c *Cache) readOwnRuns(ctx context.Context, prep *valueMergePrep) {
 			}
 		}
 	}
+	// The walk goes through entries the cache took from another: a merge
+	// lands a record over an entry of the cache's own that hasn't run yet,
+	// and that entry can run after. A target the cache took from another is
+	// read too, for a run of the cache's own below it. computed are the
+	// entries of the region the cache computed itself.
+	computed := map[*sharedResult]bool{}
 	c.egraphMu.RLock()
 	for _, recipe := range recipes {
 		res := c.currentEntryForRecipeLocked(recipe)
-		if res == nil || isTarget[res] || !c.computedHereLocked(res) {
+		if res == nil || isTarget[res] {
 			continue
 		}
 		// A target can already have been walked as another's dependency:
@@ -538,14 +544,17 @@ func (c *Cache) readOwnRuns(ctx context.Context, prep *valueMergePrep) {
 			if _, seen := below[cur]; seen {
 				continue
 			}
-			var own []*sharedResult
+			if c.computedHereLocked(cur) {
+				computed[cur] = true
+			}
+			var deps []*sharedResult
 			for dep := range cur.deps {
-				if dep := c.resultsByID[dep]; dep != nil && c.computedHereLocked(dep) {
-					own = append(own, dep)
+				if dep := c.resultsByID[dep]; dep != nil {
+					deps = append(deps, dep)
 					stack = append(stack, dep)
 				}
 			}
-			below[cur] = own
+			below[cur] = deps
 		}
 	}
 	c.egraphMu.RUnlock()
@@ -558,7 +567,12 @@ func (c *Cache) readOwnRuns(ctx context.Context, prep *valueMergePrep) {
 	// entry it lands a row on as the same result (ownRunBelowLocked).
 	states := make(map[*sharedResult]ownRunState, len(below))
 	for res := range below {
-		states[res] = res.runState()
+		if computed[res] {
+			states[res] = res.runState()
+		} else {
+			// An entry the cache took from another holds no run of its own.
+			states[res] = ownRunNone
+		}
 	}
 	runs := make(map[*sharedResult]bool, len(below))
 	var runAtOrBelow func(*sharedResult) bool
@@ -728,6 +742,26 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 			continue
 		}
 		if !c.computedHereLocked(row.res) {
+			// A row landing on an entry the cache took from another keeps
+			// landing, unless a run of the cache's own is below that entry:
+			// the cache took it over an entry of its own that hadn't run, and
+			// that entry has run since. The row's run was made over another
+			// run of it. Its offers would give the entry parts of that run,
+			// and the rows over it are over that run too.
+			run, read := commit.prep.ownRuns[row.res]
+			if !read || !run || !commit.prep.ownRunBelowLocked(row.res, same) {
+				continue
+			}
+			row.otherRun = true
+			held := commit.prep.held[row.ordinal]
+			if held {
+				apart[row.ordinal] = ownRouteHeld
+				counts.ApartHeld++
+			} else {
+				apart[row.ordinal] = ownRouteFull
+				counts.ApartFull++
+			}
+			commit.noteApart(row, held, read)
 			continue
 		}
 		// A held row stands for the entry's own value but carries nothing
@@ -939,10 +973,10 @@ func (commit *valueMergeCommit) dropApartRows(dropped map[uint64]bool) {
 }
 
 // ownEntriesBelowLocked returns the entries this cache computed among those
-// res was computed over, at any depth. The walk stops at an entry the cache
-// took from another: a merge installs no record over a value of the cache's
-// own (keepOwnRunsLocked), so nothing below such an entry is one. Its cost
-// is the region of entries this cache computed below res. Requires egraphMu.
+// res was computed over, at any depth. The walk goes through entries the
+// cache took from another: a merge lands a record over an entry of the
+// cache's own that hasn't run yet (keepOwnRunsLocked), and that entry can
+// run after. Its cost is the region of entries below res. Requires egraphMu.
 func (c *Cache) ownEntriesBelowLocked(res *sharedResult) []*sharedResult {
 	var own []*sharedResult
 	seen := map[sharedResultID]bool{res.id: true}
@@ -956,10 +990,12 @@ func (c *Cache) ownEntriesBelowLocked(res *sharedResult) []*sharedResult {
 			}
 			seen[dep] = true
 			below := c.resultsByID[dep]
-			if below == nil || !c.computedHereLocked(below) {
+			if below == nil {
 				continue
 			}
-			own = append(own, below)
+			if c.computedHereLocked(below) {
+				own = append(own, below)
+			}
 			stack = append(stack, below)
 		}
 	}

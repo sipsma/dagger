@@ -1007,3 +1007,68 @@ func TestMergeValuesLandsOverAnOwnRunShownEqual(t *testing.T) {
 	require.Equal(t, 1, reply.Rows.OwnSameContent, "the base")
 	require.Equal(t, 1, reply.Rows.OwnNotRun, "the top over it")
 }
+
+// An entry the engine took over an entry of its own that hadn't run, B over
+// A, is over a run of the engine's own once A runs. A stored run reaching the
+// engine through B, a part offered to B or a record over a held row of B,
+// was made over another run of A: it is refused as over an entry the engine
+// computed. Engines take stored values over a step whose content they can't
+// fetch, then run the step themselves.
+func TestOwnRunBelowAnEntryTakenOverIt(t *testing.T) {
+	t.Parallel()
+	type sent struct {
+		bundle ValueBundle
+	}
+	source := func(t *testing.T, text string, withC bool) sent {
+		actx, a, asrv := transferTestCache(t)
+		sentA := persistedListTestResult(t, actx, a, asrv, "taken-over-a", &transferTestValue{Text: text + " a"})
+		sentB := persistedListTestResult(t, actx, a, asrv, "taken-over-b", &transferTestValue{Text: text + " b"})
+		require.NoError(t, a.AddExplicitDependency(actx, sentB, sentA, "test"))
+		if !withC {
+			return sent{bundle: exportTestBundle(t, actx, a, sentB)}
+		}
+		sentC := persistedListTestResult(t, actx, a, asrv, "taken-over-c", &transferTestValue{Text: text + " c"})
+		require.NoError(t, a.AddExplicitDependency(actx, sentC, sentB, "test"))
+		return sent{bundle: exportTestBundle(t, actx, a, sentC)}
+	}
+	// takeOverOwn has the engine take B, and C over it, over its own A,
+	// and then run A. It returns C.
+	takeOverOwn := func(t *testing.T) (context.Context, *Cache, AnyResult) {
+		ctx, c, srv := transferTestCache(t)
+		own := persistedListTestResult(t, ctx, c, srv, "taken-over-a", ownRunTestLazy("own a"))
+		first, err := c.MergeValues(ctx, cloudCacheID, source(t, "first", true).bundle)
+		require.NoError(t, err)
+		require.Len(t, first.Imported(), 1, "A hadn't run: B, and C over it, are taken over it")
+		taken, err := c.LoadResultByResultID(ctx, "test-session", srv, first.Imported()[0].ResultID)
+		require.NoError(t, err)
+		require.NoError(t, c.Evaluate(ctx, own))
+		require.True(t, own.cacheSharedResult().ranHere())
+		return ctx, c, taken
+	}
+	t.Run("an offer", func(t *testing.T) {
+		t.Parallel()
+		// The part of C is offered: C is over B, which is over A.
+		ctx, c, taken := takeOverOwn(t)
+		out, err := c.testOfferParts(ctx, taken, []PersistedPartOffer{testLiveOffer()})
+		require.NoError(t, err)
+		require.Equal(t, OfferUnavailable, out[0].Outcome)
+		require.True(t, out[0].OwnRunBelow)
+	})
+	t.Run("a record over a held row", func(t *testing.T) {
+		t.Parallel()
+		ctx, c, _ := takeOverOwn(t)
+		// The Cloud sends B as a held row, standing for its closure, so A,
+		// below it, isn't sent.
+		actx, a, asrv := transferTestCache(t)
+		sentB := persistedListTestResult(t, actx, a, asrv, "taken-over-b", &transferTestValue{Text: "second b"})
+		sentC := persistedListTestResult(t, actx, a, asrv, "taken-over-c", &transferTestValue{Text: "second c"})
+		require.NoError(t, a.AddExplicitDependency(actx, sentC, sentB, "test"))
+		bundle := engineHeldTestBundle(t, a, exportTestBundle(t, actx, a, sentC), sentB)
+		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+		require.NoError(t, err)
+		require.Len(t, reply.Roots, 1)
+		require.True(t, reply.Roots[0].OtherRun, "C, made over another run of A, isn't installed")
+		require.Empty(t, reply.Imported())
+	})
+}
+

@@ -3106,10 +3106,16 @@ func (c *Cache) callOverOwnRunLocked(commit *valueMergeCommit, id callIdentity) 
 			continue
 		}
 		res := c.currentEntryForRecipeLocked(input)
-		if res == nil || !c.computedHereLocked(res) {
+		if res == nil {
 			continue
 		}
-		if run, read := commit.prep.ownRuns[res]; !read || run {
+		run, read := commit.prep.ownRuns[res]
+		if c.computedHereLocked(res) && (!read || run) {
+			return true
+		}
+		// An entry the cache took over an entry of its own that has run
+		// since is over that run.
+		if read && run && commit.prep.ownRunBelowLocked(res, nil) {
 			return true
 		}
 	}
