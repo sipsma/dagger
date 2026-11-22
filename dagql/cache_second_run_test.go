@@ -721,3 +721,40 @@ func TestStoredWholeSaysWhichEntriesABundleCarries(t *testing.T) {
 	require.True(t, stored)
 	require.Equal(t, []bool{false, true, false}, s.cloud.StoredWhole([]uint64{s.first, second, 99999}), "the first run ran and stores nothing; the second is whole; no such entry")
 }
+
+// One stored bundle never carries two runs of one recipe to an engine: an
+// engine decides a recipe once, so the second run's rows would land on the
+// first run's entry, and a result built over the second run would stand
+// over the first run's content there. A set's file, whose roots stand over
+// both runs, is such a bundle. Judged root by root in the bundle's order,
+// the first root stays and a root whose closure brings another run of a
+// recipe the bundle already carries is withheld; an engine that merges the
+// bundle holds one run under what it was carried.
+func TestAStoredBundleNeverCarriesTwoRunsOfOneRecipe(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+	second, root := secondRunTestNumber(bundle, reply, s.bStep), secondRunTestNumber(bundle, reply, s.bRoot)
+	require.NotEqual(t, s.first, second)
+
+	sent, err := s.cloud.StoredBundle(s.cctx, []uint64{s.first, root}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	carried := map[uint64]bool{}
+	for _, value := range sent.Bundle.Values {
+		carried[value.SenderNumber] = true
+	}
+	require.True(t, carried[s.first], "the first root stays")
+	require.False(t, carried[second] && carried[s.first], "the bundle carries both runs of the step")
+	require.Contains(t, sent.Withheld, root, "the root over the other run is withheld")
+
+	// The engine that merges the bundle holds cache-a's run of the step,
+	// and nothing built over cache-b's.
+	ctx, c, srv := transferTestCache(t)
+	creply, err := c.MergeValues(ctx, cloudCacheID, sent.Bundle)
+	require.NoError(t, err)
+	for _, value := range creply.Values {
+		loaded, err := c.LoadResultByResultID(ctx, "test-session", srv, value.Number)
+		require.NoError(t, err)
+		require.NotEqual(t, "b-root", loaded.Unwrap().(*transferTestValue).Text, "the engine holds cache-b's result over cache-a's step")
+	}
+}
