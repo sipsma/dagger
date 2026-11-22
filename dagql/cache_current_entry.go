@@ -152,7 +152,7 @@ func (c *Cache) replaceResultValueInPlaceLocked(ctx context.Context, cur, fresh 
 		cur.replacements++
 	}
 	cur.merged = fresh.merged
-	cur.run, cur.runRan, cur.imageEntry = fresh.run, fresh.runRan, fresh.imageEntry
+	cur.run, cur.runRan, cur.imageEntry, cur.runWontCome = fresh.run, fresh.runRan, fresh.imageEntry, fresh.runWontCome
 	// A declined value never meets a retention edge here: its publication
 	// retires an entry that has one instead.
 	cur.persistDeclined = fresh.persistDeclined

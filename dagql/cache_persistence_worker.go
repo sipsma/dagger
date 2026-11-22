@@ -176,6 +176,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			run:                   savedRunLocked(res),
 			runRan:                res.runRan,
 			imageEntry:            res.imageEntry,
+			runWontCome:           res.runWontCome,
 			pendingOffers:         offers,
 			storedParts:           res.storedPartsLocked(),
 			frame:                 res.loadResultCall().clone(),
@@ -664,7 +665,7 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 			encoding.Envelope.PersistDeclined = snapshot.persistDeclined
 			encoding.Envelope.BoundSession = snapshot.boundSession
 			encoding.Envelope.Run, encoding.Envelope.RunRan = snapshot.run, uint8(snapshot.runRan)
-			encoding.Envelope.ImageEntry = snapshot.imageEntry
+			encoding.Envelope.ImageEntry, encoding.Envelope.RunWontCome = snapshot.imageEntry, snapshot.runWontCome
 			encoding.Envelope.PendingOffers, rerr = clonePartOffers(snapshot.pendingOffers)
 			for _, part := range snapshot.storedParts {
 				encoding.Envelope.StoredParts = append(encoding.Envelope.StoredParts, part.offer())

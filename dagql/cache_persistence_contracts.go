@@ -36,6 +36,7 @@ type persistResultSnapshot struct {
 	run                   *RunName
 	runRan                runRanBy
 	imageEntry            bool
+	runWontCome           bool
 	pendingOffers         []PersistedPartOffer
 	storedParts           []storedPart
 	resultID              sharedResultID

@@ -66,8 +66,11 @@ type PersistedResultEnvelope struct {
 	Run        *RunName `json:"run,omitempty"`
 	RunRan     uint8    `json:"runRan,omitempty"`
 	ImageEntry bool     `json:"imageEntry,omitempty"`
-	Version    int      `json:"version"`
-	Kind       string   `json:"kind"`
+	// RunWontCome is, in the Cloud's saved records, sharedResult.runWontCome,
+	// saved and taken back as Run is.
+	RunWontCome bool   `json:"runWontCome,omitempty"`
+	Version     int    `json:"version"`
+	Kind        string `json:"kind"`
 	// TypeName identifies the GraphQL value type of object and scalar
 	// envelopes.
 	TypeName string `json:"typeName,omitempty"`

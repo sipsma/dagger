@@ -498,7 +498,140 @@ func (c *Cache) replaceableLocked(res *sharedResult, run RunName, now int64) boo
 	if res == nil || res.runReplaced || res.noValueLocked() || res.imageEntry || c.resultExpiredAtLocked(res, now) {
 		return false
 	}
-	return c.runOfLocked(res) != run && c.storedWithoutContentLocked(res) && c.ownRunRanLocked(res)
+	return c.runOfLocked(res) != run && c.storedWithoutContentLocked(res) && c.ownRunRanLocked(res) && c.runContentWontComeLocked(res)
+}
+
+// runContentWontComeLocked reports whether the content of res's stored
+// record's own run won't come: the service said so (runWontCome:
+// NoteRunContent, NoteCacheGone), or the run's holding is gone or has moved
+// on to another value, so what its engine would send now is another run's.
+// A record is replaced only then: its run's content may otherwise still be
+// asked for and come, since records reach the Cloud before their content.
+// Requires egraphMu.
+func (c *Cache) runContentWontComeLocked(res *sharedResult) bool {
+	if res.runWontCome {
+		return true
+	}
+	if res.run == nil {
+		return false
+	}
+	run := *res.run
+	_, h := c.holdingLocked(HolderKey{Cache: run.Cache, Number: run.Number})
+	return h == nil || h.replacements != run.Replacements
+}
+
+// RunContentWontCome reports, on the Cloud, whether the content of the run
+// the stored record of the entry numbered number names won't come
+// (runContentWontComeLocked): a later run's whole export may then replace
+// the record. False for an entry the cache doesn't have.
+func (c *Cache) RunContentWontCome(number uint64) bool {
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	res := c.resultsByID[sharedResultID(number)]
+	return res != nil && c.runContentWontComeLocked(res)
+}
+
+// NoteRunContent notes, on the Cloud, whether the content of run, the run
+// the stored record of the entry numbered number names, won't come
+// (sharedResult.runWontCome): set when run's upload ended with nothing
+// stored or its export dropped the part, cleared when run's content is
+// asked for after all. A record of another run, or an entry with none,
+// changes nothing. It names the entry and its classes, whose replacement
+// and part answers read it, and reports a change a save writes.
+func (c *Cache) NoteRunContent(number uint64, run RunName, wontCome bool) RemoteChange {
+	c.egraphMu.Lock()
+	defer c.egraphMu.Unlock()
+	var change RemoteChange
+	res := c.resultsByID[sharedResultID(number)]
+	if !c.blobBacked || res == nil || res.run == nil || *res.run != run || res.runWontCome == wontCome {
+		return change
+	}
+	res.runWontCome = wontCome
+	c.markEntryLocked(res.id)
+	change = c.classChangeLocked([]uint64{number})
+	change.Saved = true
+	return change
+}
+
+// NoteCacheGone notes, on the Cloud, that the content of every run of
+// engine cache cache that its stored records name, and that no stored part
+// besides metadata nor upload in progress holds, won't come: its engine's
+// connection ended (sharedResult.runWontCome). It names those entries and
+// their classes, and reports a change a save writes.
+func (c *Cache) NoteCacheGone(cache CacheID) RemoteChange {
+	c.egraphMu.Lock()
+	defer c.egraphMu.Unlock()
+	var change RemoteChange
+	state := c.remoteCaches[cache]
+	if !c.blobBacked || state == nil {
+		return change
+	}
+	var numbers []uint64
+	for number, id := range state.entries {
+		entry := c.resultsByID[id]
+		if entry == nil || entry.run == nil || entry.runWontCome || entry.run.Cache != cache || entry.run.Number != number {
+			continue
+		}
+		if !c.storedWithoutContentLocked(entry) {
+			continue
+		}
+		entry.runWontCome = true
+		c.markEntryLocked(entry.id)
+		numbers = append(numbers, uint64(entry.id))
+	}
+	if len(numbers) == 0 {
+		return change
+	}
+	change = c.classChangeLocked(numbers)
+	change.Saved = true
+	return change
+}
+
+// UploadRun names, on the Cloud, the run of an upload by the holding key at
+// its value's replacement count replacements: the holding's own run when it
+// ran its value at that count (holdingRanLocked), as an engine that imported
+// a record and then evaluated it does; merged, the run its merge named the
+// record's, otherwise.
+func (c *Cache) UploadRun(key HolderKey, replacements uint64, merged RunName) RunName {
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	if c.holdingRanLocked(key, replacements) {
+		return RunName{Cache: key.Cache, Number: key.Number, Replacements: replacements}
+	}
+	return merged
+}
+
+// runsShownEqualLocked reports whether run's value is shown, by content
+// digest, the same as res's stored record's: run's holding carries a content
+// digest, and it is res's, as its frame knows it (compareRunContent's
+// reading of res) or else as the holding of the record's own run reports
+// it. Two such runs are one value, and either's part may be stored onto the
+// record. Requires egraphMu.
+func (c *Cache) runsShownEqualLocked(res *sharedResult, run RunName) bool {
+	_, h := c.holdingLocked(HolderKey{Cache: run.Cache, Number: run.Number})
+	if h == nil || h.replacements != run.Replacements {
+		return false
+	}
+	theirs := handleString(h.contentDigest)
+	if theirs == "" {
+		return false
+	}
+	res.resultCallMu.RLock()
+	known, content, call := res.frameContentKnown, res.frameContent, res.resultCall
+	res.resultCallMu.RUnlock()
+	var have digest.Digest
+	switch {
+	case known:
+		have = content
+	case call != nil:
+		have = call.ContentDigest()
+	}
+	if have == "" && res.run != nil {
+		if _, own := c.holdingLocked(HolderKey{Cache: res.run.Cache, Number: res.run.Number}); own != nil && own.replacements == res.run.Replacements {
+			have = digest.Digest(handleString(own.contentDigest))
+		}
+	}
+	return have != "" && string(have) == theirs
 }
 
 // ReplaceableBy reports whether a full record of run would replace the
@@ -555,6 +688,13 @@ func (c *Cache) markCarriedUploadsLocked(commit *valueMergeCommit, reply *MergeR
 				continue
 			}
 			reply.Uploading = append(reply.Uploading, PartUpload{Number: uint64(res.id), Address: parts[key]})
+		}
+		// The run's own export carries its content: it is on its way, so
+		// a fact that it won't come stands no longer.
+		if res.runWontCome {
+			res.runWontCome = false
+			c.markEntryLocked(res.id)
+			reply.Change.Saved = true
 		}
 		numbers = append(numbers, uint64(res.id))
 	}
