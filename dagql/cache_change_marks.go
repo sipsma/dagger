@@ -440,6 +440,7 @@ const (
 	StampKeptCallOldTerm
 	StampKeptCallUnsendable
 	StampFrame
+	StampRunContent
 
 	// StampViaClass marks a stamp of a write to another entry of the
 	// entry's class, widened to it.
@@ -453,6 +454,7 @@ var stampCauseNames = [...]string{
 	StampMergeInstall: "merge install", StampMergeFailed: "merge failed", StampCallExpiry: "call expiry", StampLeft: "left class",
 	StampKeptCallNewTerm: "kept call, new term", StampKeptCallOldTerm: "kept call, old term",
 	StampKeptCallUnsendable: "kept call, unsendable", StampFrame: "frame rewritten",
+	StampRunContent: "run content",
 }
 
 func (s StampCause) String() string {

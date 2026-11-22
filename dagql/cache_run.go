@@ -627,21 +627,7 @@ func (c *Cache) runsShownEqualLocked(res *sharedResult, run RunName) bool {
 	if theirs == "" {
 		return false
 	}
-	res.resultCallMu.RLock()
-	known, content, call := res.frameContentKnown, res.frameContent, res.resultCall
-	res.resultCallMu.RUnlock()
-	var have digest.Digest
-	switch {
-	case known:
-		have = content
-	case call != nil:
-		have = call.ContentDigest()
-	}
-	if have == "" && res.run != nil {
-		if _, own := c.holdingLocked(HolderKey{Cache: res.run.Cache, Number: res.run.Number}); own != nil && own.replacements == res.run.Replacements {
-			have = digest.Digest(handleString(own.contentDigest))
-		}
-	}
+	have := c.entryContentLocked(res)
 	return have != "" && string(have) == theirs
 }
 
@@ -922,27 +908,28 @@ func (c *Cache) lendsLocked(res, other *sharedResult) bool {
 }
 
 // entryContentLocked is the content digest res's stored record is known by:
-// its frame's, as taught or recorded (compareRunContent's reading), or else
-// the one the holding of the record's own run reports; "" when neither says.
-// Requires egraphMu.
+// the last one it was taught (teachesEntryContentLocked), or else the one
+// its record names, or its frame's once decoded, or else the one the holding
+// of the record's own run reports; "" when none says. Each changes only by
+// a write that marks res and its classes (StampRunContent, or the record's
+// own install), so an answer read from it is let go when it changes. The
+// frame's taking of a taught digest, which the body worker does in its own
+// time, changes nothing here: the taught digest already answers. Requires
+// egraphMu.
 func (c *Cache) entryContentLocked(res *sharedResult) digest.Digest {
-	// A digest the entry was taught that its frame hasn't taken yet is the
-	// frame's content once the body worker gives it (queueTaughtContentLocked):
-	// the last taught, as on the engine. Only the record's own run or a copy
-	// of it teaches the entry (teachesEntryContentLocked).
-	if n := len(res.taught); n > res.taughtGiven {
+	if n := len(res.taught); n > 0 {
 		return res.taught[n-1]
 	}
 	res.resultCallMu.RLock()
 	known, content, call := res.frameContentKnown, res.frameContent, res.resultCall
 	res.resultCallMu.RUnlock()
-	switch {
-	case known && content != "":
-		return content
-	case call != nil:
+	if call != nil {
 		if d := call.ContentDigest(); d != "" {
 			return d
 		}
+	}
+	if known && content != "" {
+		return content
 	}
 	if res.run != nil {
 		if _, own := c.holdingLocked(HolderKey{Cache: res.run.Cache, Number: res.run.Number}); own != nil && own.replacements == res.run.Replacements {

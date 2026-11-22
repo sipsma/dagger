@@ -232,7 +232,12 @@ func (c *Cache) availablePartLocked(number uint64, key string, holder HolderKey,
 		return av, nil
 	}
 	if holder.Cache != "" && c.holderOfOtherRunLocked(res, holder, nowUnix) {
+		// The record's expiry ends the answer by time alone: an expired
+		// record takes any run's content (holderOfOtherRunLocked).
 		av.State, av.Donor = PartOtherRun, uint64(res.id)
+		if expires := res.expiresAtUnix; expires > nowUnix && (av.ValidUntilUnix == 0 || expires < av.ValidUntilUnix) {
+			av.ValidUntilUnix = expires
+		}
 		return av, nil
 	}
 	// An upload in progress answers after stored and absent: a reader needs

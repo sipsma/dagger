@@ -888,6 +888,14 @@ func (c *Cache) applyHeldValueStateLocked(ctx context.Context, state *remoteCach
 	}
 	if described || changed {
 		c.markHoldingLocked(key)
+		// The holding of the entry's record's own run: its count says
+		// whether the run's content may still come (runContentWontComeLocked),
+		// and its content digest is the record's when nothing else says
+		// (entryContentLocked). The entry's and its class mates' part
+		// answers read both.
+		if entry != nil && entry.run != nil && entry.run.Cache == key.Cache && entry.run.Number == key.Number {
+			c.markEntryClassLocked(entry.id, StampRunContent)
+		}
 	}
 	c.addHoldingDepsLocked(state, key, h, obs.Deps)
 	return candidates
@@ -1447,6 +1455,9 @@ func (c *Cache) teachRemoteIdentityLocked(ctx context.Context, entry *sharedResu
 	if content != "" && entry != nil && entry.id != 0 {
 		if n := len(entry.taught); n == 0 || entry.taught[n-1] != content {
 			entry.taught = append(entry.taught, content)
+			// The record's content as the cache knows it changed: its own
+			// and its class mates' part answers read it (entryContentLocked).
+			c.markEntryClassLocked(entry.id, StampRunContent)
 		}
 		c.queueTaughtContentLocked(entry)
 	}

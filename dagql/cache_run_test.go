@@ -1993,3 +1993,56 @@ func TestACopysHoldingStaysOnTheRecordItCopied(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, pA, at, "C's copy is A's run, not B's")
 }
+
+// An answer that a holding's run is another's ends when the record expires,
+// by time alone: an expired record takes any run's content.
+func TestAnOtherRunAnswerEndsWithTheRecordsExpiry(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	b := HolderKey{Cache: "cache-b", Number: 3}
+	_, err := cloud.AttachRemoteHolding(ctx, b, RemoteHolding{Recipe: recipe, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	now := time.Now().Unix()
+	cloud.egraphMu.Lock()
+	cloud.resultsByID[sharedResultID(pA)].expiresAtUnix = now + 600
+	cloud.egraphMu.Unlock()
+	got := cloud.AvailableParts([]PartQuery{{Number: pA, Address: testLiveOffer().Address, Holder: b}}, now)
+	require.NoError(t, got[0].Err)
+	require.Equal(t, PartOtherRun, got[0].State)
+	require.Equal(t, now+600, got[0].ValidUntilUnix)
+}
+
+// The content a record is known by is read by its class mates' part answers
+// (lendsLocked): a new one taught to a member that holds a part names them.
+func TestATaughtContentNamesTheClassOfAHolder(t *testing.T) {
+	t.Parallel()
+	h := newHolderTestClass(t)
+	run, ok := entryRunName(h.cloud, h.r)
+	require.True(t, ok)
+	recipe, ok := h.cloud.EntryRecipe(h.r)
+	require.True(t, ok)
+	change := h.attach(t, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: recipe, Replacements: run.Replacements, ContentDigest: testDigest("holder-content-again")})
+	require.Contains(t, change.Entries, h.r)
+	require.Contains(t, change.Entries, h.m, "M's answers read what R's record is known by")
+}
+
+// The holding of a record's own run moving on to another value means the
+// run's content won't come (runContentWontComeLocked): the write names the
+// entry, whose part answers read it.
+func TestARunsHoldingMovingOnNamesItsRecordsEntry(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	run, ok := entryRunName(cloud, pA)
+	require.True(t, ok)
+	require.False(t, cloud.RunContentWontCome(pA))
+	change, found, err := cloud.UpdateRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHoldingUpdate{Replacements: run.Replacements + 1})
+	require.NoError(t, err)
+	require.True(t, found)
+	require.True(t, cloud.RunContentWontCome(pA))
+	require.Contains(t, change.Entries, pA, "a reader keeping pA's answers lets them go")
+}
