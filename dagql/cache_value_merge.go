@@ -1908,7 +1908,8 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 // has since run again itself, which is another run too. A copy of the
 // target's own run lands on it, and so does a record whose run the Cloud
 // can't name, or a target whose record names none: nothing tells those
-// apart. Requires egraphMu.
+// apart; and a record of a step whose content may change
+// (ResultCall.ContentMayChange), which is no run. Requires egraphMu.
 func (c *Cache) keepsApartLocked(prep *valueMergePrep, best map[string]*mergeRow, row *mergeRow) bool {
 	cur := row.target
 	if cur == nil || cur.run == nil {
@@ -1916,6 +1917,11 @@ func (c *Cache) keepsApartLocked(prep *valueMergePrep, best map[string]*mergeRow
 	}
 	run, _ := c.mergeRunLocked(prep, row)
 	if run == (RunName{}) || run == *cur.run {
+		return false
+	}
+	// What an engine holds of a step whose content may change is its own
+	// state, which no store keeps: its record folds into the recipe's entry.
+	if call := prep.records[row.ordinal].Call; call != nil && call.ContentMayChange {
 		return false
 	}
 	if call := prep.records[row.ordinal].Call; call == nil || !call.FollowsFromInputs {
