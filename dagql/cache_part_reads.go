@@ -1,19 +1,28 @@
 package dagql
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"time"
+
+	digest "github.com/opencontainers/go-digest"
 )
 
 // partReadFlushInterval is the longest a read waits to be reported.
 const partReadFlushInterval = time.Second
 
 // PartRead is a part of an entry that work read; Part is empty when it read
-// the whole entry.
+// the whole entry. Session, Caller and At are set on a read made under an
+// uncached call (recordPartRead): the session, the recipe digest of the
+// nearest enclosing cached call (CallerRecipe; empty at the session's top),
+// and when. They are empty on the engine-wide report of the entry.
 type PartRead struct {
 	ResultID uint64
 	Part     PartKey
+	Session  string
+	Caller   digest.Digest
+	At       time.Time
 }
 
 // WithPartReadReport makes the cache report the parts of entries that work
@@ -25,9 +34,13 @@ type PartRead struct {
 // entry is complete: a reader that missed earlier ones loses nothing. Reports
 // go in batches, at most partReadFlushInterval after the read, and at the
 // cache's close. report runs with no cache lock held and must not block.
+//
+// A read made under an uncached call, which runs whenever the call it is made
+// under does, is also reported once per part and session, with the session,
+// the caller and its time, in the same batches.
 func WithPartReadReport(report func([]PartRead)) CacheOption {
 	return func(c *Cache) {
-		c.partReads = &partReadLog{report: report, seen: map[sharedResultID]*partReadsSeen{}, pending: map[sharedResultID]struct{}{}}
+		c.partReads = &partReadLog{report: report, seen: map[sharedResultID]*partReadsSeen{}, pending: map[sharedResultID]struct{}{}, sessions: map[string]map[sessionPartRead]struct{}{}}
 	}
 }
 
@@ -45,6 +58,18 @@ type partReadLog struct {
 	pending   map[sharedResultID]struct{}
 	order     []sharedResultID
 	timer     *time.Timer
+	// sessions are, per session, the parts read under an uncached call so
+	// far, the whole entry as an empty part; sessionReads are those not
+	// reported yet, in the order they were read.
+	sessions     map[string]map[sessionPartRead]struct{}
+	sessionReads []PartRead
+}
+
+// sessionPartRead is a part, or with no part the whole, of an entry that a
+// session read under an uncached call.
+type sessionPartRead struct {
+	id   sharedResultID
+	part PartKey
 }
 
 type partReadsSeen struct {
@@ -91,6 +116,68 @@ func (l *partReadLog) record(id sharedResultID, parts []PartKey) {
 	}
 }
 
+// recordPartRead notes that work read parts of entry id, or the whole of it
+// when parts is empty: for the engine-wide report (partReadLog.record), and,
+// when the read is made under an uncached call, once per part and session
+// with the session, the caller and the time.
+func (c *Cache) recordPartRead(ctx context.Context, id sharedResultID, parts []PartKey) {
+	c.partReads.record(id, parts)
+	if c.partReads == nil || !underUncachedCall(ctx) {
+		return
+	}
+	session, err := partSession(ctx)
+	if err != nil {
+		return
+	}
+	c.partReads.recordSession(session, CallerRecipe(ctx), time.Now(), id, parts)
+}
+
+// recordSession notes a read of parts of entry id, or of the whole of it when
+// parts is empty, that session made under an uncached call under caller,
+// and arranges for each part the session hasn't read so to be reported.
+func (l *partReadLog) recordSession(session string, caller digest.Digest, at time.Time, id sharedResultID, parts []PartKey) {
+	if l == nil || session == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	seen := l.sessions[session]
+	if seen == nil {
+		seen = map[sessionPartRead]struct{}{}
+		l.sessions[session] = seen
+	}
+	if _, whole := seen[sessionPartRead{id: id}]; whole {
+		return
+	}
+	if len(parts) == 0 {
+		parts = []PartKey{""}
+	}
+	added := false
+	for _, part := range parts {
+		key := sessionPartRead{id: id, part: part}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		l.sessionReads = append(l.sessionReads, PartRead{ResultID: uint64(id), Part: part, Session: session, Caller: caller, At: at})
+		added = true
+	}
+	if added && l.timer == nil {
+		l.timer = time.AfterFunc(partReadFlushInterval, l.flush)
+	}
+}
+
+// forgetSession drops what a released session read, once its reads are
+// reported or never will be.
+func (l *partReadLog) forgetSession(session string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.sessions, session)
+}
+
 // forget drops what was read of an entry the cache no longer holds.
 // Requires nothing; safe under the cache's locks.
 func (l *partReadLog) forget(id sharedResultID) {
@@ -126,6 +213,8 @@ func (l *partReadLog) flush() {
 			reads = append(reads, PartRead{ResultID: uint64(id), Part: part})
 		}
 	}
+	reads = append(reads, l.sessionReads...)
+	l.sessionReads = nil
 	clear(l.pending)
 	l.order = nil
 	if l.timer != nil {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	digest "github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
 )
 
@@ -186,4 +187,84 @@ func TestCacheReportsAPartReadWhileItsWorkRuns(t *testing.T) {
 	mu.Unlock()
 	once.Do(func() { close(release) })
 	assert.NilError(t, <-done)
+}
+
+// A read made under an uncached call, which runs whenever the call it is made
+// under does, is reported once per part and session, with the session, the
+// recipe of the cached call it was made under and when it was made, beside
+// the engine-wide report. A second read of a part in the session isn't
+// reported again, and a cached call made under the uncached call reads on its
+// own account, as any cached call does: its reads carry no session.
+func TestCacheReportsPartsReadUnderAnUncachedCall(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var reported []PartRead
+	ctx := cacheTestContext(t.Context())
+	c, err := NewCache(ctx, "", nil, nil, WithPartReadReport(func(reads []PartRead) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, reads...)
+	}))
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, c)
+	t.Cleanup(func() { assert.NilError(t, c.CloseDiscardingPersistence()) })
+	session := cacheTestSessionID(t, ctx)
+	srv := cacheTestPartsServer(t)
+
+	dep := newPartsReadTestValue(t, c, ctx, "read-by-the-uncached-call", nil)
+	byCached := newPartsReadTestValue(t, c, ctx, "read-by-a-cached-call", nil)
+	call := func(ctx context.Context, field string, uncached bool, fn func(context.Context) error) {
+		t.Helper()
+		frame := &ResultCall{Kind: ResultCallKindField, Type: NewResultCallType((&cacheTestPartsObject{}).Type()), Field: field}
+		_, err := c.GetOrInitCall(ctx, session, srv, &CallRequest{ResultCall: frame, DoNotCache: uncached}, func(ctx context.Context) (AnyResult, error) {
+			if err := fn(ctx); err != nil {
+				return nil, err
+			}
+			return NewObjectResultForCall(&cacheTestPartsObject{resolveFn: partsTestDirectResolve}, srv, frame)
+		})
+		assert.NilError(t, err)
+	}
+	const caller = digest.Digest("xxh3:0123456789abcdef")
+	before := time.Now()
+	call(ContextWithCallerRecipe(ctx, caller), "uncached-start", true, func(ctx context.Context) error {
+		if err := c.EvaluateParts(ctx, dep, partsTestPartXMeta); err != nil {
+			return err
+		}
+		if err := c.EvaluateParts(ctx, dep, partsTestPartFS); err != nil {
+			return err
+		}
+		if err := c.EvaluateParts(ctx, dep, partsTestPartFS); err != nil {
+			return err
+		}
+		call(ctx, "cached-under-the-uncached-call", false, func(ctx context.Context) error {
+			return c.EvaluateParts(ctx, byCached, partsTestPartFS)
+		})
+		return nil
+	})
+	// The same session reads the part again, under another uncached call.
+	call(ctx, "uncached-again", true, func(ctx context.Context) error {
+		return c.EvaluateParts(ctx, dep, partsTestPartFS)
+	})
+	c.partReads.flush()
+
+	id := func(r ObjectResult[*cacheTestPartsObject]) uint64 { return uint64(r.cacheSharedResult().id) }
+	mu.Lock()
+	defer mu.Unlock()
+	var sessionReads []PartRead
+	engineWide := map[uint64][]PartKey{}
+	for _, read := range reported {
+		if read.Session == "" {
+			engineWide[read.ResultID] = append(engineWide[read.ResultID], read.Part)
+			continue
+		}
+		assert.Assert(t, !read.At.Before(before) && !read.At.After(time.Now()), "a read's time is when it was made")
+		read.At = time.Time{}
+		sessionReads = append(sessionReads, read)
+	}
+	assert.DeepEqual(t, []PartRead{
+		{ResultID: id(dep), Part: partsTestPartXMeta, Session: session, Caller: caller},
+		{ResultID: id(dep), Part: partsTestPartFS, Session: session, Caller: caller},
+	}, sessionReads)
+	assert.DeepEqual(t, []PartKey{partsTestPartFS}, engineWide[id(byCached)])
+	assert.Assert(t, len(engineWide[id(dep)]) > 0, "the engine-wide report still names the entry")
 }
