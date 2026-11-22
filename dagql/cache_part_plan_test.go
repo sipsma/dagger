@@ -106,12 +106,28 @@ func TestPlannedPartFetchWaitsForItsOwnCall(t *testing.T) {
 	require.Never(t, func() bool { return len(f.plannedJobs()) > 0 }, 200*time.Millisecond, 10*time.Millisecond)
 }
 
-// A part planned with no call is fetched at once.
+// A part planned with no call is fetched at once. The plan worker logs what
+// it did: one plan fired at once, which found the entry's one offer, with the
+// graph lock taken once to find the row and once to find its offer.
 func TestPlannedPartFetchAtOnce(t *testing.T) {
 	f := newPlanFixture(t, nil)
 	f.cache.PlanPartFetch(f.ctx, uint64(f.receiver.cacheSharedResult().id), f.address.Part, "")
 	f.runPlanned(t)
 	require.Equal(t, "done", f.aheadLine(t).fields["outcome"])
+	var line offerLine
+	require.Eventually(t, func() bool {
+		lines := f.logs.lines(t, "remote cache part plans fired")
+		if len(lines) == 0 {
+			return false
+		}
+		line = lines[0]
+		return true
+	}, 10*time.Second, 5*time.Millisecond)
+	require.EqualValues(t, 1, line.int(t, "at_once"))
+	require.EqualValues(t, 0, line.int(t, "by_call"))
+	require.EqualValues(t, 1, line.int(t, "offers"))
+	require.EqualValues(t, 0, line.int(t, "none"))
+	require.EqualValues(t, 2, line.int(t, "graph_holds"))
 }
 
 // A part planned with no part key is a read of the whole entry: each of its

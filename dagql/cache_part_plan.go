@@ -3,7 +3,9 @@ package dagql
 import (
 	"context"
 	"sync"
+	"time"
 
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -14,10 +16,12 @@ import (
 // planned queue), from the offer that serves it.
 
 // plannedPartFetch is one part to fetch ahead: entry id's part, as a read
-// names it, or the whole entry when part is empty.
+// names it, or the whole entry when part is empty; atOnce when it waited for
+// no call.
 type plannedPartFetch struct {
-	id   sharedResultID
-	part PartKey
+	id     sharedResultID
+	part   PartKey
+	atOnce bool
 }
 
 // partFetchPlan holds the planned fetches that wait for their call to run,
@@ -37,7 +41,7 @@ type partFetchPlan struct {
 // the cache no longer holds, or a part no offer serves, fetches nothing. It
 // never blocks on the fetch.
 func (c *Cache) PlanPartFetch(ctx context.Context, number uint64, part PartKey, runs digest.Digest) {
-	fetch := plannedPartFetch{id: sharedResultID(number), part: part}
+	fetch := plannedPartFetch{id: sharedResultID(number), part: part, atOnce: runs == ""}
 	if runs == "" {
 		c.firePlannedFetches(ctx, fetch)
 		return
@@ -77,8 +81,17 @@ func (c *Cache) firePlannedFetches(ctx context.Context, fetches ...plannedPartFe
 }
 
 // workPlannedFetches hands each fired fetch's part to the prefetcher's
-// planned queue, in the order they fired, until none is left.
+// planned queue, in the order they fired, until none is left, and logs what
+// that took: the plans by kind, the offers they found, the plans that found
+// none, the graph lock's holds they took, and how long it ran.
 func (c *Cache) workPlannedFetches(ctx context.Context) {
+	start := time.Now()
+	var stats planStats
+	defer func() {
+		slog.FromContext(ctx).Info("remote cache part plans fired",
+			"at_once", stats.atOnce, "by_call", stats.byCall, "offers", stats.offers,
+			"none", stats.none, "graph_holds", stats.graphHolds, "duration", time.Since(start))
+	}()
 	for {
 		c.partPlan.mu.Lock()
 		if len(c.partPlan.ready) == 0 {
@@ -90,10 +103,25 @@ func (c *Cache) workPlannedFetches(ctx context.Context) {
 		fetch := c.partPlan.ready[0]
 		c.partPlan.ready = c.partPlan.ready[1:]
 		c.partPlan.mu.Unlock()
-		for _, served := range c.plannedPartOffers(ctx, fetch) {
-			c.partOfferPlanned(ctx, served.row, served.key, served.offer)
+		if fetch.atOnce {
+			stats.atOnce++
+		} else {
+			stats.byCall++
+		}
+		served := c.plannedPartOffers(ctx, fetch, &stats)
+		if len(served) == 0 {
+			stats.none++
+		}
+		stats.offers += len(served)
+		for _, s := range served {
+			c.partOfferPlanned(ctx, s.row, s.key, s.offer)
 		}
 	}
+}
+
+// planStats counts what one run of the plan worker did (workPlannedFetches).
+type planStats struct {
+	atOnce, byCall, offers, none, graphHolds int
 }
 
 // servedPart is an offer that serves a planned part: the row that holds it
@@ -113,8 +141,8 @@ type servedPart struct {
 // out. A row's record is captured as an install captures it
 // (capturePartRecord), from its payload as it stands, whether its value is
 // still encoded or decoded.
-func (c *Cache) plannedPartOffers(ctx context.Context, fetch plannedPartFetch) []servedPart {
-	row := c.resultRow(fetch.id)
+func (c *Cache) plannedPartOffers(ctx context.Context, fetch plannedPartFetch, stats *planStats) []servedPart {
+	row := c.resultRow(fetch.id, stats)
 	if row == nil {
 		return nil
 	}
@@ -131,7 +159,7 @@ func (c *Cache) plannedPartOffers(ctx context.Context, fetch plannedPartFetch) [
 		if fetch.part != "" && out.Address.Part != fetch.part {
 			continue
 		}
-		if s, ok := c.servedPart(ctx, row, record, out.Address); ok {
+		if s, ok := c.servedPart(ctx, row, record, out.Address, stats); ok {
 			served = append(served, s)
 		}
 	}
@@ -142,7 +170,7 @@ func (c *Cache) plannedPartOffers(ctx context.Context, fetch plannedPartFetch) [
 // record, following the part's delegations. A delegation names an unchanged
 // part of the entry's recorded parent: the chain ends at the first entry with
 // an offer of the part, and an entry seen twice ends it with none.
-func (c *Cache) servedPart(ctx context.Context, row *sharedResult, record PersistedRecord, address PersistedPartAddress) (servedPart, bool) {
+func (c *Cache) servedPart(ctx context.Context, row *sharedResult, record PersistedRecord, address PersistedPartAddress, stats *planStats) (servedPart, bool) {
 	for seen := map[sharedResultID]bool{}; !seen[row.id]; {
 		seen[row.id] = true
 		key, err := partAddressKey(address)
@@ -152,6 +180,7 @@ func (c *Cache) servedPart(ctx context.Context, row *sharedResult, record Persis
 		c.egraphMu.RLock()
 		offer := row.partOfferLocked(key)
 		c.egraphMu.RUnlock()
+		stats.graphHolds++
 		if offer != nil {
 			return servedPart{row: row, key: key, offer: offer}, true
 		}
@@ -159,7 +188,7 @@ func (c *Cache) servedPart(ctx context.Context, row *sharedResult, record Persis
 		if err != nil || route.Delegation == nil {
 			return servedPart{}, false
 		}
-		if row = c.resultRow(sharedResultID(route.Delegation.ParentResultID)); row == nil {
+		if row = c.resultRow(sharedResultID(route.Delegation.ParentResultID), stats); row == nil {
 			return servedPart{}, false
 		}
 		if record, err = c.plannedRowRecord(ctx, row); err != nil {
@@ -171,7 +200,8 @@ func (c *Cache) servedPart(ctx context.Context, row *sharedResult, record Persis
 }
 
 // resultRow is the row the cache holds as id, or nil.
-func (c *Cache) resultRow(id sharedResultID) *sharedResult {
+func (c *Cache) resultRow(id sharedResultID, stats *planStats) *sharedResult {
+	stats.graphHolds++
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
 	return c.resultsByID[id]
