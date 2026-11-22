@@ -137,9 +137,16 @@ func (c *Cache) AvailablePart(number uint64, address PersistedPartAddress, nowUn
 }
 
 // PartQuery is a part of an entry a reader asks about (AvailableParts).
+// ByEntry asks of the entry alone: no class mate's stored part, absent
+// record or upload in progress answers, so a start (StartPartUploads)
+// counts an upload of the entry's own part beside a class mate's. A reader
+// asks so of a step that ran and can differ: two runs of one recipe are
+// class mates whatever bytes each made, so only the entry's own part is
+// its run's.
 type PartQuery struct {
 	Number  uint64
 	Address PersistedPartAddress
+	ByEntry bool
 }
 
 // PartAnswer is AvailablePart's answer for one PartQuery, or the error it
