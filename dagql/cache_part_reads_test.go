@@ -10,6 +10,18 @@ import (
 	"gotest.tools/v3/assert"
 )
 
+// engineWideReads are the reads of the engine-wide report among reads: those
+// that carry no session.
+func engineWideReads(reads []PartRead) []PartRead {
+	var out []PartRead
+	for _, read := range reads {
+		if read.Session == "" {
+			out = append(out, read)
+		}
+	}
+	return out
+}
+
 // newPartsReadTestResult is newPartsTestResult under a field of its own, so
 // that results of different fields are different entries.
 func newPartsReadTestResult(t *testing.T, c *Cache, ctx context.Context, obj *cacheTestPartsObject, field string) ObjectResult[*cacheTestPartsObject] {
@@ -60,7 +72,7 @@ func TestCacheReportsPartsRead(t *testing.T) {
 	c, err := NewCache(ctx, "", nil, nil, WithPartReadReport(func(reads []PartRead) {
 		mu.Lock()
 		defer mu.Unlock()
-		reported = append(reported, reads)
+		reported = append(reported, engineWideReads(reads))
 	}))
 	assert.NilError(t, err)
 	ctx = ContextWithCache(ctx, c)
@@ -163,7 +175,7 @@ func TestCacheReportsAPartReadWhileItsWorkRuns(t *testing.T) {
 	c, err := NewCache(ctx, "", nil, nil, WithPartReadReport(func(reads []PartRead) {
 		mu.Lock()
 		defer mu.Unlock()
-		reported = append(reported, reads...)
+		reported = append(reported, engineWideReads(reads)...)
 	}))
 	assert.NilError(t, err)
 	ctx = ContextWithCache(ctx, c)
@@ -279,4 +291,86 @@ func TestCacheReportsPartsReadUnderAnUncachedCall(t *testing.T) {
 	assert.DeepEqual(t, []PartKey{partsTestPartFS}, engineWide[id(readByEvaluation)])
 	assert.DeepEqual(t, []PartKey{partsTestPartFS}, engineWide[id(byCached)])
 	assert.Assert(t, len(engineWide[id(dep)]) > 0, "the engine-wide report still names the entry")
+}
+
+// A read counts when the call it is made in is uncached or session-bound, or
+// when it is made at the session's top, outside any call, and it carries the
+// nearest call above it that is neither, or an empty caller at the session's
+// top. So a read at the session's top carries no caller, a session-bound
+// call's own read carries the caller above that call, not the session-bound
+// call, whose recipe names the session, and a cached call's own read, which
+// happens only when its lookup misses, doesn't count.
+func TestCacheReportsPartsReadAtTheSessionTopAndUnderSessionBoundCalls(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var reported []PartRead
+	ctx := cacheTestContext(t.Context())
+	c, err := NewCache(ctx, "", nil, nil, WithPartReadReport(func(reads []PartRead) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, reads...)
+	}))
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, c)
+	t.Cleanup(func() { assert.NilError(t, c.CloseDiscardingPersistence()) })
+	session := cacheTestSessionID(t, ctx)
+	srv := cacheTestPartsServer(t)
+
+	atTop := newPartsReadTestValue(t, c, ctx, "read-at-the-session-top", nil)
+	bySessionBoundAtTop := newPartsReadTestValue(t, c, ctx, "read-by-a-session-bound-call-at-the-top", nil)
+	bySessionBoundUnderCall := newPartsReadTestValue(t, c, ctx, "read-by-a-session-bound-call-under-a-cached-call", nil)
+	byCached := newPartsReadTestValue(t, c, ctx, "read-by-a-cached-call", nil)
+	call := func(ctx context.Context, field string, sessionBound bool, fn func(context.Context) error) {
+		t.Helper()
+		frame := &ResultCall{Kind: ResultCallKindField, Type: NewResultCallType((&cacheTestPartsObject{}).Type()), Field: field}
+		if sessionBound {
+			arg, err := resultCallArgFromInput(ctx, PerSessionInput.Name, NewString(session), false)
+			assert.NilError(t, err)
+			frame.ImplicitInputs = []*ResultCallArg{arg}
+		}
+		_, err := c.GetOrInitCall(ctx, session, srv, &CallRequest{ResultCall: frame}, func(ctx context.Context) (AnyResult, error) {
+			if err := fn(ctx); err != nil {
+				return nil, err
+			}
+			return NewObjectResultForCall(&cacheTestPartsObject{resolveFn: partsTestDirectResolve}, srv, frame)
+		})
+		assert.NilError(t, err)
+	}
+	assert.NilError(t, c.EvaluateParts(ctx, atTop, partsTestPartFS))
+	call(ctx, "session-bound-at-the-top", true, func(ctx context.Context) error {
+		return c.EvaluateParts(ctx, bySessionBoundAtTop, partsTestPartFS)
+	})
+	const caller = digest.Digest("xxh3:fedcba9876543210")
+	call(ContextWithCallerRecipe(ctx, caller), "session-bound-under-a-cached-call", true, func(ctx context.Context) error {
+		return c.EvaluateParts(ctx, bySessionBoundUnderCall, partsTestPartFS)
+	})
+	call(ctx, "cached-at-the-top", false, func(ctx context.Context) error {
+		return c.EvaluateParts(ctx, byCached, partsTestPartFS)
+	})
+	c.partReads.flush()
+
+	id := func(r ObjectResult[*cacheTestPartsObject]) uint64 { return uint64(r.cacheSharedResult().id) }
+	mu.Lock()
+	defer mu.Unlock()
+	var sessionReads []PartRead
+	for _, read := range reported {
+		if read.Session != "" {
+			read.At = time.Time{}
+			sessionReads = append(sessionReads, read)
+		}
+	}
+	assert.DeepEqual(t, []PartRead{
+		{ResultID: id(atTop), Part: partsTestPartFS, Session: session},
+		{ResultID: id(bySessionBoundAtTop), Part: partsTestPartFS, Session: session},
+		{ResultID: id(bySessionBoundUnderCall), Part: partsTestPartFS, Session: session, Caller: caller},
+	}, sessionReads)
+	assert.DeepEqual(t, []PartKey{partsTestPartFS}, func() []PartKey {
+		var parts []PartKey
+		for _, read := range engineWideReads(reported) {
+			if read.ResultID == id(byCached) {
+				parts = append(parts, read.Part)
+			}
+		}
+		return parts
+	}())
 }
