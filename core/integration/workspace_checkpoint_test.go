@@ -182,6 +182,35 @@ func workspaceRecipeFields(t *testctx.T, recipe string) []string {
 	return fields
 }
 
+// workspaceRecipeSteps lists the fields of the steps that make the workspace
+// an LLM recipe is given (Llm.withWorkspace's argument), along its receiver
+// chain, from the last step back to its base. It leaves out how the steps'
+// inputs are made: an input may be any result the cache holds as the same,
+// recipe and all, such as an empty directory another session built with a
+// patch, so only the chain says how the workspace's own edits are recorded.
+func workspaceRecipeSteps(t *testctx.T, recipe string) []string {
+	t.Helper()
+	var id call.ID
+	require.NoError(t, id.Decode(recipe))
+	var ws *call.ID
+	for cur := &id; cur != nil && ws == nil; cur = cur.Receiver() {
+		if cur.Field() != "withWorkspace" {
+			continue
+		}
+		arg := cur.Arg("workspace")
+		require.NotNil(t, arg, "withWorkspace has a workspace argument")
+		lit, ok := arg.Value().(*call.LiteralID)
+		require.True(t, ok, "withWorkspace's workspace is an ID")
+		ws = lit.Value()
+	}
+	require.NotNil(t, ws, "the recipe gives the LLM a workspace: %s", id.Display())
+	var steps []string
+	for cur := ws; cur != nil; cur = cur.Receiver() {
+		steps = append(steps, cur.Field())
+	}
+	return steps
+}
+
 // requireWorkspaceRecipeUsesHostGit checks that recording a committed leaf has
 // not made session-local repository history portable. Publication itself does
 // not preflight replayability; the recipe must retain its originating-client
@@ -576,9 +605,9 @@ func (WorkspaceSuite) TestWorkspaceSnapshotHostOverlay(ctx context.Context, t *t
 	require.Empty(t, entries)
 	recipe, err := sink.captureLLMRecipe(ctx, t, c, core.NewQuery(c).LLM().WithWorkspace(frozen))
 	require.NoError(t, err)
-	fields := workspaceRecipeFields(t, string(recipe))
-	require.Contains(t, fields, "withPatchFile", "the overlay must be recorded as a patch")
-	require.Contains(t, fields, "withoutFiles", "deletions must be recorded beside the patch")
+	steps := workspaceRecipeSteps(t, string(recipe))
+	require.Contains(t, steps, "withPatchFile", "the overlay must be recorded as a patch")
+	require.Contains(t, steps, "withoutFiles", "deletions must be recorded beside the patch")
 	_, err = os.Stat(filepath.Join(workdir, "drop.txt"))
 	require.NoError(t, err, "snapshot must leave the host checkout alone")
 
@@ -588,9 +617,9 @@ func (WorkspaceSuite) TestWorkspaceSnapshotHostOverlay(ctx context.Context, t *t
 	require.Equal(t, "ELF\x00\x01", contents)
 	recipe, err = sink.captureLLMRecipe(ctx, t, c, core.NewQuery(c).LLM().WithWorkspace(binary))
 	require.NoError(t, err)
-	fields = workspaceRecipeFields(t, string(recipe))
-	require.NotContains(t, fields, "withPatchFile", "a binary must not be embedded as a patch")
-	require.Contains(t, fields, "withChanges", "the binary overlay must be applied raw")
+	steps = workspaceRecipeSteps(t, string(recipe))
+	require.NotContains(t, steps, "withPatchFile", "a binary must not be embedded as a patch")
+	require.Contains(t, steps, "withChanges", "the binary overlay must be applied raw")
 }
 
 func (WorkspaceSuite) TestWorkspaceSnapshotRejectsNestedClientCapture(ctx context.Context, t *testctx.T) {
