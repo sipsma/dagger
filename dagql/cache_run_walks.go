@@ -47,14 +47,23 @@ type WalkCount struct {
 
 func (w *walkCount) read() WalkCount {
 	out := WalkCount{Calls: w.calls.Load(), Entries: w.entries.Load(), Most: w.most.Load()}
-	if out.Calls == 0 {
+	// The median and the calls over one are read from one load of the
+	// buckets, which a call adds to apart from the totals: a read between
+	// a call's adds would otherwise mix two moments.
+	var upTo [len(w.upTo)]uint64
+	var calls uint64
+	for i := range w.upTo {
+		upTo[i] = w.upTo[i].Load()
+		calls += upTo[i]
+	}
+	if calls == 0 {
 		return out
 	}
-	out.OverOne = out.Calls - w.upTo[0].Load()
+	out.OverOne = calls - upTo[0]
 	var seen uint64
-	for i := range w.upTo {
-		seen += w.upTo[i].Load()
-		if seen*2 >= out.Calls {
+	for i, n := range upTo {
+		seen += n
+		if seen*2 >= calls {
 			out.Median = 1 << i
 			break
 		}
