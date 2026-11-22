@@ -580,13 +580,14 @@ func TestASecondRunsRootExportedAgainKeepsNoRetention(t *testing.T) {
 // An engine's record of a step goes to the Cloud before the step runs, as
 // the records stream sends a lazy chain, and the Cloud keeps it as the
 // engine's own run, under the result the engine built over it. Then the
-// engine is served the first run, which ran and is stored whole: its value
-// of the step is that run, and the result over it is built over that run's
-// content. The entry names the served run from then on, so the result isn't
-// answered over a run that never ran, which a third engine would run again
-// beside the result's content; it is answered once the entry stores that
-// run whole.
-func TestASecondRunItsEngineWasServedTheFirstRunForIsThatRun(t *testing.T) {
+// engine's lookup of the step is answered with the first run: its merge
+// keeps its own lazy value, with the first run's offers, and it installs
+// that content rather than running the step. What it builds over the step
+// is built over that content, which the entry doesn't store: the result
+// over the entry isn't answered over a run whose content a third engine
+// would make again beside the result's, and is answered once the entry
+// stores the content its engine holds.
+func TestASecondRunWhoseEngineInstalledOtherContentIsWithheldOver(t *testing.T) {
 	t.Parallel()
 	s := newSecondRunTestSetup(t)
 	aRun := runTestRan(t, s.cloud, s.first).Run
@@ -602,20 +603,21 @@ func TestASecondRunItsEngineWasServedTheFirstRunForIsThatRun(t *testing.T) {
 	// cache-b's lookup of the step is answered with the first run.
 	sent, err := s.cloud.StoredBundle(s.cctx, []uint64{s.first}, time.Now().Unix(), nil)
 	require.NoError(t, err)
-	require.Len(t, sent.Bundle.Values, 1)
-	bStep := s.bStep.cacheSharedResult()
-	_, err = s.cloud.ApplyMergedReply(s.cctx, "cache-b", sent.Bundle, MergeReply{Values: []MergedValue{{
-		Ordinal:      sent.Bundle.Values[0].Ordinal,
-		Number:       uint64(bStep.id),
-		Replacements: bStep.replacements,
-		Stored:       true,
-	}}})
+	breply, err := s.b.MergeValues(s.bctx, cloudCacheID, sent.Bundle)
 	require.NoError(t, err)
-	require.Equal(t, EntryRun{Run: aRun, Ran: true}, runTestRan(t, s.cloud, second), "cache-b's value of the step is the first run")
+	_, err = s.cloud.ApplyMergedReply(s.cctx, "cache-b", sent.Bundle, breply)
+	require.NoError(t, err)
+	bStep := s.bStep.cacheSharedResult()
+	key := HolderKey{Cache: "cache-b", Number: uint64(bStep.id)}
+	held, ok := s.cloud.HolderEntry(key)
+	require.True(t, ok)
+	require.Equal(t, second, held, "cache-b's holding stays on its own entry")
+	// cache-b installs the first run's offered content, running nothing.
+	runTestEvaluated(t, s.cctx, s.cloud, key, bStep.replacements, false)
 
 	built, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, time.Now().Unix(), nil)
 	require.NoError(t, err)
-	require.Contains(t, built.Withheld, root, "the result is withheld while its entry doesn't store the run it was built over")
+	require.Contains(t, built.Withheld, root, "the result is withheld while its entry doesn't store the content its engine holds")
 	stored, _, err = s.cloud.SetStoredPart(s.cctx, second, testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
