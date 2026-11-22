@@ -1882,19 +1882,21 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 }
 
 // keepsApartLocked reports, on the Cloud, whether row, a full record merge
-// would keep on its target's value, is a second run of its recipe, which
-// merge keeps beside the recipe's current entry (mergeBeside): its run
-// (mergeRunLocked) is another than the one the current entry's record names,
-// and its step can differ, or follows from its inputs with one of them a
-// second run, best deciding which entry each input row lands on: a copy over
-// another run of its input is another value. A copy of the current entry's
-// own run lands on it, and so does a record whose run the Cloud can't name,
-// or a current entry whose record names none: nothing tells those apart. A
-// target that is a second run is the sender's own (mergeTargetLocked), which
-// its record lands on. Requires egraphMu.
+// would keep on its target's value, is another run than its target's, which
+// merge keeps on an entry of its own beside the recipe's current entry
+// (mergeBeside): its run (mergeRunLocked) is another than the one the
+// target's record names, and its step can differ, or follows from its inputs
+// with one of them a second run, best deciding which entry each input row
+// lands on: a copy over another run of its input is another value. The
+// target is the recipe's current entry, or a second run its sender's holding
+// sits on (mergeTargetLocked): the sender's own, or one it was served and
+// has since run again itself, which is another run too. A copy of the
+// target's own run lands on it, and so does a record whose run the Cloud
+// can't name, or a target whose record names none: nothing tells those
+// apart. Requires egraphMu.
 func (c *Cache) keepsApartLocked(prep *valueMergePrep, best map[string]*mergeRow, row *mergeRow) bool {
 	cur := row.target
-	if cur == nil || cur.secondRunOf != "" || cur.run == nil {
+	if cur == nil || cur.run == nil {
 		return false
 	}
 	run, _ := c.mergeRunLocked(prep, row)
@@ -3070,10 +3072,13 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 		}
 		row := commit.byOrdinal[uint64(root.Ordinal)]
 		res := row.res
-		if row.action == mergeBeside {
-			// A second run keeps no retention of its own: the export asked
-			// for its recipe, which the current entry stores.
-			res = row.target
+		if res.secondRunOf != "" {
+			// A second run keeps no retention of its own, whichever export
+			// of it this is: the export asked for its recipe, which the
+			// current entry stores.
+			if res = c.currentEntryForRecipeLocked(res.secondRunOf); res == nil {
+				continue
+			}
 		}
 		c.upsertPersistedEdgeLocked(ctx, res, root.ExpiresAtUnix, false)
 	}
