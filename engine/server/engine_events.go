@@ -211,6 +211,7 @@ func (srv *Server) stopEngineEvents(ctx context.Context, clean bool) {
 			OwnRuns: telemetryattrs.EngineOwnRuns{
 				RowsKeptApart:   own.RowsKeptApart,
 				RowsSameContent: own.RowsSameContent,
+				RowsSameInputs:  own.RowsSameInputs,
 				RowsNotRun:      own.RowsNotRun,
 				ApartFull:       own.ApartFull,
 				ApartHeld:       own.ApartHeld,

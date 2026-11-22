@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/opencontainers/go-digest"
 )
@@ -203,6 +204,15 @@ func (prep *valueMergePrep) notePlainRecords(own map[uint64]bool) {
 	}
 }
 
+// followsFromInputs reports whether res's call declares that its result
+// follows from its inputs (ResultCall.FollowsFromInputs). The entry's own call
+// is read, since the declaration is a function of the recipe it shares with
+// every row that lands on it.
+func followsFromInputs(res *sharedResult) bool {
+	frame := res.loadResultCall()
+	return frame != nil && frame.FollowsFromInputs
+}
+
 // errNotPlain stops reading a record that isn't plain.
 var errNotPlain = errors.New("not a plain record")
 
@@ -229,7 +239,7 @@ func samePlainValueLocked(commit *valueMergeCommit, row *mergeRow, res *sharedRe
 				return nil
 			}
 			named := commit.byOrdinal[ref.ResultID]
-			if named == nil || named.otherRun || named.own != ownSameContent && (named.action.installs() || commitComputedHere(named)) {
+			if named == nil || named.otherRun || !named.own.same() && (named.action.installs() || commitComputedHere(named)) {
 				return errNotPlain
 			}
 			ref.ResultID = uint64(named.res.id)
@@ -441,7 +451,18 @@ const (
 	// ownNotRun: neither the entry nor anything of the cache's own below it
 	// has run yet.
 	ownNotRun
+	// ownSameInputs: the row's step follows from its inputs
+	// (FieldSpec.FollowsFromInputs), so its run is the same result as the
+	// entry's own while the rows it is over land as the cache's own too.
+	ownSameInputs
 )
+
+// same reports whether the row landed as the same result as the entry's
+// own value: shown equal by content, or by its step following from its
+// inputs.
+func (own ownLanding) same() bool {
+	return own == ownSameContent || own == ownSameInputs
+}
 
 // readOwnRuns notes, for each current entry of the bundle's recipes that
 // this cache computed, whether a run of its own is at or below it
@@ -690,6 +711,23 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 				}
 				commit.namedEqual[row.ordinal] = plain.named
 			}
+		case !held && followsFromInputs(row.res):
+			// The step's output follows from its inputs: the stored run is
+			// the same result as the cache's own wherever their inputs are,
+			// so it is equal only while none of the rows it is over is kept
+			// apart (cascadeApart). A step with no inputs, such as the empty
+			// directory, is always equal. A held row carries no inputs to
+			// compare, so it is decided as any held row is.
+			row.own = ownSameInputs
+			if commit.namedEqual == nil {
+				commit.namedEqual = map[uint64][]uint64{}
+			}
+			// Its offers' owners are inputs of the parts it carries.
+			inputs := slices.Clone(row.value.DependencyIDs)
+			for _, offer := range row.value.Record.Envelope.PendingOffers {
+				inputs = append(inputs, offer.Owner.DependencyIDs...)
+			}
+			commit.namedEqual[row.ordinal] = inputs
 		case held && sameHeldContentLocked(row, row.res):
 			// The held row names the content digest of the record it stands
 			// for, and the entry's own value has that digest: the same
@@ -742,7 +780,7 @@ func (commit *valueMergeCommit) cascadeApart(apart map[uint64]ownRoute) map[uint
 		changed = false
 		for _, row := range commit.rows {
 			named, conditional := commit.namedEqual[row.ordinal]
-			if dropped[row.ordinal] || row.otherRun || row.own == ownSameContent && !conditional {
+			if dropped[row.ordinal] || row.otherRun || row.own.same() && !conditional {
 				// A row shown a copy of the entry's value by content lands
 				// as that value, whatever run its record was computed over.
 				continue
@@ -986,9 +1024,10 @@ func (res *sharedResult) runState() ownRunState {
 // land on entries it computed (MergeRowCounts), and the parts OfferParts
 // refused or attached.
 type OwnRunStats struct {
-	// RowsKeptApart, RowsSameContent and RowsNotRun are the committed merge
-	// rows counted as MergeRowCounts' OtherRun, OwnSameContent and OwnNotRun.
-	RowsKeptApart, RowsSameContent, RowsNotRun uint64
+	// RowsKeptApart, RowsSameContent, RowsSameInputs and RowsNotRun are the
+	// committed merge rows counted as MergeRowCounts' OtherRun,
+	// OwnSameContent, OwnSameInputs and OwnNotRun.
+	RowsKeptApart, RowsSameContent, RowsSameInputs, RowsNotRun uint64
 	// ApartFull, ApartHeld, OverApartFull and OverApartHeld are the
 	// committed merges' MergeRowCounts of the same names.
 	ApartFull, ApartHeld, OverApartFull, OverApartHeld uint64
@@ -1006,6 +1045,7 @@ type OwnRunStats struct {
 func (c *Cache) noteOwnRunRows(rows MergeRowCounts) {
 	c.ownRunRowsKeptApart.Add(uint64(rows.OtherRun))
 	c.ownRunRowsSameContent.Add(uint64(rows.OwnSameContent))
+	c.ownRunRowsSameInputs.Add(uint64(rows.OwnSameInputs))
 	c.ownRunRowsNotRun.Add(uint64(rows.OwnNotRun))
 	c.ownRunApartFull.Add(uint64(rows.ApartFull))
 	c.ownRunApartHeld.Add(uint64(rows.ApartHeld))
@@ -1019,6 +1059,7 @@ func (c *Cache) OwnRunStats() OwnRunStats {
 	return OwnRunStats{
 		RowsKeptApart:   c.ownRunRowsKeptApart.Load(),
 		RowsSameContent: c.ownRunRowsSameContent.Load(),
+		RowsSameInputs:  c.ownRunRowsSameInputs.Load(),
 		RowsNotRun:      c.ownRunRowsNotRun.Load(),
 		ApartFull:       c.ownRunApartFull.Load(),
 		ApartHeld:       c.ownRunApartHeld.Load(),

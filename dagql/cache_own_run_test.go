@@ -905,3 +905,77 @@ func TestMergeValuesKeepsAnEqualObjectWhoseReceiverIsKeptApart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, reply.Imported(), 1, "D, over the equal object alone, lands")
 }
+// followsTestResult is persistedListTestResult for a field that declares its
+// result follows from its inputs (FieldSpec.FollowsFromInputs), as the call
+// frame of such a field carries it.
+func followsTestResult(t *testing.T, ctx context.Context, c *Cache, srv *Server, field string, value Typed) AnyResult {
+	t.Helper()
+	frame := &ResultCall{Kind: ResultCallKindField, Field: field, Type: NewResultCallType(value.Type()), FollowsFromInputs: true}
+	res, err := c.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(value, frame)
+	})
+	require.NoError(t, err)
+	return res
+}
+
+// A step whose output follows from its inputs gives the same bytes run again
+// over the same inputs, so another engine's run of it is the same result as
+// the engine's own wherever their inputs are: it lands. A step with no
+// inputs, such as the empty directory, always lands. Over an input the merge
+// keeps apart, it was made from another run of that input, and is kept apart
+// with it.
+func TestMergeValuesLandsAStepThatFollowsFromItsInputs(t *testing.T) {
+	t.Parallel()
+	t.Run("no inputs", func(t *testing.T) {
+		t.Parallel()
+		actx, a, asrv := transferTestCache(t)
+		sent := followsTestResult(t, actx, a, asrv, "follows-empty", &transferTestValue{Text: "sent"})
+		bundle := exportTestBundle(t, actx, a, sent)
+
+		ctx, c, srv := transferTestCache(t)
+		own := followsTestResult(t, ctx, c, srv, "follows-empty", &transferTestValue{Text: "own"})
+		require.True(t, own.cacheSharedResult().ranHere())
+		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+		require.NoError(t, err)
+		require.Empty(t, reply.OtherRun)
+		require.Equal(t, 1, reply.Rows.OwnSameInputs)
+	})
+	t.Run("over an input that lands", func(t *testing.T) {
+		t.Parallel()
+		actx, a, asrv := transferTestCache(t)
+		sentIn := persistedListTestResult(t, actx, a, asrv, "follows-input", String("in"))
+		sent := followsTestResult(t, actx, a, asrv, "follows-step", &transferTestValue{Text: "sent step"})
+		require.NoError(t, a.AddExplicitDependency(actx, sent, sentIn, "test"))
+		bundle := exportTestBundle(t, actx, a, sent)
+
+		ctx, c, srv := transferTestCache(t)
+		ownIn := persistedListTestResult(t, ctx, c, srv, "follows-input", String("in"))
+		own := followsTestResult(t, ctx, c, srv, "follows-step", &transferTestValue{Text: "own step"})
+		require.NoError(t, c.AddExplicitDependency(ctx, own, ownIn, "test"))
+		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+		require.NoError(t, err)
+		require.Empty(t, reply.OtherRun)
+		require.Equal(t, 1, reply.Rows.OwnSameContent, "the input, equal by content")
+		require.Equal(t, 1, reply.Rows.OwnSameInputs, "the step over it")
+	})
+	t.Run("over an input kept apart", func(t *testing.T) {
+		t.Parallel()
+		actx, a, asrv := transferTestCache(t)
+		sentIn := persistedListTestResult(t, actx, a, asrv, "follows-apart-input", &transferTestValue{Text: "sent in"})
+		sent := followsTestResult(t, actx, a, asrv, "follows-apart-step", &transferTestValue{Text: "sent step"})
+		require.NoError(t, a.AddExplicitDependency(actx, sent, sentIn, "test"))
+		bundle := exportTestBundle(t, actx, a, sent)
+
+		ctx, c, srv := transferTestCache(t)
+		ownIn := persistedListTestResult(t, ctx, c, srv, "follows-apart-input", &transferTestValue{Text: "own in"})
+		own := followsTestResult(t, ctx, c, srv, "follows-apart-step", &transferTestValue{Text: "own step"})
+		require.NoError(t, c.AddExplicitDependency(ctx, own, ownIn, "test"))
+		reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+		require.NoError(t, err)
+		require.Len(t, reply.OtherRun, 2, "the input, and the step over it")
+		require.Equal(t, 1, reply.Rows.ApartFull)
+		require.Equal(t, 1, reply.Rows.OverApartFull)
+		require.Zero(t, reply.Rows.OwnSameInputs)
+	})
+}
+

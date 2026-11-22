@@ -603,6 +603,7 @@ func (a *RemoteCacheAdapter) Merge(ctx context.Context, id uint64, req protocol.
 		"over_apart_full_rows", reply.Rows.OverApartFull,
 		"over_apart_held_rows", reply.Rows.OverApartHeld,
 		"same_content_rows", reply.Rows.OwnSameContent,
+		"same_inputs_rows", reply.Rows.OwnSameInputs,
 		"own_unrun_rows", reply.Rows.OwnNotRun,
 		"own_runs_read", reply.OwnRunsRead,
 		"committed", reply.Committed,

@@ -560,8 +560,10 @@ type MergeReply struct {
 //
 // Beside those, it counts the rows that landed on an entry the cache
 // computed itself and weren't kept apart: shown a copy of a run of the
-// cache's own by content (OwnSameContent), or on an entry with no run of the
-// cache's own at or below it yet (OwnNotRun).
+// cache's own by content (OwnSameContent), the same result because the step
+// follows from its inputs and they landed as the cache's own (OwnSameInputs),
+// or on an entry with no run of the cache's own at or below it yet
+// (OwnNotRun).
 //
 // By route, it counts the rows kept apart from a run of the cache's own as
 // full rows (ApartFull) and as held rows (ApartHeld), and the rows kept apart
@@ -570,7 +572,7 @@ type MergeReply struct {
 type MergeRowCounts struct {
 	Held, Kept, Created, Stored, Replaced, Retired, OtherRun int
 	KeptWithHolding, KeptTaught                              int
-	OwnSameContent, OwnNotRun                                int
+	OwnSameContent, OwnSameInputs, OwnNotRun                 int
 	ApartFull, ApartHeld, OverApartFull, OverApartHeld       int
 }
 
@@ -579,6 +581,8 @@ func (n *MergeRowCounts) count(row *mergeRow) {
 	switch row.own {
 	case ownSameContent:
 		n.OwnSameContent++
+	case ownSameInputs:
+		n.OwnSameInputs++
 	case ownNotRun:
 		n.OwnNotRun++
 	}
