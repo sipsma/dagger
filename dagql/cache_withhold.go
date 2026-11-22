@@ -77,10 +77,11 @@ func (c *Cache) runNotStoredWholeLocked(res *sharedResult) bool {
 // the recipient holds.
 type withholdBuild struct {
 	c *Cache
-	// held is what the bundle's recipient holds: an entry it answered it
-	// holds another run of (HeldBy.OtherRun) is withheld with what is over
-	// it.
+	// held is what the bundle's recipient holds: an entry it holds another
+	// run of is withheld with what is over it (recipientHoldsOtherRunLocked).
 	held *HeldBy
+	// now is the bundle's time, by which the recipient's holdings expire.
+	now int64
 	// memo has, for each entry read, the first entry of its closure found
 	// that withholds it, or 0.
 	memo map[sharedResultID]sharedResultID
@@ -93,9 +94,10 @@ type withholdBuild struct {
 // newWithholdBuild returns a withholding judgment for one stored bundle's
 // build, or for one walk that prices or lists what such a bundle carries
 // without building it (StoredSizes, StoredClosure, StoredLowerHalf), so
-// that each withholds what the bundle would, for the recipient held.
-func (c *Cache) newWithholdBuild(held *HeldBy) *withholdBuild {
-	return &withholdBuild{c: c, held: held, memo: map[sharedResultID]sharedResultID{}, reach: map[sharedResultID][]CacheID{}}
+// that each withholds what the bundle would, for the recipient held, its
+// holdings judged at nowUnix.
+func (c *Cache) newWithholdBuild(held *HeldBy, nowUnix int64) *withholdBuild {
+	return &withholdBuild{c: c, held: held, now: nowUnix, memo: map[sharedResultID]sharedResultID{}, reach: map[sharedResultID][]CacheID{}}
 }
 
 // keptRootsLocked returns, in order, the roots a bundle of them keeps, and
@@ -110,7 +112,7 @@ func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundle
 			out.WithheldOn = append(out.WithheldOn, uint64(by))
 			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
 			switch {
-			case w.held != nil && w.held.OtherRun[uint64(by)]:
+			case w.recipientHoldsOtherRunLocked(c.resultsByID[by]):
 				why = "otherRun"
 			case w.overFoldedRunLocked(c.resultsByID[by]):
 				why = "overFoldedRun"
@@ -171,7 +173,7 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	// A cycle is the walk's to report; inside one, nothing is withheld yet.
 	w.memo[res.id] = 0
 	var by sharedResultID
-	if w.held != nil && w.held.OtherRun[uint64(res.id)] || w.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
+	if w.recipientHoldsOtherRunLocked(res) || w.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
 		by = res.id
 	}
 	for _, id := range storedClosureChildrenLocked(res) {
@@ -186,6 +188,38 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	}
 	w.memo[res.id] = by
 	return by != 0, by
+}
+
+// recipientHoldsOtherRunLocked reports whether the bundle's recipient holds
+// another run of res's step: the recipient answered so (HeldBy.OtherRun), or
+// res can differ and the recipient holds another entry of one of res's
+// recipes (entriesOfRecipeLocked) whose run isn't res's. A value over res
+// would land on the recipient's own run of the step, whose entry its merge
+// keeps (mergeKeep), with no error. What the Cloud knows of the recipient's
+// holdings lags, so the engine refuses such a merge itself too
+// (otherRunRowsLocked). A run the Cloud can't name says nothing. Requires
+// egraphMu.
+func (w *withholdBuild) recipientHoldsOtherRunLocked(res *sharedResult) bool {
+	switch {
+	case w.held == nil:
+		return false
+	case w.held.OtherRun[uint64(res.id)]:
+		return true
+	case res.run == nil || !w.c.entryCanDifferLocked(res):
+		return false
+	}
+	recipes := slices.Clip(res.recipeKeys)
+	if res.secondRunOf != "" {
+		recipes = append(recipes, res.secondRunOf)
+	}
+	for _, recipe := range recipes {
+		for _, other := range w.c.entriesOfRecipeLocked(recipe) {
+			if other != res && other.run != nil && *other.run != *res.run && w.held.heldLocked(other, w.now) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // overFoldedRunLocked reports whether res, a record of an engine's run,

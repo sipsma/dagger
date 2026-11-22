@@ -102,7 +102,8 @@ type HeldBy struct {
 	// OtherRun names, by number, the entries the recipient answered it
 	// holds another run of (MergeReply.OtherRun): a value over one of them
 	// would stand over a run the recipient doesn't hold, so the bundle
-	// withholds it (withholdBuild).
+	// withholds it, as it does a value over an entry whose recipe's other
+	// entry the recipient holds (recipientHoldsOtherRunLocked).
 	OtherRun map[uint64]bool
 }
 
@@ -247,7 +248,7 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 			rootEntries = append(rootEntries, res)
 		}
 	}
-	withhold := c.newWithholdBuild(held)
+	withhold := c.newWithholdBuild(held, nowUnix)
 	rootEntries = withhold.keptRootsLocked(rootEntries, &out)
 	if len(rootEntries) == 0 {
 		return out, nil, nil
