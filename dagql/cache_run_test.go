@@ -777,17 +777,28 @@ func TestALaterRunDoesntReplaceARecordWhoseContentIsUploading(t *testing.T) {
 }
 
 // replaceTestRan attaches the holding a stored record's run names, reporting
-// a part complete: the run's own engine ran the step.
-func replaceTestRan(t *testing.T, ctx context.Context, cloud *Cache, number uint64) {
+// replaceTestRanOnly makes the stored record of the entry numbered number
+// one whose own run ran: its run's holding reports, from a call it
+// executed, a part complete (noteHoldingRanLocked).
+func replaceTestRanOnly(t *testing.T, ctx context.Context, cloud *Cache, number uint64) {
 	t.Helper()
 	run, ok := entryRunName(cloud, number)
 	require.True(t, ok)
 	recipe, ok := cloud.EntryRecipe(number)
 	require.True(t, ok)
-	// The run's holding reports, from a call it executed, a part complete:
-	// the run ran (noteHoldingRanLocked).
 	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: recipe, Replacements: run.Replacements, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
 	require.NoError(t, err)
+}
+
+// replaceTestRan makes the stored record of the entry numbered number one
+// whose own run ran (replaceTestRanOnly) and whose content won't come, as
+// the service notes it (NoteRunContent): a later run may replace it.
+func replaceTestRan(t *testing.T, ctx context.Context, cloud *Cache, number uint64) {
+	t.Helper()
+	replaceTestRanOnly(t, ctx, cloud, number)
+	run, ok := entryRunName(cloud, number)
+	require.True(t, ok)
+	cloud.NoteRunContent(number, run, true)
 }
 
 // A record whose own run never ran its step is a recipe: a later run
@@ -1450,4 +1461,141 @@ func TestARunReplacesOnlyWithItsWholeContent(t *testing.T) {
 func entryRunName(c *Cache, number uint64) (RunName, bool) {
 	run, ok := c.EntryRun(number)
 	return run.Run, ok
+}
+
+// A record whose own run ran and stored nothing isn't replaced while its
+// run's content may still come: records reach the Cloud before their
+// content. Once the service notes it won't (NoteRunContent), a later run's
+// whole export replaces it, also after a restart, since the fact is saved.
+func TestARecordIsReplacedOnlyOnceItsRunsContentWontCome(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	ctx, cloud := storedPersistenceTestCloud(t, path)
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	reply, _, _ := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Zero(t, reply.Rows.RunsReplaced, "A's content may still come")
+	run, ok := entryRunName(cloud, pA)
+	require.True(t, ok)
+	change := cloud.NoteRunContent(pA, run, true)
+	require.True(t, change.Saved)
+	require.Contains(t, change.Entries, pA, "a logged entry change, for kept inputs")
+	require.Empty(t, cloud.NoteRunContent(pA, RunName{Cache: "cache-b", Number: run.Number}, true).Entries, "another run's note changes nothing")
+	require.NoError(t, cloud.Close(ctx))
+
+	ctx, cloud = storedPersistenceTestCloud(t, path)
+	defer func() { require.NoError(t, cloud.Close(ctx)) }()
+	// The holding isn't saved: a restarted Cloud learns it again, from the
+	// run's engine's rows.
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	reply, _, _ = replaceTestRun(t, ctx, cloud, "cache-c")
+	require.Equal(t, 1, reply.Rows.RunsReplaced, "the fact is saved: C's run replaces A's")
+}
+
+// The run's own export carrying its content says the content is on its
+// way: a fact that it won't come is cleared in that merge's commit.
+func TestARunsOwnContentClearsTheFactThatItWontCome(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRan(t, ctx, cloud, pA)
+	cloud.egraphMu.RLock()
+	require.True(t, cloud.resultsByID[sharedResultID(pA)].runWontCome)
+	cloud.egraphMu.RUnlock()
+	// A's engine exports its run again, with the step's content.
+	again, _, pA2 := replaceTestRun(t, ctx, cloud, "cache-a")
+	require.Equal(t, pA, pA2, "A's own run lands on its own record")
+	require.Zero(t, again.Rows.RunsReplaced)
+	cloud.egraphMu.RLock()
+	require.False(t, cloud.resultsByID[sharedResultID(pA)].runWontCome, "A's content is on its way")
+	cloud.egraphMu.RUnlock()
+	reply, _, _ := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Zero(t, reply.Rows.RunsReplaced, "so B's run doesn't replace A's")
+}
+
+// A record whose run's holding has moved on to another value is replaced
+// without a note: what that engine would send now is another run's.
+func TestARecordWhoseRunsHoldingMovedOnIsReplaced(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	run, ok := entryRunName(cloud, pA)
+	require.True(t, ok)
+	_, _, err := cloud.ApplyHeldValueState(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, HeldValueState{Replacements: run.Replacements + 1})
+	require.NoError(t, err)
+	reply, _, _ := replaceTestRun(t, ctx, cloud, "cache-b")
+	require.Equal(t, 1, reply.Rows.RunsReplaced)
+}
+
+// An engine's connection ending notes, for each record of its runs that
+// stores nothing and has no upload in progress, that its content won't
+// come; a record with its content stored, or uploading, keeps no such note.
+func TestAnEnginesEndNotesItsUnstoredRunsContentWontCome(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, rA, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	stored, _, err := cloud.SetStoredPart(ctx, rA, storedPartRunOf(t, cloud, rA), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	change := cloud.NoteCacheGone("cache-a")
+	require.True(t, change.Saved)
+	require.Contains(t, change.Entries, pA)
+	cloud.egraphMu.RLock()
+	require.True(t, cloud.resultsByID[sharedResultID(pA)].runWontCome, "P stores nothing")
+	require.False(t, cloud.resultsByID[sharedResultID(rA)].runWontCome, "R stores its content")
+	cloud.egraphMu.RUnlock()
+	require.Empty(t, cloud.NoteCacheGone("cache-a").Entries, "noted once")
+}
+
+// Two runs shown the same by content digest are one value: a part of
+// either is stored onto the other's record. A run not shown the same, the
+// same call only, is another value, and refused.
+func TestAPartOfARunShownEqualByContentIsStored(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, p := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, p)
+	recipe, ok := cloud.EntryRecipe(p)
+	require.True(t, ok)
+	content := digest.FromString("the dep's content")
+	run, ok := entryRunName(cloud, p)
+	require.True(t, ok)
+	_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: run.Cache, Number: run.Number}, RemoteHolding{Recipe: recipe, Replacements: run.Replacements, ContentDigest: content})
+	require.NoError(t, err)
+	same := RunName{Cache: "cache-b", Number: 7}
+	_, err = cloud.AttachRemoteHolding(ctx, HolderKey{Cache: same.Cache, Number: same.Number}, RemoteHolding{Recipe: recipe, ContentDigest: content})
+	require.NoError(t, err)
+	other := RunName{Cache: "cache-c", Number: 8}
+	_, err = cloud.AttachRemoteHolding(ctx, HolderKey{Cache: other.Cache, Number: other.Number}, RemoteHolding{Recipe: recipe})
+	require.NoError(t, err)
+	got, _, err := cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p, Run: other, Part: testLiveOffer()}})
+	require.NoError(t, err)
+	require.True(t, got[0].OtherRun, "a run of the same call only is refused")
+	got, _, err = cloud.SetStoredParts(ctx, []StoredPartWrite{{Number: p, Run: same, Part: testLiveOffer()}})
+	require.NoError(t, err)
+	require.True(t, got[0].Stored, "a run shown equal by content is stored")
+	stillA, ok := entryRunName(cloud, p)
+	require.True(t, ok)
+	require.Equal(t, run, stillA, "and the record keeps its run")
+}
+
+// An upload is of its holding's own run once that holding ran its value,
+// as an engine that imported a record and evaluated it does; else of the
+// run its merge named.
+func TestAnUploadIsItsHoldingsOwnRunOnceItRan(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, p := replaceTestRun(t, ctx, cloud, "cache-a")
+	recipe, ok := cloud.EntryRecipe(p)
+	require.True(t, ok)
+	merged := RunName{Cache: "cache-a", Number: 99}
+	key := HolderKey{Cache: "cache-b", Number: 5}
+	_, err := cloud.AttachRemoteHolding(ctx, key, RemoteHolding{Recipe: recipe, Replacements: 2})
+	require.NoError(t, err)
+	require.Equal(t, merged, cloud.UploadRun(key, 2, merged), "it hasn't run its value")
+	_, err = cloud.AttachRemoteHolding(ctx, key, RemoteHolding{Recipe: recipe, Replacements: 2, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+	require.NoError(t, err)
+	require.Equal(t, RunName{Cache: "cache-b", Number: 5, Replacements: 2}, cloud.UploadRun(key, 2, merged))
+	require.Equal(t, merged, cloud.UploadRun(key, 1, merged), "at another count it describes another value")
 }
