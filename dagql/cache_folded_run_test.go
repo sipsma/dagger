@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -64,6 +65,8 @@ func foldedRunTest(t *testing.T, saved string) {
 	stored, _, err := cloud.SetStoredPart(ctx, sNumber, testLiveOffer(), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
+	// b ran its own run of S: its holding of the folded entry ran its value.
+	foldedRunTestHolding(t, ctx, cloud, sNumber, HolderKey{Cache: fromB, Number: uint64(sB.cacheSharedResult().id)}, true)
 
 	if saved != "unsaved" {
 		if saved == "saved compressed" {
@@ -191,4 +194,88 @@ func bridged(t *testing.T, c *Cache, res AnyResult, extra call.ExtraDigest) {
 	frame.FollowsFromInputs = false
 	frame.ExtraDigests = append(frame.ExtraDigests, extra)
 	res.cacheSharedResult().storeResultCall(frame)
+}
+
+// foldedRunTestHolding attaches engine key's holding to the Cloud entry
+// number, whose recipe it holds, as a call row reports it: executed when the
+// engine ran its own run of the step, and otherwise a value it was served.
+func foldedRunTestHolding(t *testing.T, ctx context.Context, cloud *Cache, number uint64, key HolderKey, executed bool) {
+	t.Helper()
+	recipe, ok := cloud.EntryRecipe(number)
+	require.True(t, ok)
+	_, err := cloud.AttachRemoteHolding(ctx, key, RemoteHolding{
+		Recipe:   recipe,
+		Parts:    []PersistedPartAddress{testLiveOffer().Address},
+		Executed: executed,
+		CallRow:  true,
+	})
+	require.NoError(t, err)
+}
+
+// A step's record goes to the Cloud before the step runs, as the records
+// stream sends a lazy chain: engine b's step S, pending, under a result T
+// only b makes. The Cloud folds b's S into a's entry, whose run is stored
+// whole. Whether T stands over another run is known only once b's S is
+// evaluated: if b's lookup is answered with a's run, T is built over a's
+// content and is answered to a third engine; if b runs S itself, T is built
+// over b's run and isn't, though T's record was installed before that was
+// known and nothing installs it again.
+func TestAFoldIsDecidedWhenTheSendersRunIsKnown(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		ranOwn   bool
+		withheld bool
+	}{
+		{"b is served a's run of S", false, false},
+		{"b runs S itself after T's record is installed", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cloud := storedPartTestCache(t, WithBlobStore())
+
+			actx, a, asrv := transferTestCache(t)
+			fromA := CacheID(a.Identity().ID)
+			sA := persistedListTestResult(t, actx, a, asrv, "decided-step", &transferTestValue{Text: "a's bytes"})
+			canDiffer(t, a, sA)
+			exportedA := exportTestBundle(t, actx, a, sA)
+			replyA, err := cloud.MergeValues(ctx, fromA, exportedA)
+			require.NoError(t, err)
+			sNumber := cloudNumberOf(t, exportedA, replyA, sA)
+			withholdTestRan(t, ctx, cloud, sNumber, HolderKey{Cache: fromA, Number: uint64(sA.cacheSharedResult().id)}, 0, false)
+			stored, _, err := cloud.SetStoredPart(ctx, sNumber, testLiveOffer(), 0)
+			require.NoError(t, err)
+			require.True(t, stored)
+
+			// b's records go up before anything of b's ran.
+			bctx, b, bsrv := transferTestCache(t)
+			fromB := CacheID(b.Identity().ID)
+			sB := persistedListTestResult(t, bctx, b, bsrv, "decided-step", &transferTestValue{Text: "b's S"})
+			canDiffer(t, b, sB)
+			top := persistedListTestResult(t, bctx, b, bsrv, "decided-top", &transferTestValue{Text: "T"})
+			transferTestDependency(b, bctx, top, sB)
+			exportedB := exportTestBundle(t, bctx, b, top)
+			replyB, err := cloud.MergeValues(ctx, fromB, exportedB)
+			require.NoError(t, err)
+			require.Equal(t, sNumber, cloudNumberOf(t, exportedB, replyB, sB), "the Cloud folds b's S into a's entry")
+			tNumber := cloudNumberOf(t, exportedB, replyB, top)
+
+			// Then b evaluates S, served or itself, and T over it; T's run
+			// is stored whole.
+			foldedRunTestHolding(t, ctx, cloud, sNumber, HolderKey{Cache: fromB, Number: uint64(sB.cacheSharedResult().id)}, tc.ranOwn)
+			withholdTestRan(t, ctx, cloud, tNumber, HolderKey{Cache: fromB, Number: uint64(top.cacheSharedResult().id)}, 0, true)
+			stored, _, err = cloud.SetStoredPart(ctx, tNumber, testLiveOffer(), 0)
+			require.NoError(t, err)
+			require.True(t, stored)
+
+			built, err := cloud.StoredBundle(ctx, []uint64{tNumber}, time.Now().Unix(), nil)
+			require.NoError(t, err)
+			if tc.withheld {
+				require.Contains(t, built.Withheld, tNumber, "T is built over b's own run of S")
+			} else {
+				require.Empty(t, built.Withheld, "T is built over a's run, which b was served")
+				require.Len(t, built.Bundle.Values, 2)
+			}
+		})
+	}
 }
