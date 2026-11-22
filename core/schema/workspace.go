@@ -1551,25 +1551,28 @@ func workspaceFilterWithDirectoryArgs(dirID *call.ID, filter core.CopyFilter, gi
 // A workspace with a content identity (see core.Workspace.ContentIdentity)
 // holds everything such a read observes: its files, its cwd, its mounts and
 // its edits. The read is keyed by that identity, the receiver's content
-// digest, and its own arguments, so every client, session and engine making
-// it shares one result, and it is kept past the session, as the workspace's
-// artifact discovery is. Each module function call is a client of its own, so
-// a module reading its workspace argument would otherwise read it again on
-// every call.
+// digest, and its own arguments, so every client making it shares one result,
+// as does every session while one holds it. Each module function call is a
+// client of its own, so a module reading its workspace argument would
+// otherwise read it again on every call.
+//
+// The read isn't kept past its session. A session makes thousands of distinct
+// reads, a Go generator one per module directory, each cheap to make again,
+// and each kept one costs every later session that loads it more than the
+// read did.
 //
 // Any other workspace reads a client's host, whose files can change between
 // clients and after an export (see invalidateExportedWorkspace), so its reads
 // stay keyed per client, with the same input dagql.PerClientInput gives.
 func workspaceReadCacheKey[A any](ctx context.Context, parent dagql.ObjectResult[*core.Workspace], _ A, req *dagql.CallRequest) error {
-	if !parent.Self().HasContentIdentity() {
-		client, err := dagql.PerClientInput.Resolver(ctx, nil)
-		if err != nil {
-			return err
-		}
-		return req.SetImplicitInput(ctx, dagql.PerClientInput.Name, client)
+	if parent.Self().HasContentIdentity() {
+		return nil
 	}
-	req.IsPersistable = true
-	return nil
+	client, err := dagql.PerClientInput.Resolver(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return req.SetImplicitInput(ctx, dagql.PerClientInput.Name, client)
 }
 
 func (s *workspaceSchema) directory(
