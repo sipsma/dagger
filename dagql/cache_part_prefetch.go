@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
@@ -251,9 +252,11 @@ type partPrefetchJob struct {
 	// the ahead queue or the planned queue, and runs as an ahead job does.
 	size  int64
 	ahead bool
-	// planned is set on a planned offer's job, and budgetSkipped once the
-	// job, not planned when it was admitted, was skipped against the budget.
-	planned, budgetSkipped bool
+	// planned is set on a planned offer's job, under p.mu, and read there
+	// or by its log line; budgetSkipped is set, under p.mu, once the job,
+	// not planned when it was admitted, was skipped against the budget.
+	planned       atomic.Bool
+	budgetSkipped bool
 	// demand holds an ahead job's renewals, one for all of its offer's
 	// jobs the worker runs together.
 	demand *PartDemandState
@@ -463,10 +466,11 @@ func (c *Cache) partOfferRestored(ctx context.Context, row *sharedResult, key st
 // planned queue: its blobs download ahead of any lane's, in the order the
 // plan fires, and its chain is imported as they land, so that its install
 // finds its layers unpacked. A job of the offer still waiting in a lane or the
-// ahead queue moves to the planned queue. One a worker has taken is left to
-// it, and its chain is imported ahead all the same: marked planned, it is
-// downloaded whatever the budget, unless it was already skipped against the
-// budget, when a planned job takes its place. It never blocks.
+// ahead queue moves to the planned queue. One a worker has taken, whether or
+// not it has started it, is left to it, and its chain is imported ahead all
+// the same: marked planned, it is downloaded whatever the budget, unless it
+// was already skipped against the budget, when a planned job takes its place.
+// It never blocks.
 func (c *Cache) partOfferPlanned(ctx context.Context, row *sharedResult, key string, offer *partOffer) {
 	p := c.partPrefetch(ctx)
 	if p == nil || offer == nil || imageOfferLayers(&offer.record) {
@@ -488,7 +492,9 @@ func (c *Cache) partOfferPlanned(ctx context.Context, row *sharedResult, key str
 		if err != nil {
 			return
 		}
-		jobs = append(jobs, &partPrefetchJob{row: row.id, key: key, offer: offer, lane: lane, record: record, accepted: now, size: size, ahead: true, planned: true})
+		job := &partPrefetchJob{row: row.id, key: key, offer: offer, lane: lane, record: record, accepted: now, size: size, ahead: true}
+		job.planned.Store(true)
+		jobs = append(jobs, job)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -503,14 +509,15 @@ func (c *Cache) partOfferPlanned(ctx context.Context, row *sharedResult, key str
 	for _, job := range jobs {
 		if queued := p.jobs[job.jobKey()]; queued != nil {
 			switch {
-			case queued.cancel == nil:
-				if p.unqueueLocked(queued) {
-					queued.ahead, queued.planned = true, true
-					p.planned = append(p.planned, queued)
-				}
+			case queued.cancel == nil && p.unqueueLocked(queued):
+				queued.ahead = true
+				queued.planned.Store(true)
+				p.planned = append(p.planned, queued)
 				continue
 			case !queued.budgetSkipped:
-				queued.planned = true
+				// Taken by a worker, as the ahead worker takes all of an
+				// offer's jobs before it starts the first.
+				queued.planned.Store(true)
 				continue
 			}
 			// The worker that took it lets it go: only the job it ran is
@@ -1296,7 +1303,7 @@ func (p *partPrefetcher) run(ctx context.Context, job *partPrefetchJob) {
 			p.log(job, "skipped_expired", 0, 0, nil, time.Since(start), nil)
 		}
 		return
-	case !job.planned && p.held+need > p.cfg.budget:
+	case !job.planned.Load() && p.held+need > p.cfg.budget:
 		// The budget bounds what fetching ahead holds unread on a guess; a
 		// planned offer is what the job's runs read, and is bounded by the
 		// disk's room alone.
@@ -1751,7 +1758,7 @@ func (p *partPrefetcher) log(job *partPrefetchJob, outcome string, blobs int, by
 		"part", string(job.record.Address.Part),
 		"lane", job.lane.String(),
 		"ahead", job.ahead,
-		"planned", job.planned,
+		"planned", job.planned.Load(),
 		"chain_bytes", job.size,
 		"outcome", outcome,
 		"blobs", blobs,
