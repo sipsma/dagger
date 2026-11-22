@@ -67,9 +67,9 @@ func (c *Cache) runNotStoredWholeLocked(res *sharedResult) bool {
 // bundle withholds: an entry whose closure, itself included, holds a step
 // that can differ (entryCanDifferLocked), whose run ran
 // (ownRunRanLocked), and that stores that run only in part
-// (runNotStoredWholeLocked); or an entry built over a run the Cloud's merge
-// folded into another run's entry (sharedResult.overFoldedRun), whose
-// closure names content its value wasn't built over. A value over such a step goes out only with the
+// (runNotStoredWholeLocked); or an entry an engine built over its own run of
+// a step the Cloud keeps folded under another run's record
+// (overFoldedRunLocked), whose closure names content it wasn't built over. A value over such a step goes out only with the
 // run whole: an engine that took it and then ran the step itself, for want
 // of its content, would hold one run's values over another run's bytes. The
 // closure is the one a bundle walks (storedClosureChildrenLocked), whatever
@@ -91,7 +91,7 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	// A cycle is the walk's to report; inside one, nothing is withheld yet.
 	w.memo[res.id] = 0
 	var by sharedResultID
-	if res.overFoldedRun || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
+	if w.c.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
 		by = res.id
 	}
 	for _, id := range storedClosureChildrenLocked(res) {
@@ -108,42 +108,59 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	return by != 0, by
 }
 
-// foldedRunRowsLocked returns, on the Cloud, the rows of commit whose
-// records stand over a folded run: a row of a step that can differ that the
-// merge keeps onto an entry of its recipe whose run isn't the sender's own
-// (mergeKeep), so that the rows above it, which the sender built over its
-// own run, would name content they weren't built over; and every row above
-// such a row in the bundle. The kept row itself installs nothing. A held row
-// is the sender's own run only when its holding ran its value; otherwise
-// the sender holds the entry's run, which the Cloud sent it. Requires
-// egraphMu.
-func (c *Cache) foldedRunRowsLocked(commit *valueMergeCommit) map[uint64]bool {
-	if !c.blobBacked {
-		return nil
+// overFoldedRunLocked reports whether res, a record of an engine's run,
+// stands directly over an entry that keeps that engine's own run folded
+// under another run's record (sharedResult.foldedRuns): the engine built res
+// over its run, which the closure doesn't name. Requires egraphMu.
+func (c *Cache) overFoldedRunLocked(res *sharedResult) bool {
+	if res.run == nil {
+		return false
 	}
-	prep := commit.prep
-	over := map[uint64]bool{}
-	for _, row := range commit.rows {
-		folded := false
-		if row.action == mergeKeep && row.target != nil && row.target.run != nil && c.entryCanDifferLocked(row.target) {
-			if prep.held[row.ordinal] {
-				key := HolderKey{Cache: prep.from, Number: row.value.SenderNumber}
-				own := RunName{Cache: key.Cache, Number: key.Number, Replacements: row.value.SenderReplacements}
-				folded = c.holdingRanLocked(key, own.Replacements) && own != *row.target.run
-			} else {
-				run, _ := c.mergeRunLocked(prep, row)
-				folded = run != *row.target.run
-			}
-		}
-		for _, dep := range row.value.DependencyIDs {
-			if folded {
-				break
-			}
-			folded = over[dep]
-		}
-		if folded {
-			over[row.ordinal] = true
+	for _, id := range storedClosureChildrenLocked(res) {
+		if child := c.resultsByID[id]; child != nil && slices.Contains(child.foldedRuns, res.run.Cache) {
+			return true
 		}
 	}
-	return over
+	return false
+}
+
+// noteFoldedRowLocked notes, on the Cloud, a row of prep's merge kept onto
+// its recipe's entry (mergeKeep) whose sender ran its own run of a step that
+// can differ, which isn't the run the entry's record names: the entry now
+// keeps that run folded (addFoldedRunLocked). A record's run is the
+// sender's own unless the sender imported it (mergeRunLocked); a held row,
+// which carries no record, is the sender's own run when its holding ran its
+// value. A row whose run hasn't run yet decides nothing: the Cloud learns
+// later which run the sender holds (noteHoldingRanLocked). Requires egraphMu
+// for writing.
+func (c *Cache) noteFoldedRowLocked(prep *valueMergePrep, row *mergeRow) {
+	target := row.target
+	if target == nil || target.run == nil || !c.entryCanDifferLocked(target) {
+		return
+	}
+	var run RunName
+	var ran bool
+	if prep.held[row.ordinal] {
+		run = RunName{Cache: prep.from, Number: row.value.SenderNumber, Replacements: row.value.SenderReplacements}
+		ran = c.holdingRanLocked(HolderKey{Cache: run.Cache, Number: run.Number}, run.Replacements)
+	} else {
+		var by runRanBy
+		run, by = c.mergeRunLocked(prep, row)
+		ran = by != runNotRan
+	}
+	if ran && run != *target.run {
+		c.addFoldedRunLocked(target, run.Cache)
+	}
+}
+
+// addFoldedRunLocked notes that res keeps cache's own run folded under
+// another run's record, marks res changed, and reports whether it was new.
+// Requires egraphMu for writing.
+func (c *Cache) addFoldedRunLocked(res *sharedResult, cache CacheID) bool {
+	if slices.Contains(res.foldedRuns, cache) {
+		return false
+	}
+	res.foldedRuns = append(res.foldedRuns, cache)
+	c.markEntryLocked(res.id)
+	return true
 }

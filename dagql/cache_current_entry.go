@@ -146,7 +146,12 @@ func (c *Cache) replaceResultValueInPlaceLocked(ctx context.Context, cur, fresh 
 		cur.replacements++
 	}
 	cur.merged = fresh.merged
-	cur.run, cur.runRan, cur.overFoldedRun = fresh.run, fresh.runRan, fresh.overFoldedRun
+	cur.run, cur.runRan = fresh.run, fresh.runRan
+	// Engines whose own runs were folded here still hold them, unless the
+	// fresh record is the run of one of them.
+	if fresh.run != nil {
+		cur.foldedRuns = slices.DeleteFunc(cur.foldedRuns, func(cache CacheID) bool { return cache == fresh.run.Cache })
+	}
 	// A declined value never meets a retention edge here: its publication
 	// retires an entry that has one instead.
 	cur.persistDeclined = fresh.persistDeclined

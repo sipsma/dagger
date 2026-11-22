@@ -132,10 +132,15 @@ func (c *Cache) noteHoldingRanLocked(key HolderKey, entry *sharedResult, h *hold
 	if replacements == h.replacements {
 		h.ran = true
 	}
-	if !c.blobBacked || entry == nil || entry.run == nil || entry.runRan != runNotRan {
+	if !c.blobBacked || entry == nil || entry.run == nil {
 		return false
 	}
 	if run := *entry.run; key.Cache != run.Cache || key.Number != run.Number || replacements != run.Replacements {
+		// Another engine's own run of the step ran, under this entry's
+		// record of another run: it keeps that run folded.
+		return replacements == h.replacements && c.entryCanDifferLocked(entry) && c.addFoldedRunLocked(entry, key.Cache)
+	}
+	if entry.runRan != runNotRan {
 		return false
 	}
 	entry.runRan = by

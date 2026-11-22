@@ -177,8 +177,8 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			env.PersistDeclined = false
 			// The Cloud's stored record's run goes onto the entry like the
 			// decline mark. An engine's saves name none.
-			run, runRan, overFolded := env.Run, runRanBy(env.RunRan), env.OverFoldedRun
-			env.Run, env.RunRan, env.OverFoldedRun = nil, 0, false
+			run, runRan, foldedRuns := env.Run, runRanBy(env.RunRan), env.FoldedRuns
+			env.Run, env.RunRan, env.FoldedRuns = nil, 0, nil
 			res := &sharedResult{
 				id:                    resultID,
 				imported:              env.Imported,
@@ -186,7 +186,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				boundSession:          env.BoundSession,
 				run:                   run,
 				runRan:                runRan,
-				overFoldedRun:         overFolded,
+				foldedRuns:            foldedRuns,
 				isObject:              env.Kind == persistedResultKindObject,
 				sessionResourceHandle: env.SessionResourceHandle,
 				expiresAtUnix:         row.ExpiresAtUnix,
