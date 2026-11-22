@@ -201,6 +201,13 @@ func TestCommitValueMergeDecidesByTheCacheAtCommit(t *testing.T) {
 		require.NoError(t, err)
 		first, err := cloud.MergeValues(ctx, "cache-b", bundle)
 		require.NoError(t, err)
+		// cache-b's records have their content, so cache-a's run of them
+		// lands on them rather than replacing them (replaceRunsLocked).
+		for _, value := range first.Values {
+			stored, _, err := cloud.SetStoredPart(ctx, value.Number, value.Run, testLiveOffer(), 0)
+			require.NoError(t, err)
+			require.True(t, stored)
+		}
 		entries := splitTestEntries(cloud)
 		reply, err := cloud.CommitValueMerge(ctx, p)
 		require.NoError(t, err)

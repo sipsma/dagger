@@ -151,7 +151,7 @@ func TestCallRecordSurvivesARestore(t *testing.T) {
 	ctx, cloud := storedPersistenceTestCloud(t, path)
 	test := newCallRecordTest(t, ctx, cloud)
 	test.attach(t, ctx, test.span(t, true, 0))
-	stored, _, err := cloud.SetStoredPart(ctx, test.number, storedBenchPart(1), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, test.number, storedPartRunOf(t, cloud, test.number), storedBenchPart(1), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.NoError(t, cloud.Close(ctx))
@@ -371,6 +371,11 @@ func TestCallRecordPrefersAnInputTheRecipientHolds(t *testing.T) {
 	t.Parallel()
 	test := newReceiverCallTest(t)
 	cloud := test.cloud
+	// The inner record has its content, so cache-b's own run of it lands on
+	// it rather than replacing it (replaceRunsLocked).
+	stored, _, err := cloud.SetStoredPart(test.ctx, test.number, storedPartRunOf(t, cloud, test.number), testLiveOffer(), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
 	// cache-b's export of its receiver B and its call on it.
 	bctx, b, bsrv := transferTestCache(t)
 	inner := persistedListTestResult(t, bctx, b, bsrv, "inner", &transferTestValue{Text: "inner"})

@@ -44,7 +44,7 @@ func newHolderTestClass(t *testing.T) *holderTestClass {
 	h.mRecipe = RemoteHolding{Recipe: mRecipe, Request: mRecipe, Field: mField, TypeName: "Directory", ContentDigest: content}
 	h.attach(t, HolderKey{"cache-c", 10}, RemoteHolding{Recipe: rRecipe, Request: rRecipe, Field: rField, TypeName: "Directory", ContentDigest: content, Parts: []PersistedPartAddress{h.snapshot}, Executed: true})
 	h.attach(t, HolderKey{"cache-c", 11}, h.mRecipe)
-	stored, _, err := cloud.SetStoredPart(ctx, h.r, storedPruneTestPart("snapshot", map[string]int64{"holder-r-layer": 10}), 0)
+	stored, _, err := cloud.SetStoredPart(ctx, h.r, storedPartRunOf(t, cloud, h.r), storedPruneTestPart("snapshot", map[string]int64{"holder-r-layer": 10}), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 
@@ -115,7 +115,7 @@ func TestChangeReportsANonHoldersChangeNamesItAlone(t *testing.T) {
 func TestChangeReportsAHoldersChangeNamesItsClassMates(t *testing.T) {
 	t.Parallel()
 	h := newHolderTestClass(t)
-	stored, change, err := h.cloud.SetStoredPart(h.ctx, h.r, storedPruneTestPart("mount:/cache", map[string]int64{"holder-r-mount": 10}), 0)
+	stored, change, err := h.cloud.SetStoredPart(h.ctx, h.r, storedPartRunOf(t, h.cloud, h.r), storedPruneTestPart("mount:/cache", map[string]int64{"holder-r-mount": 10}), 0)
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.Contains(t, change.Entries, h.r)
