@@ -888,33 +888,77 @@ func TestAnExecutedCallDescribesOnlyTheValueItComputed(t *testing.T) {
 	require.Empty(t, reply.Stale, "B's imported value isn't its own run")
 }
 
-// A run replaces another's record only with its whole content of the step:
-// B's export carries one of the step's two parts and replaces nothing; C's
-// carries both and replaces, once.
+// A run replaces another's record only with its whole content of the step,
+// on a record held whole or compressed: B's export of one of the step's two
+// parts replaces nothing; of both, it replaces, once. A part the record
+// declares absent asks for no content, and an empty snapshot, scratch, is
+// content.
 func TestARunReplacesOnlyWithItsWholeContent(t *testing.T) {
 	t.Parallel()
-	ctx, cloud := storedPartTestCache(t, WithBlobStore())
-	parts := []transferTestPart{{Part: "snapshot", State: "pending", Kind: "directory"}, {Part: "other", State: "pending", Kind: "directory"}}
-	export := func(from CacheID, carried ...string) MergeReply {
-		t.Helper()
-		ectx, e, esrv := transferTestCache(t)
-		r := persistedListTestResult(t, ectx, e, esrv, "whole-root", &transferTestValue{Text: string(from) + " root"})
-		p := persistedListTestResult(t, ectx, e, esrv, "whole-dep", &transferTestValue{Text: string(from) + " dep", Parts: parts})
-		transferTestDependency(e, ectx, r, p)
-		reply, err := cloud.MergeValues(ctx, from, withParts(t, exportTestBundle(t, ectx, e, r), carried, p))
-		require.NoError(t, err)
-		return reply
+	pending := func(part string) transferTestPart {
+		return transferTestPart{Part: part, State: "pending", Kind: "directory"}
 	}
-	first := export("cache-a")
-	var pA uint64
-	for _, v := range first.Values {
-		if len(v.Deps) == 0 {
-			pA = v.Number
-		}
+	absent := transferTestPart{Part: "execMeta", State: "absent", Kind: "directory"}
+	for _, held := range []struct {
+		name     string
+		compress bool
+	}{
+		{"held whole", false},
+		{"held compressed", true},
+	} {
+		t.Run(held.name, func(t *testing.T) {
+			t.Parallel()
+			for _, tc := range []struct {
+				name    string
+				parts   []transferTestPart
+				carried []string
+				scratch bool
+				want    int
+			}{
+				{"half of two parts", []transferTestPart{pending("snapshot"), pending("other")}, []string{"snapshot"}, false, 0},
+				{"both of two parts", []transferTestPart{pending("snapshot"), pending("other")}, []string{"snapshot", "other"}, false, 1},
+				{"a part beside one declared absent", []transferTestPart{pending("snapshot"), absent}, []string{"snapshot"}, false, 1},
+				{"an empty snapshot", []transferTestPart{pending("snapshot")}, []string{"snapshot"}, true, 1},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+					ctx, cloud := storedPartTestCache(t, WithBlobStore())
+					storedTestHoldWhole(cloud)
+					export := func(from CacheID, carried ...string) MergeReply {
+						t.Helper()
+						ectx, e, esrv := transferTestCache(t)
+						r := persistedListTestResult(t, ectx, e, esrv, "whole-root", &transferTestValue{Text: string(from) + " root"})
+						p := persistedListTestResult(t, ectx, e, esrv, "whole-dep", &transferTestValue{Text: string(from) + " dep", Parts: tc.parts})
+						transferTestDependency(e, ectx, r, p)
+						bundle := withParts(t, exportTestBundle(t, ectx, e, r), carried, p)
+						if tc.scratch {
+							for i := range bundle.Outputs {
+								if bundle.Outputs[i].Chain != nil {
+									chain := *bundle.Outputs[i].Chain
+									chain.Layers = nil
+									bundle.Outputs[i].Chain = &chain
+								}
+							}
+						}
+						reply, err := cloud.MergeValues(ctx, from, bundle)
+						require.NoError(t, err)
+						return reply
+					}
+					first := export("cache-a")
+					var pA uint64
+					for _, v := range first.Values {
+						if len(v.Deps) == 0 {
+							pA = v.Number
+						}
+					}
+					replaceTestRan(t, ctx, cloud, pA)
+					if held.compress {
+						storedTestCompress(cloud)
+					}
+					reply := export("cache-b", tc.carried...)
+					require.Equal(t, tc.want, reply.Rows.RunsReplaced)
+				})
+			}
+		})
 	}
-	replaceTestRan(t, ctx, cloud, pA)
-	half := export("cache-b", "snapshot")
-	require.Zero(t, half.Rows.RunsReplaced, "B carries half of the step's content")
-	whole := export("cache-c", "snapshot", "other")
-	require.Equal(t, 1, whole.Rows.RunsReplaced, "C carries all of it")
 }

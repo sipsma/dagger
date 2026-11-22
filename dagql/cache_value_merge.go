@@ -1970,12 +1970,12 @@ func (c *Cache) staleHeldRowsLocked(prep *valueMergePrep, targets mergeTargets, 
 // contentRowsOf returns, by ordinal, the parts besides metadata whose content
 // the bundle carries for each row, by part address key: a completed output
 // with the chain of layers it uploads, its prefix resolved
-// (ResolveChainPrefixes). An output of a pending part names the part and
-// carries nothing.
+// (ResolveChainPrefixes), or an empty chain, which is scratch. An output of a
+// pending part names the part and carries nothing.
 func contentRowsOf(bundle ValueBundle) map[uint64]map[string]bool {
 	var rows map[uint64]map[string]bool
 	for _, output := range bundle.Outputs {
-		if output.Address.Part == "metadata" || output.State != "completed" || output.Chain == nil || len(output.Chain.Layers) == 0 {
+		if output.Address.Part == "metadata" || output.State != "completed" || output.Chain == nil {
 			continue
 		}
 		key, err := partAddressKey(output.Address)

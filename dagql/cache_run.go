@@ -352,8 +352,8 @@ func (c *Cache) ReplaceableBy(number uint64, run RunName) bool {
 }
 
 // carriesWholeLocked reports whether parts, the part keys an export carries
-// content of, hold every part besides metadata that res's stored record
-// declares or proves complete: the step's whole content, as a run of it
+// content of, hold every part of content res's stored record declares or
+// proves (recordParts.contentKeys): the step's whole content, as a run of it
 // writes. Requires egraphMu.
 func (c *Cache) carriesWholeLocked(res *sharedResult, parts map[string]bool) bool {
 	if res == nil || len(parts) == 0 {
@@ -363,22 +363,41 @@ func (c *Cache) carriesWholeLocked(res *sharedResult, parts map[string]bool) boo
 	if !ok {
 		return false
 	}
-	var keys []string
-	for _, part := range record.declared {
-		keys = append(keys, part.key)
-	}
-	if record.complete != nil {
-		keys = append(keys, record.complete.list()...)
-	}
-	for key := range record.mapped {
-		keys = append(keys, key)
-	}
-	for _, key := range keys {
-		if !parts[key] && !strings.Contains(key, metadataPartField) {
+	for _, key := range record.contentKeys() {
+		if !parts[key] {
 			return false
 		}
 	}
 	return true
+}
+
+// contentKeys returns the keys of the record's parts that have content: every
+// part it declares pending, proves complete or maps, besides its metadata and
+// any it declares absent, which asks for no bytes, though the record proves
+// it complete.
+func (p recordParts) contentKeys() []string {
+	absent := map[string]bool{}
+	var keys []string
+	for _, part := range p.declared {
+		if part.state == "absent" {
+			absent[part.key] = true
+		} else if part.address.Part != "metadata" {
+			keys = append(keys, part.key)
+		}
+	}
+	if p.complete != nil {
+		for _, key := range p.complete.list() {
+			if !absent[key] && !strings.Contains(key, metadataPartField) {
+				keys = append(keys, key)
+			}
+		}
+	}
+	for key, part := range p.mapped {
+		if part.State != "absent" && part.Address.Part != "metadata" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // heldRowComputedLocked reports whether a held row's sender computed the
@@ -421,7 +440,7 @@ func entriesOverLocked(c *Cache, from []*sharedResult) map[sharedResultID]*share
 }
 
 // storedWithoutContentLocked reports whether res's stored record declares or
-// proves a part besides its metadata, and the cache stores none of its
+// proves a part of content (recordParts.contentKeys), and the cache stores none of its
 // parts but metadata, nor has an upload of one in progress
 // (MarkPartUploading, by the reader's upload claims, which an upload's end
 // gives back): a run whose content no engine can fetch, nor is on its way.
@@ -439,24 +458,7 @@ func (c *Cache) storedWithoutContentLocked(res *sharedResult) bool {
 	if !ok {
 		return false
 	}
-	for _, part := range parts.declared {
-		if part.address.Part != "metadata" {
-			return true
-		}
-	}
-	if parts.complete != nil {
-		for _, address := range parts.complete.addresses() {
-			if address.Part != "metadata" {
-				return true
-			}
-		}
-	}
-	for _, part := range parts.mapped {
-		if part.Address.Part != "metadata" {
-			return true
-		}
-	}
-	return false
+	return len(parts.contentKeys()) > 0
 }
 
 // countOverOtherRunLocked counts, on a blob-backed cache, the records a merge
