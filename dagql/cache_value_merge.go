@@ -2323,6 +2323,22 @@ func relocateUnpreparedRowLocked(prep *valueMergePrep, row *mergeRow, source Per
 // reference outside the rows the merge decides.
 var errMergeRowOutsideClosure = errors.New("merge values: reference outside the merged closure")
 
+// withoutOffersOverDropped returns offers without those owned by a row
+// keepOwnRunsLocked dropped: such an offer was made over another run, so the
+// row it is on, which lands as a copy of the entry's value by content, takes
+// it from no owner.
+func (commit *valueMergeCommit) withoutOffersOverDropped(offers []PersistedPartOffer) []PersistedPartOffer {
+	prep := commit.prep
+	return slices.DeleteFunc(offers, func(offer PersistedPartOffer) bool {
+		for _, provisional := range offer.Owner.DependencyIDs {
+			if commit.ownDropped[provisional-prep.firstID+1] {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // relocateMergeRowsLocked relocates each decided record from its provisional
 // numbers to the final ones; each row's incoming offers are relocated too. A
 // new entry keeps its provisional number, so a record whose own number and
@@ -2359,17 +2375,7 @@ func (c *Cache) relocateMergeRowsLocked(commit *valueMergeCommit) error {
 				if err != nil {
 					return err
 				}
-				// An offer owned by a row keepOwnRunsLocked dropped was made
-				// over another run: the row, which lands as a copy of the
-				// entry's value by content, takes it from no owner.
-				offers = slices.DeleteFunc(offers, func(offer PersistedPartOffer) bool {
-					for _, provisional := range offer.Owner.DependencyIDs {
-						if commit.ownDropped[provisional-prep.firstID+1] {
-							return true
-						}
-					}
-					return false
-				})
+				offers = commit.withoutOffersOverDropped(offers)
 				for i := range offers {
 					if err := visitPersistedPartOffer(&offers[i], nil, relocate); err != nil {
 						return err
