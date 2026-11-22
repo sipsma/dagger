@@ -1599,3 +1599,65 @@ func TestAnUploadIsItsHoldingsOwnRunOnceItRan(t *testing.T) {
 	require.Equal(t, RunName{Cache: "cache-b", Number: 5, Replacements: 2}, cloud.UploadRun(key, 2, merged))
 	require.Equal(t, merged, cloud.UploadRun(key, 1, merged), "at another count it describes another value")
 }
+
+// An engine's end notes its run's content won't come even while another
+// run's upload of the entry is in flight: an upload mark doesn't say whose
+// run it is, and another run's bytes don't bring this one's content. The
+// record isn't replaced until that upload ends, but the note stands.
+func TestAnEnginesEndNotesItsRunWhileAnotherRunsUploadIsInFlight(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRanOnly(t, ctx, cloud, pA)
+	// B's upload of the entry is claimed, its bytes another run's.
+	require.NoError(t, cloud.MarkPartUploading(pA, testLiveOffer().Address))
+	change := cloud.NoteCacheGone("cache-a")
+	require.Contains(t, change.Entries, pA)
+	require.True(t, cloud.RunContentWontCome(pA))
+	cloud.egraphMu.RLock()
+	require.False(t, cloud.replaceableLocked(cloud.resultsByID[sharedResultID(pA)], RunName{Cache: "cache-c", Number: 1}, time.Now().Unix()), "not while the upload is in flight")
+	cloud.egraphMu.RUnlock()
+	_, err := cloud.EndPartUploads([]PartUpload{{Number: pA, Address: testLiveOffer().Address}})
+	require.NoError(t, err)
+	reply, _, _ := replaceTestRun(t, ctx, cloud, "cache-c")
+	require.Equal(t, 1, reply.Rows.RunsReplaced, "once it ends, a whole later run replaces A's")
+}
+
+// A record its sender imported and then ran itself is the sender's own
+// run (mergeRunLocked): with the step's whole content, it replaces another
+// run's record whose content won't come. A copy its sender only took
+// replaces nothing.
+func TestAnImportedRecordItsSenderRanReplacesARunWhoseContentWontCome(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	_, _, pA := replaceTestRun(t, ctx, cloud, "cache-a")
+	replaceTestRan(t, ctx, cloud, pA)
+	recipe, ok := cloud.EntryRecipe(pA)
+	require.True(t, ok)
+	export := func(from CacheID, ran bool) MergeReply {
+		t.Helper()
+		ectx, e, esrv := transferTestCache(t)
+		r := persistedListTestResult(t, ectx, e, esrv, "replace-root", &transferTestValue{Text: string(from) + " root"})
+		p := persistedListTestResult(t, ectx, e, esrv, "replace-dep", &transferTestValue{Text: string(from) + " dep"})
+		transferTestDependency(e, ectx, r, p)
+		bundle := withContent(t, exportTestBundle(t, ectx, e, r), p)
+		for i := range bundle.Values {
+			if bundle.Values[i].SenderNumber != uint64(p.cacheSharedResult().id) {
+				continue
+			}
+			// The engine took the record from the Cloud.
+			bundle.Values[i].Record.Envelope.Imported = true
+			if ran {
+				// Then evaluated it itself, for want of its content.
+				v := bundle.Values[i]
+				_, err := cloud.AttachRemoteHolding(ctx, HolderKey{Cache: from, Number: v.SenderNumber}, RemoteHolding{Recipe: recipe, Replacements: v.SenderReplacements, Executed: true, Parts: []PersistedPartAddress{testLiveOffer().Address}})
+				require.NoError(t, err)
+			}
+		}
+		reply, err := mergeExport(t, ctx, cloud, from, bundle)
+		require.NoError(t, err)
+		return reply
+	}
+	require.Zero(t, export("cache-b", false).Rows.RunsReplaced, "a copy B only took replaces nothing")
+	require.Equal(t, 1, export("cache-c", true).Rows.RunsReplaced, "C's own run of the copy it took replaces A's")
+}
