@@ -87,7 +87,7 @@ func TestAValueOverAStepWhoseContentMayChangeIsNotWithheld(t *testing.T) {
 // own, keeping it refuses nothing, and the value states its own declaration.
 func TestAMergeOverAStepWhoseContentMayChangeIsNotRefused(t *testing.T) {
 	t.Parallel()
-	_, _, bundle, _ := otherRunTestBundleFrame(t, func(frame *ResultCall) {
+	_, _, bundle, p := otherRunTestBundleFrame(t, func(frame *ResultCall) {
 		frame.FollowsFromInputs = false
 		frame.ContentMayChange = true
 	})
@@ -95,6 +95,55 @@ func TestAMergeOverAStepWhoseContentMayChangeIsNotRefused(t *testing.T) {
 	persistedListTestResult(t, bctx, b, bsrv, "other-run-dep", &transferTestValue{Text: "dep, b's run"})
 	reply, err := b.MergeValues(bctx, cloudCacheID, bundle)
 	require.NoError(t, err)
+	require.NotContains(t, reply.OtherRun, TransferOrdinal(p), "its copy of the step is its own")
 	require.Empty(t, reply.OtherRun)
 	require.True(t, reply.Committed)
+}
+
+// contentMayChangeTestStep is secondRunTestStep whose frame says its
+// content may change.
+func contentMayChangeTestStep(t *testing.T, ctx context.Context, c *Cache, srv *Server, text string) AnyResult {
+	t.Helper()
+	res := secondRunTestStep(t, ctx, c, srv, "may-change-step", text)
+	c.egraphMu.Lock()
+	frame := res.cacheSharedResult().loadResultCall().clone()
+	frame.ContentMayChange = true
+	res.cacheSharedResult().storeResultCall(frame)
+	c.egraphMu.Unlock()
+	return res
+}
+
+// A second engine's record of a step whose content may change is no second
+// run: what each engine holds of such a step is its own state, which no
+// store keeps, so the Cloud folds the record into the first engine's entry
+// as it does any record it holds the recipe of, with a unique result over
+// it too.
+func TestASecondEnginesRecordOfAStepWhoseContentMayChangeIsNoSecondRun(t *testing.T) {
+	t.Parallel()
+	cctx, cloud := storedPartTestCache(t, WithBlobStore())
+	actx, a, asrv := transferTestCache(t)
+	aStep := contentMayChangeTestStep(t, actx, a, asrv, "a-state")
+	bundle, reply := secondRunTestExport(t, actx, a, nil, cloud, cctx, "cache-a", aStep)
+	first := secondRunTestNumber(bundle, reply, aStep)
+	require.NotZero(t, first)
+	recipe := secondRunTestRecipe(t, cloud, first)
+
+	bctx, b, bsrv := transferTestCache(t)
+	bStep := contentMayChangeTestStep(t, bctx, b, bsrv, "b-state")
+	bRoot := secondRunTestStep(t, bctx, b, bsrv, "may-change-unique", "b-root")
+	transferTestDependency(b, bctx, bRoot, bStep)
+	_, err := cloud.AttachRemoteHolding(cctx, HolderKey{Cache: "cache-b", Number: uint64(bStep.cacheSharedResult().id)}, RemoteHolding{Recipe: recipe})
+	require.NoError(t, err)
+	bundle, reply = secondRunTestExport(t, bctx, b, nil, cloud, cctx, "cache-b", bRoot)
+	require.NotZero(t, secondRunTestNumber(bundle, reply, bRoot))
+	require.Equal(t, first, secondRunTestNumber(bundle, reply, bStep), "cache-b's record lands on the first engine's entry")
+	require.False(t, secondRunTestFacts(t, cloud, first).SecondRun)
+
+	cloud.egraphMu.RLock()
+	var ofRecipe []uint64
+	for _, res := range cloud.entriesOfRecipeLocked(recipe) {
+		ofRecipe = append(ofRecipe, uint64(res.id))
+	}
+	cloud.egraphMu.RUnlock()
+	require.Equal(t, []uint64{first}, ofRecipe, "the recipe has one entry")
 }
