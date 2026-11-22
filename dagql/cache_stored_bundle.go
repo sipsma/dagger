@@ -353,6 +353,12 @@ func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int6
 //
 // It returns the last build. Requires egraphMu.
 func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy) (*storedBundleBuild, []uint64, error) {
+	walks := 1
+	defer func() {
+		if c.blobBacked {
+			c.bundleWalks.add(walks)
+		}
+	}()
 	build, err := c.storedBundleWalkLocked(rootEntries, nowUnix, held, nil)
 	if err != nil || held == nil {
 		return build, nil, err
@@ -386,6 +392,7 @@ func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix
 		for _, id := range shared {
 			notWhole[id] = true
 		}
+		walks++
 		if build, err = c.storedBundleWalkLocked(rootEntries, nowUnix, held, notWhole); err != nil {
 			return nil, nil, err
 		}

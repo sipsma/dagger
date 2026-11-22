@@ -2796,6 +2796,13 @@ type Cache struct {
 	taughtContentBundlesWaiting atomic.Uint64
 	taughtContentDropped        atomic.Uint64
 	taughtContentRefilled       atomic.Uint64
+	// recipesUnderWalks, engineRanOverWalks and bundleWalks count, on the
+	// Cloud, the walks over the graph that one run per stored record makes
+	// (RunWalkStats).
+	recipesUnderWalks, engineRanOverWalks, bundleWalks walkCount
+	// cacheGoneWalks and cacheGoneHold count NoteCacheGone's walks of an
+	// engine cache's entries, and its write hold in microseconds.
+	cacheGoneWalks, cacheGoneHold walkCount
 
 	offerOwners      map[offerOwnerID]*offerOwner
 	nextOfferOwnerID offerOwnerID

@@ -147,6 +147,7 @@ func (c *Cache) markRecipesUnderLocked(ran ...*sharedResult) {
 		id     sharedResultID
 	}
 	seen := map[walked]bool{}
+	defer func() { c.recipesUnderWalks.add(len(seen)) }()
 	for _, res := range ran {
 		if res == nil || res.run == nil || res.runRan == runNotRan {
 			continue
@@ -489,6 +490,7 @@ func (c *Cache) adoptRunLocked(res *sharedResult, run RunName) {
 func (c *Cache) ownEngineRanOverLocked(res *sharedResult) bool {
 	engine := res.run.Cache
 	seen := map[sharedResultID]bool{res.id: true}
+	defer func() { c.engineRanOverWalks.add(len(seen) - 1) }()
 	queue := []*sharedResult{res}
 	for len(queue) > 0 {
 		cur := queue[0]
@@ -632,6 +634,11 @@ func (c *Cache) NoteCacheGone(cache CacheID) RemoteChange {
 	if !c.blobBacked || state == nil {
 		return change
 	}
+	start := time.Now()
+	defer func() {
+		c.cacheGoneWalks.add(len(state.entries))
+		c.cacheGoneHold.add(int(time.Since(start).Microseconds()))
+	}()
 	var numbers []uint64
 	for number, id := range state.entries {
 		entry := c.resultsByID[id]
