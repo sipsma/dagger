@@ -1886,7 +1886,7 @@ func (c *Cache) cleanupReleasedSession(plan *cacheSessionReleasePlan) error {
 	delete(c.sessionLazySpansProvisional, plan.sessionID)
 	delete(c.sessionResultInstallSpans, plan.sessionID)
 	delete(c.sessionLazyAnchors, plan.sessionID)
-	// The session's reads under uncached calls are reported or never will be.
+	// The session's reads that count are reported or never will be.
 	c.partReads.forgetSession(plan.sessionID)
 	delete(c.sessionResourcesBySession, plan.sessionID)
 	delete(c.sessionVolatileVarsBySession, plan.sessionID)
@@ -5675,7 +5675,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 	// be running.
 	c.recordPartRead(ctx, shared.id, nil)
 	// The entry's evaluation is its own call's work, which reads for it.
-	ctx = outsideUncachedCall(ctx)
+	ctx = outsideCountedReads(ctx)
 	watch := partReselectWatch{loop: "evaluateOne"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
@@ -5716,7 +5716,7 @@ func (c *Cache) EvaluateParts(ctx context.Context, res AnyResult, parts ...PartK
 	// being made.
 	c.recordPartRead(ctx, shared.id, parts)
 	// The entry's evaluation is its own call's work, which reads for it.
-	ctx = outsideUncachedCall(ctx)
+	ctx = outsideCountedReads(ctx)
 	watch := partReselectWatch{loop: "EvaluateParts"}
 	for {
 		watch.again(ctx, shared, PersistedPartAddress{})
@@ -7030,27 +7030,48 @@ func (c *Cache) getOrInitCallTakingOver(
 	}
 }
 
-// uncachedCallCtx marks a context that runs an uncached call's own work:
-// below the call, and above any cached call it makes (underUncachedCall).
-type uncachedCallCtx struct{}
-
-// underUncachedCall reports whether ctx runs an uncached call's own work. Such
-// a call runs whenever the call it is made under does, so what it reads there
-// is read on every run of that call (recordPartRead).
-func underUncachedCall(ctx context.Context) bool {
-	under, _ := ctx.Value(uncachedCallCtx{}).(bool)
-	return under
+// partReadScope is what a part read made under a context counts as
+// (recordPartRead). A read counts when the call it is made in is uncached, or
+// session-bound (keyed per session, so every session makes it again), or when
+// it is made at the session's top, outside any call; it carries as its caller
+// the nearest call above it that is neither, which runs only when its own
+// lookup misses, or an empty caller when there is none up to the session's
+// top, since a session-bound call's recipe names its session and so can't be
+// matched on another engine.
+type partReadScope struct {
+	counts bool
+	caller digest.Digest
 }
 
-// outsideUncachedCall is ctx for work that isn't an uncached call's own,
-// though the call set it off: a cached call made under it, and the
-// evaluation of a result it reads. What that work reads depends on whether
-// the cached call or the result's own call runs, not on the uncached call.
-func outsideUncachedCall(ctx context.Context) context.Context {
-	if underUncachedCall(ctx) {
-		return context.WithValue(ctx, uncachedCallCtx{}, false)
+type partReadScopeCtx struct{}
+
+// readScope is the scope of a part read made under ctx. A context no call has
+// scoped is at the session's top when no cached call encloses it, and is
+// otherwise a client's request made under a cached call, such as a module
+// function's.
+func readScope(ctx context.Context) partReadScope {
+	if scope, ok := ctx.Value(partReadScopeCtx{}).(partReadScope); ok {
+		return scope
 	}
-	return ctx
+	caller := CallerRecipe(ctx)
+	return partReadScope{counts: caller == "", caller: caller}
+}
+
+// withReadScope is ctx with its part reads scoped as scope.
+func withReadScope(ctx context.Context, scope partReadScope) context.Context {
+	return context.WithValue(ctx, partReadScopeCtx{}, scope)
+}
+
+// outsideCountedReads is ctx for the evaluation of a result a read reads: the
+// result's own call's work, which reads for that call, whether or not the read
+// counted.
+func outsideCountedReads(ctx context.Context) context.Context {
+	scope := readScope(ctx)
+	if !scope.counts {
+		return ctx
+	}
+	scope.counts = false
+	return withReadScope(ctx, scope)
 }
 
 //nolint:gocyclo // Core cache lookup/insert flow is intentionally centralized here.
@@ -7087,7 +7108,11 @@ func (c *Cache) getOrInitCallInner(
 			ev.Outcome = CacheOutcomeUncached
 		}
 
-		val, err := fn(context.WithValue(ctx, uncachedCallCtx{}, true))
+		// An uncached call runs whenever the call above it does: its own
+		// reads count, under that call.
+		scope := readScope(ctx)
+		scope.counts = true
+		val, err := fn(withReadScope(ctx, scope))
 		if err != nil {
 			return nil, err
 		}
@@ -7142,11 +7167,20 @@ func (c *Cache) getOrInitCallInner(
 		return Result[Typed]{shared: detached}, nil
 	}
 
-	ctx = outsideUncachedCall(ctx)
 	callDigest, err := req.deriveRecipeDigest(c)
 	if err != nil {
 		return nil, fmt.Errorf("derive request digest: %w", err)
 	}
+	// A session-bound call is made again by every session: its own reads
+	// count, under the caller above it. Any other cached call runs only when
+	// its lookup misses: its reads don't count, and it is the caller of the
+	// calls under it, when its span is reported.
+	scope := readScope(ctx)
+	scope.counts = req.ResultCall.SessionBound()
+	if !scope.counts && req.CacheReported {
+		scope.caller = callDigest
+	}
+	ctx = withReadScope(ctx, scope)
 	// The call names the cached call it was made under, and is the caller of
 	// the cached calls its resolver makes, if its span is reported: one that
 	// isn't, as Generator.sync's isn't, or isn't cached installs nothing, so
