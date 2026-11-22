@@ -1054,6 +1054,35 @@ func TestOwnRunBelowAnEntryTakenOverIt(t *testing.T) {
 		require.Equal(t, OfferUnavailable, out[0].Outcome)
 		require.True(t, out[0].OwnRunBelow)
 	})
+	t.Run("a record over B shown equal by content", func(t *testing.T) {
+		t.Parallel()
+		content := digest.FromString("taken-over b content")
+		sender := func(t *testing.T, text string, withC bool) ValueBundle {
+			actx, a, asrv := transferTestCache(t)
+			sentA := persistedListTestResult(t, actx, a, asrv, "taken-over-a", &transferTestValue{Text: text + " a"})
+			sentB := persistedListTestResult(t, actx, a, asrv, "taken-over-b", &transferTestValue{Text: text + " b"})
+			require.NoError(t, a.AddExplicitDependency(actx, sentB, sentA, "test"))
+			require.NoError(t, a.TeachContentDigest(actx, sentB, content))
+			if !withC {
+				return exportTestBundle(t, actx, a, sentB)
+			}
+			sentC := persistedListTestResult(t, actx, a, asrv, "taken-over-c", &transferTestValue{Text: text + " c"})
+			require.NoError(t, a.AddExplicitDependency(actx, sentC, sentB, "test"))
+			return exportTestBundle(t, actx, a, sentC)
+		}
+		ctx, c, srv := transferTestCache(t)
+		own := persistedListTestResult(t, ctx, c, srv, "taken-over-a", ownRunTestLazy("own a"))
+		first, err := c.MergeValues(ctx, cloudCacheID, sender(t, "first", false))
+		require.NoError(t, err)
+		require.Len(t, first.Imported(), 1)
+		require.NoError(t, c.Evaluate(ctx, own))
+		// The second sender's B has the content of the B the engine took:
+		// the same result, so C over it lands.
+		reply, err := c.MergeValues(ctx, cloudCacheID, sender(t, "second", true))
+		require.NoError(t, err)
+		require.Len(t, reply.Imported(), 1, "C lands over an equal B")
+		require.Equal(t, 1, reply.Rows.OwnSameContent, "B")
+	})
 	t.Run("a record over a held row", func(t *testing.T) {
 		t.Parallel()
 		ctx, c, _ := takeOverOwn(t)

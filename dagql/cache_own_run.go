@@ -752,8 +752,15 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 			if !read || !run || !commit.prep.ownRunBelowLocked(row.res, same) {
 				continue
 			}
-			row.otherRun = true
 			held := commit.prep.held[row.ordinal]
+			if !held && sameContentLocked(commit, row, row.res) || held && sameHeldContentLocked(row, row.res) {
+				// Shown equal by content to the value the entry holds: the
+				// same result, whatever run it was made over.
+				row.own = ownSameContent
+				same[row.res] = true
+				continue
+			}
+			row.otherRun = true
 			if held {
 				apart[row.ordinal] = ownRouteHeld
 				counts.ApartHeld++
