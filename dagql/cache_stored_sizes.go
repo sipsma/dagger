@@ -44,9 +44,13 @@ var heldRowSizeDigest = digest.Digest("xxh3:0000000000000000")
 // row. A root's closure includes the entries StoredBundle adds for the inputs
 // of its entries' kept calls, priced so that the sizes of the first roots
 // are never less than what a bundle of them carries (walkStoredRoot). A root
-// the cache has no value for, or one an earlier root's closure already
-// holds, adds nothing; so does an entry of a closure with no stored record,
-// and nothing below it is walked.
+// the cache has no value for, one the bundle withholds (keptRootsLocked), or
+// one an earlier root's closure already holds, adds nothing; so does an entry
+// of a closure with no stored record, and nothing below it is walked, and a
+// call the bundle doesn't send because an input of it is withheld
+// (callOverWithheldLocked) adds no input. So a set file that cuts a root
+// priced over its part bound into parts of the records below it never cuts
+// one its own part then withholds.
 //
 // Each entry's value is encoded once, with its references at entry numbers,
 // and its size memoized with its normalized record (normalizeStoredTransfer)
@@ -94,13 +98,20 @@ func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, 
 		return nil, fmt.Errorf("stored sizes: the cache has no blob store")
 	}
 	sizes := make([]StoredSize, len(roots))
+	withhold := c.newWithholdBuild()
+	release := c.storedSizesRLock()
+	kept := withhold.keptStoredRootsLocked(roots)
+	release()
 	seen, ordinary := map[sharedResultID]bool{}, map[sharedResultID]bool{}
 	outputs := &storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}
 	for i, number := range roots {
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
-		size, closure, own, misses := c.walkStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, outputs)
+		if !kept[sharedResultID(number)] {
+			continue
+		}
+		size, closure, own, misses := c.walkStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, outputs, withhold)
 		if len(misses) > 0 && !measure {
 			sizes[i] = StoredSize{Unmeasured: true}
 			continue
@@ -171,7 +182,7 @@ func (c *Cache) storedSizesRLock() func() {
 // (ordinary), or the recipient (held), have its inputs, never for an input
 // another call adds. Otherwise its first stored alternative's inputs are
 // priced, which is the call a bundle that can't place it chooses too.
-func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
+func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen, withhold *withholdBuild) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
 	hold := c.readInPieces()
 	hold.report = c.testStoredSizesHold
 	defer hold.done()
@@ -179,15 +190,16 @@ func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy,
 	if res == nil || res.noValueLocked() {
 		return StoredSize{}, nil, 0, nil
 	}
-	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, outputs, hold, nil)
+	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, outputs, withhold, hold, nil)
 	return walk.size, walk.closure, own, walk.misses
 }
 
 // storedRootWalkLocked is walkStoredRoot's walk of res, and how many of the
 // entries it reached, first, are res's ordinary closure, letting egraphMu go
-// between entries by hold, or never with a nil hold. With list, it sizes
-// nothing and lists instead (StoredClosure). Requires egraphMu.
-func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen, hold *readPieces, list *storedClosureList) (*storedSizeWalk, int) {
+// between entries by hold, or never with a nil hold. It adds no input of a
+// call withhold has the bundle not send (callOverWithheldLocked). With list,
+// it sizes nothing and lists instead (StoredClosure). Requires egraphMu.
+func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen, withhold *withholdBuild, hold *readPieces, list *storedClosureList) (*storedSizeWalk, int) {
 	walk := &storedSizeWalk{c: c, held: held, now: nowUnix, seen: seen, visited: map[sharedResultID]bool{}, outputs: outputs, hold: hold, list: list}
 	walk.visit(res)
 	own := len(walk.closure)
@@ -207,9 +219,12 @@ func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *Hel
 			continue
 		}
 		for _, group := range c.keptCallTermsLocked(entry) {
-			_, add := c.placeableCallLocked(group, func(input *sharedResult) bool {
+			chosen, add := c.placeableCallLocked(group, func(input *sharedResult) bool {
 				return ordinary[input.id] || mine[input.id] || held.heldLocked(input, nowUnix)
 			})
+			if chosen != nil && withhold.callOverWithheldLocked(chosen) {
+				continue
+			}
 			for _, input := range add {
 				walk.visit(input)
 				if list != nil {
@@ -600,8 +615,9 @@ type StoredClosureResult struct {
 // StoredClosure lists what StoredBundle(roots, nowUnix, held) carries,
 // without building it: each entry, in the bundle's order, dependencies
 // first, and whether it goes as a held row; and the entries the bundle
-// carries as roots only because a call it sends takes them as inputs. It
-// walks as StoredSizes does (walkStoredRoot), root by root, and reads no
+// carries as roots only because a call it sends takes them as inputs. Of a
+// root the bundle withholds it lists nothing, as of a call it doesn't send.
+// It walks as StoredSizes does (walkStoredRoot), root by root, and reads no
 // value: it copies, normalizes, encodes and sizes nothing. So it is a read
 // in pieces too, letting egraphMu go every readPieceSteps steps, and with no
 // write during it, it lists what one hold would. A write between two of its
@@ -616,6 +632,11 @@ func (c *Cache) StoredClosure(ctx context.Context, roots []uint64, nowUnix int64
 	if held != nil && held.Whole {
 		return out, fmt.Errorf("stored closure: a recipient held whole isn't listed")
 	}
+	withhold := c.newWithholdBuild()
+	release := c.storedSizesRLock()
+	kept := withhold.keptStoredRootsLocked(roots)
+	release()
+	roots = slices.DeleteFunc(slices.Clone(roots), func(number uint64) bool { return !kept[sharedResultID(number)] })
 	list := &storedClosureList{asked: make(map[sharedResultID]bool, len(roots)), held: map[sharedResultID]bool{}, inputs: map[sharedResultID]bool{}}
 	for _, number := range roots {
 		list.asked[sharedResultID(number)] = true
@@ -625,7 +646,7 @@ func (c *Cache) StoredClosure(ctx context.Context, roots []uint64, nowUnix int64
 		if err := context.Cause(ctx); err != nil {
 			return StoredClosureResult{}, err
 		}
-		order, closure, own := c.listStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, list)
+		order, closure, own := c.listStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, list, withhold)
 		for _, res := range order {
 			out.Entries = append(out.Entries, StoredClosureEntry{Number: uint64(res.id), Held: list.held[res.id]})
 		}
@@ -643,21 +664,22 @@ func (c *Cache) StoredClosure(ctx context.Context, roots []uint64, nowUnix int64
 // listStoredRoot is StoredClosure's walk of one root, beyond seen, in
 // pieces: the entries it adds in the bundle's order, those it reached, and
 // how many of those, first, are the root's ordinary closure.
-func (c *Cache) listStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, list *storedClosureList) ([]*sharedResult, []sharedResultID, int) {
+func (c *Cache) listStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, list *storedClosureList, withhold *withholdBuild) ([]*sharedResult, []sharedResultID, int) {
 	hold := c.readInPieces()
 	defer hold.done()
 	res := c.resultsByID[root]
 	if res == nil || res.noValueLocked() {
 		return nil, nil, 0
 	}
-	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, nil, hold, list)
+	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, nil, withhold, hold, list)
 	return walk.order, walk.closure, own
 }
 
 // StoredLowerHalf returns what goes ahead of a merge of root whose message
 // would be over the limit, as the service's split of a merge refused as over
 // it (its lowerHalf) chooses from the bundle: of the entries a bundle of root
-// carries (StoredBundle, its kept calls' inputs included), but the entries
+// carries (StoredBundle, its kept calls' inputs included, and nothing of a
+// root it withholds), but the entries
 // held holds, those below root, not root nor an entry that depends on it, as
 // a call's input can; the first half of them in the bundle's order,
 // dependencies first; and of those the ones no other of them depends on.
@@ -674,11 +696,12 @@ func (c *Cache) StoredLowerHalf(ctx context.Context, root uint64, nowUnix int64,
 	}
 	defer c.storedSizesRLock()()
 	res := c.resultsByID[sharedResultID(root)]
-	if res == nil || res.noValueLocked() {
+	withhold := c.newWithholdBuild()
+	if res == nil || res.noValueLocked() || !withhold.keptStoredRootsLocked([]uint64{root})[res.id] {
 		return nil, 0, nil
 	}
 	walk, _ := c.storedRootWalkLocked(res, nowUnix, held, map[sharedResultID]bool{}, map[sharedResultID]bool{},
-		&storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}, nil, nil)
+		&storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}, withhold, nil, nil)
 	above := map[sharedResultID]bool{res.id: true}
 	var below []*sharedResult
 	carried := 0

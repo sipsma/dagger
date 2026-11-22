@@ -124,20 +124,8 @@ func (c *Cache) storedBundleCallsLocked(build *storedBundleBuild, start int) err
 			chosen, add := c.placeableCallLocked(group, func(entry *sharedResult) bool {
 				return build.ordinary[entry.id] || build.holdsLocked(entry)
 			})
-			if chosen != nil && build.withhold != nil {
-				// Every input the call names, the recipient's own included: a
-				// holding of one may be a record whose step it would run.
-				for i, recipe := range chosen.id.inputs {
-					input := c.currentEntryForRecipeLocked(recipe)
-					if chosen.id.witnesses[i] || input == nil {
-						continue
-					}
-					if withheld, _ := build.withhold.withheldLocked(input); withheld {
-						// It goes once its input's run is stored whole.
-						chosen = nil
-						break
-					}
-				}
+			if chosen != nil && build.withhold != nil && build.withhold.callOverWithheldLocked(chosen) {
+				chosen = nil
 			}
 			if chosen == nil {
 				build.unsendableCalls++

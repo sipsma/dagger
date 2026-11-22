@@ -86,6 +86,74 @@ type withholdBuild struct {
 	reach map[sharedResultID][]CacheID
 }
 
+// newWithholdBuild returns a withholding judgment for one stored bundle's
+// build, or for one walk that prices or lists what such a bundle carries
+// without building it (StoredSizes, StoredClosure, StoredLowerHalf), so
+// that each withholds what the bundle would.
+func (c *Cache) newWithholdBuild() *withholdBuild {
+	return &withholdBuild{c: c, memo: map[sharedResultID]sharedResultID{}, reach: map[sharedResultID][]CacheID{}}
+}
+
+// keptRootsLocked returns, in order, the roots a bundle of them keeps, and
+// adds each one it withholds to out, with the entry that withholds it and
+// why (withheldLocked). Requires egraphMu.
+func (w *withholdBuild) keptRootsLocked(roots []*sharedResult, out *StoredBundleResult) []*sharedResult {
+	c := w.c
+	kept := make([]*sharedResult, 0, len(roots))
+	for _, res := range roots {
+		if withheld, by := w.withheldLocked(res); withheld {
+			out.Withheld = append(out.Withheld, uint64(res.id))
+			out.WithheldOn = append(out.WithheldOn, uint64(by))
+			_, why := c.entryCanDifferWhyLocked(c.resultsByID[by])
+			if w.overFoldedRunLocked(c.resultsByID[by]) {
+				why = "overFoldedRun"
+			}
+			out.WithheldOnField = append(out.WithheldOnField, entryFieldLocked(c.resultsByID[by])+"/"+why)
+			continue
+		}
+		kept = append(kept, res)
+	}
+	return kept
+}
+
+// keptStoredRootsLocked returns the entries of roots that a bundle of them
+// keeps (keptRootsLocked): a walk that prices or lists what such a bundle
+// carries walks only these. A root the cache has no value for is none.
+// Requires egraphMu.
+func (w *withholdBuild) keptStoredRootsLocked(roots []uint64) map[sharedResultID]bool {
+	var entries []*sharedResult
+	seen := map[sharedResultID]bool{}
+	for _, number := range roots {
+		if res := w.c.resultsByID[sharedResultID(number)]; res != nil && !res.noValueLocked() && !seen[res.id] {
+			seen[res.id] = true
+			entries = append(entries, res)
+		}
+	}
+	kept := make(map[sharedResultID]bool, len(entries))
+	for _, res := range w.keptRootsLocked(entries, &StoredBundleResult{}) {
+		kept[res.id] = true
+	}
+	return kept
+}
+
+// callOverWithheldLocked reports whether a bundle sends no call chosen,
+// because an input it names is withheld: every input, the recipient's own
+// included, since a holding of one may be a record whose step the
+// recipient would run. The call goes once its input's run is stored whole.
+// Requires egraphMu.
+func (w *withholdBuild) callOverWithheldLocked(chosen *keptCall) bool {
+	for i, recipe := range chosen.id.inputs {
+		input := w.c.currentEntryForRecipeLocked(recipe)
+		if chosen.id.witnesses[i] || input == nil {
+			continue
+		}
+		if withheld, _ := w.withheldLocked(input); withheld {
+			return true
+		}
+	}
+	return false
+}
+
 // withheldLocked reports whether the bundle withholds res, and the entry it
 // found that does: the first in its closure, depth first, whose run is
 // stored only in part. Requires egraphMu.
