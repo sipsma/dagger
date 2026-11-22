@@ -688,6 +688,11 @@ type valueMergePrep struct {
 	// (readOwnPlainValues).
 	ownStates map[*sharedResult]ownRunState
 	ownPlain  map[*sharedResult]capturedPlain
+	// ownBelow are the entries the cache computed directly below each entry
+	// of the region readOwnRuns walked, and ownRegion how far each entry of
+	// that region has itself run (ownRunBelowLocked).
+	ownBelow  map[*sharedResult][]*sharedResult
+	ownRegion map[*sharedResult]ownRunState
 	// plain are the bundle's plain records, by ordinal (notePlainRecords).
 	plain map[uint64]incomingPlain
 	order []uint64

@@ -204,6 +204,32 @@ func (prep *valueMergePrep) notePlainRecords(own map[uint64]bool) {
 	}
 }
 
+// ownRunBelowLocked reports whether res has run here, or an entry the cache
+// computed below it has, leaving out what lies at or below an entry in same,
+// which a row of the merge lands on as the same result. An entry readOwnRuns
+// didn't read is taken as run. Requires egraphMu.
+func (prep *valueMergePrep) ownRunBelowLocked(res *sharedResult, same map[*sharedResult]bool) bool {
+	seen := map[*sharedResult]bool{}
+	var walk func(*sharedResult) bool
+	walk = func(cur *sharedResult) bool {
+		if seen[cur] {
+			return false
+		}
+		seen[cur] = true
+		state, read := prep.ownRegion[cur]
+		if !read || state != ownRunNone {
+			return true
+		}
+		for _, dep := range prep.ownBelow[cur] {
+			if !same[dep] && walk(dep) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(res)
+}
+
 // followsFromInputs reports whether res's call declares that its result
 // follows from its inputs (ResultCall.FollowsFromInputs). The entry's own call
 // is read, since the declaration is a function of the recipe it shares with
@@ -472,7 +498,7 @@ func (own ownLanding) same() bool {
 // after this read is taken as run. Its cost is one recipe lookup per record
 // and the region of entries the cache computed below its targets.
 func (c *Cache) readOwnRuns(ctx context.Context, prep *valueMergePrep) {
-	prep.ownRuns, prep.ownStates, prep.ownPlain = nil, nil, nil
+	prep.ownRuns, prep.ownStates, prep.ownPlain, prep.ownBelow, prep.ownRegion = nil, nil, nil, nil, nil
 	if c.blobBacked {
 		return
 	}
@@ -524,16 +550,20 @@ func (c *Cache) readOwnRuns(ctx context.Context, prep *valueMergePrep) {
 	if len(targets) == 0 {
 		return
 	}
-	// A run at or below each entry, over the edges read: entries are a
-	// DAG, so each is decided once.
-	runs := make(map[*sharedResult]bool, len(below))
+	// How far each entry of the region has run, and a run at or below each,
+	// over the edges read: entries are a DAG, so each is decided once. Every
+	// entry's state is read, so the commit can leave out what lies below an
+	// entry it lands a row on as the same result (ownRunBelowLocked).
 	states := make(map[*sharedResult]ownRunState, len(below))
+	for res := range below {
+		states[res] = res.runState()
+	}
+	runs := make(map[*sharedResult]bool, len(below))
 	var runAtOrBelow func(*sharedResult) bool
 	runAtOrBelow = func(res *sharedResult) bool {
 		if run, done := runs[res]; done {
 			return run
 		}
-		states[res] = res.runState()
 		run := states[res] != ownRunNone
 		for _, dep := range below[res] {
 			if run {
@@ -544,6 +574,7 @@ func (c *Cache) readOwnRuns(ctx context.Context, prep *valueMergePrep) {
 		runs[res] = run
 		return run
 	}
+	prep.ownBelow, prep.ownRegion = below, states
 	prep.ownRuns = make(map[*sharedResult]bool, len(targets))
 	prep.ownStates = make(map[*sharedResult]ownRunState, len(targets))
 	for _, res := range targets {
@@ -684,6 +715,10 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 	// was first kept apart for: a full row or a held one.
 	apart := map[uint64]ownRoute{}
 	counts := &commit.ownRoutes
+	// same are the entries a row has landed on so far as the same result as
+	// the cache's own value. Rows are in dependency order, so an entry's are
+	// decided before the rows over it.
+	same := map[*sharedResult]bool{}
 	for _, row := range commit.rows {
 		if row.action.installs() {
 			// An installed record lands on an entry with no value of its
@@ -733,7 +768,11 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 			// for, and the entry's own value has that digest: the same
 			// result, compared on every merge.
 			row.own = ownSameContent
-		case read && !run:
+		case read && (!run || !commit.prep.ownRunBelowLocked(row.res, same)):
+			// Neither the entry nor anything of the cache's own below it has
+			// run, but for what lies at or below an entry this merge lands a
+			// row on as the same result: the stored run was made over the
+			// same result as the cache's own there.
 			row.own = ownNotRun
 		case held:
 			row.otherRun = true
@@ -746,6 +785,9 @@ func (c *Cache) decideOwnRowsLocked(commit *valueMergeCommit) map[uint64]ownRout
 			counts.ApartFull++
 			commit.noteApart(row, false, read)
 			commit.apartToRemember = append(commit.apartToRemember, row)
+		}
+		if row.own.same() {
+			same[row.res] = true
 		}
 	}
 	return apart

@@ -905,6 +905,7 @@ func TestMergeValuesKeepsAnEqualObjectWhoseReceiverIsKeptApart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, reply.Imported(), 1, "D, over the equal object alone, lands")
 }
+
 // followsTestResult is persistedListTestResult for a field that declares its
 // result follows from its inputs (FieldSpec.FollowsFromInputs), as the call
 // frame of such a field carries it.
@@ -979,3 +980,30 @@ func TestMergeValuesLandsAStepThatFollowsFromItsInputs(t *testing.T) {
 	})
 }
 
+// A run of the engine's own below an entry it hasn't run yet doesn't keep
+// the stored run of that entry apart where the merge shows the run below
+// equal to the stored one by content: the stored run was made over the same
+// result as the engine's own there.
+func TestMergeValuesLandsOverAnOwnRunShownEqual(t *testing.T) {
+	t.Parallel()
+	content := digest.FromString("base content")
+	actx, a, asrv := transferTestCache(t)
+	sentBase := persistedListTestResult(t, actx, a, asrv, "equal-base", &transferTestValue{Text: "fill base"})
+	require.NoError(t, a.TeachContentDigest(actx, sentBase, content))
+	sentTop := persistedListTestResult(t, actx, a, asrv, "equal-top", &transferTestValue{Text: "fill top"})
+	require.NoError(t, a.AddExplicitDependency(actx, sentTop, sentBase, "test"))
+	bundle := exportTestBundle(t, actx, a, sentTop)
+
+	ctx, c, srv := transferTestCache(t)
+	base := persistedListTestResult(t, ctx, c, srv, "equal-base", &transferTestValue{Text: "own base"})
+	require.NoError(t, c.TeachContentDigest(ctx, base, content))
+	top := persistedListTestResult(t, ctx, c, srv, "equal-top", ownRunTestLazy("own top"))
+	require.NoError(t, c.AddExplicitDependency(ctx, top, base, "test"))
+	require.True(t, base.cacheSharedResult().ranHere())
+	require.False(t, top.cacheSharedResult().ranHere())
+	reply, err := c.MergeValues(ctx, cloudCacheID, bundle)
+	require.NoError(t, err)
+	require.Empty(t, reply.OtherRun)
+	require.Equal(t, 1, reply.Rows.OwnSameContent, "the base")
+	require.Equal(t, 1, reply.Rows.OwnNotRun, "the top over it")
+}

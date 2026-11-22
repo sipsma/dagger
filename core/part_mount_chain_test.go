@@ -60,6 +60,8 @@ func (s chainsContentSource) ReaderAt(ctx context.Context, desc ocispec.Descript
 // dagger/go's module proxy builds: the i-th mounts "/in/i", a directory made
 // by its own operation that holds "m<i>.txt".
 type mountChain struct {
+	// base is the container the chain mounts its directories on.
+	base    dagql.ObjectResult[*Container]
 	top     dagql.ObjectResult[*Container]
 	layers  []dagql.ObjectResult[*Container]
 	targets []string
@@ -87,7 +89,7 @@ func buildMountChain(t *testing.T, ctx context.Context, cache *dagql.Cache, srv 
 	base := NewContainer(platform)
 	base.FS.setValue(partTestDirectory(fsRef, "/"))
 	layer := attachTransferObject(t, ctx, cache, srv, session, "mountChainBase", base)
-	chain := mountChain{targets: make([]string, n)}
+	chain := mountChain{base: layer, targets: make([]string, n)}
 	scratch := attachTransferObject(t, ctx, cache, srv, session, "mountChainScratch", &Directory{Dir: new(LazyAccessor[string, *Directory]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]), Platform: platform, Lazy: &DirectoryScratchLazy{LazyState: NewLazyState()}})
 	for i := range n {
 		chain.targets[i] = fmt.Sprintf("/in/%d", i)
@@ -253,6 +255,12 @@ func builtThenOfferedMountChainCost(t *testing.T, n int) mountChainCost {
 	exported := buildMountChain(t, actx, a, asrv, aStore, "a", n)
 	require.NoError(t, a.EvaluateParts(actx, exported.top, exported.parts()...))
 	built := buildMountChain(t, bctx, b, bsrv, bStore, "b", n)
+	// The two bases hold the same files: shown equal by content, the first's
+	// layers over its base are the same results as the second's would be
+	// over its own (keepOwnRunsLocked).
+	baseContent := digest.FromString("mount chain base")
+	require.NoError(t, a.TeachContentDigest(actx, exported.base, baseContent))
+	require.NoError(t, b.TeachContentDigest(bctx, built.base, baseContent))
 	var cost mountChainCost
 	selection := dagql.ValueSelection{Roots: []dagql.AnyResult{exported.top}, Outputs: exported.outputs}
 	require.NoError(t, a.WithExportedValues(actx, selection, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(_ context.Context, bundle *dagql.ExportedValues) error {
