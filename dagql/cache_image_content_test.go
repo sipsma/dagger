@@ -231,8 +231,9 @@ func TestCloudMergeGivesAnImageRecordWithoutAPartItsPart(t *testing.T) {
 	bundle := func(t *testing.T, address func(digest.Digest) BlobAddress, both bool) ValueBundle {
 		t.Helper()
 		ctx, c, srv := transferTestCache(t)
-		dep := persistedListTestResult(t, ctx, c, srv, "dep", &transferTestValue{Text: "dep"})
-		root := persistedListTestResult(t, ctx, c, srv, "root", &transferTestValue{Text: "pending"})
+		// Neither has run on c, so the offers land (keepOwnRunsLocked).
+		dep := persistedListTestResult(t, ctx, c, srv, "dep", ownRunTestLazy("dep"))
+		root := persistedListTestResult(t, ctx, c, srv, "root", ownRunTestLazy("pending"))
 		require.NoError(t, c.AddExplicitDependency(ctx, root, dep, "root reads dep"))
 		offered := []AnyResult{root}
 		if both {
