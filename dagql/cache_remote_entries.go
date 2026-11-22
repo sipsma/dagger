@@ -96,7 +96,9 @@ type RemoteHolding struct {
 	// Field is the name of the call's field, for description.
 	Field string
 	// Entry is the Cloud entry the holding's copy came from, when the
-	// caller knows it, as a set file's handover does.
+	// caller knows it, as a set file's handover does. A new holding sits on
+	// it when it is a second run of Recipe (secondRunOf), which no recipe
+	// index names; otherwise on Recipe's current entry.
 	Entry uint64
 	// Term is the call's structural term, when the call derived one.
 	Term *RemoteTerm
@@ -565,10 +567,14 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 	return change
 }
 
-// newHoldingLocked attaches a new holding to the entry of desc's recipe and
-// gives it its waiting dependents. Requires egraphMu for writing.
+// newHoldingLocked attaches a new holding to the entry of desc's recipe, or
+// to the second run of it desc names (RemoteHolding.Entry), and gives it its
+// waiting dependents. Requires egraphMu for writing.
 func (c *Cache) newHoldingLocked(ctx context.Context, state *remoteCacheState, key HolderKey, desc RemoteHolding) (*sharedResult, *holding) {
 	entry := c.resultsByID[c.entriesByRecipe[desc.Recipe]]
+	if named := c.resultsByID[sharedResultID(desc.Entry)]; desc.Entry != 0 && named != nil && desc.Recipe != "" && named.secondRunOf == desc.Recipe {
+		entry = named
+	}
 	if entry == nil {
 		entry = &sharedResult{
 			id:          c.takeResultIDs(1),
