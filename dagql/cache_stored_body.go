@@ -797,25 +797,41 @@ func (c *Cache) queueStoredBodies(entries []*sharedResult) {
 	}
 }
 
+// taughtContentStepLocked says what queueTaughtContentLocked does for res,
+// reading only: nothing; take every content digest taught res as given,
+// because its frame is known to carry each (carried), which writes res; or
+// queue res for the body worker (queue). Requires egraphMu.
+func (c *Cache) taughtContentStepLocked(res *sharedResult) (carried, queue bool) {
+	w := c.storedBodies
+	seeded := res.taughtFrom.ok()
+	if !c.blobBacked || w == nil || (res.taughtGiven == len(res.taught) && !seeded) || !res.entryFrameLocked().ok() {
+		return false, false
+	}
+	res.resultCallMu.RLock()
+	known, frameContent := res.frameContentKnown, res.frameContent
+	res.resultCallMu.RUnlock()
+	if !seeded && known && !slices.ContainsFunc(res.taught[res.taughtGiven:], func(d digest.Digest) bool { return d != frameContent }) {
+		return true, false
+	}
+	return false, true
+}
+
 // queueTaughtContentLocked has the body worker give res's frame the content
 // digests spans taught res that the frame hasn't taken, when res has a frame.
 // A frame known to carry each of them as its content digest takes nothing:
 // one decoded since with that content digest is. A frame a restored body
 // holds is not known until it is decoded. Requires egraphMu.
 func (c *Cache) queueTaughtContentLocked(res *sharedResult) {
-	w := c.storedBodies
-	seeded := res.taughtFrom.ok()
-	if !c.blobBacked || w == nil || (res.taughtGiven == len(res.taught) && !seeded) || !res.entryFrameLocked().ok() {
-		return
-	}
-	res.resultCallMu.RLock()
-	known, carried := res.frameContentKnown, res.frameContent
-	res.resultCallMu.RUnlock()
-	if !seeded && known && !slices.ContainsFunc(res.taught[res.taughtGiven:], func(d digest.Digest) bool { return d != carried }) {
+	carried, queue := c.taughtContentStepLocked(res)
+	if carried {
 		c.taughtContentCarried.Add(uint64(len(res.taught) - res.taughtGiven))
 		res.taughtGiven = len(res.taught)
 		return
 	}
+	if !queue {
+		return
+	}
+	w := c.storedBodies
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
