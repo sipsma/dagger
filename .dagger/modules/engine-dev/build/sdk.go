@@ -228,6 +228,7 @@ func (build *Builder) goSDKFiles(ctx context.Context) (*dagger.Directory, error)
 		return nil, err
 	}
 	sdkCache := build.withRerun(core.NewContainer().From(consts.GolangImage)).
+		WithEnvVariable("GOPROXY", seedGoProxy).
 		// pre-cache what module codegen downloads for a generated module (see
 		// goModuleSeed): the pinned SDK version, everything `go mod tidy`
 		// needs, and the version info `go get` reads
