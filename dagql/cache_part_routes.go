@@ -21,6 +21,15 @@ type PersistedPartRouter interface {
 	RouteParts(PersistedPayloadVisit, PartKey) (LazyOperationRoute, error)
 }
 
+// PersistedPartDelegator says, from a result's call alone, that its part is
+// its receiver's same part, unchanged: the calls whose parts its routes
+// delegate (PartDelegation) once a record is captured. A read of such a part
+// reads the receiver's part (recordPartRead). part is empty for the whole
+// result.
+type PersistedPartDelegator interface {
+	PartDelegatedTo(call *ResultCall, part PartKey) (receiver uint64, ok bool)
+}
+
 // PersistedPartsRouter routes several parts of one payload, decoding the
 // payload once: what RouteParts gives for each part, in order, with each
 // part's error, but without its write set. A family routing a payload's

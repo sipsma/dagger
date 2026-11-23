@@ -114,7 +114,11 @@ func (l *partReadLog) record(id sharedResultID, parts []PartKey) {
 // recordPartRead notes that work read parts of entry id, or the whole of it
 // when parts is empty: for the engine-wide report (partReadLog.record), and,
 // when the read counts (partReadScope), once per part and session with the
-// session and the time.
+// session and the time. A part that is its receiver's unchanged is the
+// receiver's part (PersistedPartDelegator): a read of it that counts reads
+// that part too, and counts as a read of it, as the install of the part
+// follows it there. The receiver's own evaluation reads it again outside
+// counted reads, as its call's work, which it isn't.
 func (c *Cache) recordPartRead(ctx context.Context, id sharedResultID, parts []PartKey) {
 	c.partReads.record(id, parts)
 	if c.partReads == nil {
@@ -128,7 +132,58 @@ func (c *Cache) recordPartRead(ctx context.Context, id sharedResultID, parts []P
 	if err != nil {
 		return
 	}
-	c.partReads.recordSession(session, time.Now(), id, parts)
+	now := time.Now()
+	c.partReads.recordSession(session, now, id, parts)
+	for _, read := range c.delegatedPartReads(id, parts) {
+		c.partReads.recordSession(session, now, read.id, []PartKey{read.part})
+	}
+}
+
+// delegatedPartRead is a part, or with no part the whole, of an entry that a
+// read of another entry's part reads through delegation.
+type delegatedPartRead struct {
+	id   sharedResultID
+	part PartKey
+}
+
+// delegatedPartReads are the parts a read of entry id's parts, or of the
+// whole entry when parts is empty, reads through delegation: each part its
+// row's family says, by the row's call, is its receiver's unchanged
+// (PersistedPartDelegator) is a read of the receiver's same part, and so on
+// up the receivers. A row with no value, call or family ends the chain, as
+// does an entry met twice.
+func (c *Cache) delegatedPartReads(id sharedResultID, parts []PartKey) []delegatedPartRead {
+	if len(parts) == 0 {
+		parts = []PartKey{""}
+	}
+	var out []delegatedPartRead
+	for _, part := range parts {
+		for at, seen := id, map[sharedResultID]bool{}; !seen[at]; {
+			seen[at] = true
+			c.egraphMu.RLock()
+			row := c.resultsByID[at]
+			c.egraphMu.RUnlock()
+			self, call := row.loadSelf(), row.loadResultCall()
+			if self == nil || call == nil {
+				break
+			}
+			family, ok := PersistedObjectFamilyFor(self)
+			if !ok {
+				break
+			}
+			delegator, ok := family.Transfer.(PersistedPartDelegator)
+			if !ok {
+				break
+			}
+			receiver, ok := delegator.PartDelegatedTo(call, part)
+			if !ok {
+				break
+			}
+			at = sharedResultID(receiver)
+			out = append(out, delegatedPartRead{id: at, part: part})
+		}
+	}
+	return out
 }
 
 // recordSession notes a read of parts of entry id, or of the whole of it when
