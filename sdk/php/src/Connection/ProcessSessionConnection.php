@@ -95,27 +95,31 @@ class ProcessSessionConnection extends Connection implements LoggerAwareInterfac
             }
         });
         $this->logger->info('Starting Dagger session');
-        $process->waitUntil(function ($type, $output) use (&$sessionInformation) {
+        // Read the session's stdout through the process's iterator, which
+        // starts from all of the output read so far. Process::waitUntil()
+        // would not do: output already waiting when it starts goes only to the
+        // start callback above, so connect params the session printed by then
+        // would never reach it, and it would wait for them forever.
+        $stdout = '';
+        foreach ($process->getIterator(Process::ITER_SKIP_ERR | Process::ITER_KEEP_OUTPUT) as $output) {
             $this->logger->debug($output);
-            if (Process::OUT === $type) {
-                if (str_contains((string) $output, 'session_token')) {
-                    // @TODO Rewrite when PHP 8.3 json_validate is available
-                    $lines = explode("\n", (string) $output);
-                    $validLines = array_filter($lines, function ($line) {
-                        $this->logger->debug($line);
-                        json_decode(trim($line));
+            $stdout .= $output;
+            if (str_contains($stdout, 'session_token')) {
+                // @TODO Rewrite when PHP 8.3 json_validate is available
+                $lines = explode("\n", $stdout);
+                $validLines = array_filter($lines, function ($line) {
+                    $this->logger->debug($line);
+                    json_decode(trim($line));
 
-                        return JSON_ERROR_NONE === json_last_error();
-                    });
+                    return JSON_ERROR_NONE === json_last_error();
+                });
+                if ([] !== $validLines) {
                     $sessionInformation = json_decode(array_shift($validLines));
                     $this->logger->info("Started Dagger session on port {$sessionInformation->port}");
-
-                    return true;
+                    break;
                 }
             }
-
-            return false;
-        });
+        }
 
         if (null === $sessionInformation) {
             throw new RuntimeException('Cannot fetch informations from process session');
