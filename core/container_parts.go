@@ -1010,34 +1010,63 @@ func delegateContainerPart(ctx context.Context, dst *Container, parent dagql.Obj
 // (transferredPartReceiver).
 func containerPartSource(ctx context.Context, parent dagql.ObjectResult[*Container], part dagql.PartKey) dagql.ObjectResult[*Container] {
 	group := containerDelegationGroup(part)
+	// passed are the refined results walked past, which remember where the
+	// walk ends when that can't change: not after a result decoded from
+	// another engine's record, whose offers come and go, and not at a
+	// result whose metadata isn't settled.
+	var passed []*LazyState
+	settled := true
+	done := func(src dagql.ObjectResult[*Container]) dagql.ObjectResult[*Container] {
+		if settled {
+			for _, state := range passed {
+				state.rememberPartSource(part, src)
+			}
+		}
+		return src
+	}
 	for {
 		ctr := parent.Self()
 		if view := ctr.acquiredOutput.Load(); view != nil {
 			next, ok := transferredPartReceiver(ctx, parent, view, part)
 			if !ok {
-				return parent
+				settled = false
+				return done(parent)
 			}
+			settled = false
 			parent = next
 			continue
 		}
 		op, ok := ctr.lazyOpForRouting().(LazyContainerParts)
 		if !ok {
-			return parent
+			return done(parent)
 		}
 		// Mappings read settled metadata. A consumed delegation already holds
 		// its copy.
 		state := op.ContainerLazyState()
-		if !state.GroupConsumed(ContainerLazyGroupMetadata) || state.GroupConsumed(group) {
-			return parent
+		if !state.GroupConsumed(ContainerLazyGroupMetadata) {
+			settled = false
+			return done(parent)
+		}
+		if state.GroupConsumed(group) {
+			return done(parent)
+		}
+		if src, ok := state.partSource(part); ok {
+			if src, ok := src.(dagql.ObjectResult[*Container]); ok {
+				return done(src)
+			}
 		}
 		groups, err := op.ContainerLazyGroups(ctx, ctr, []dagql.PartKey{part})
 		if err != nil || len(groups) != 1 || groups[0] != group {
-			return parent
+			if err != nil {
+				settled = false
+			}
+			return done(parent)
 		}
 		next := op.ContainerLazyParent()
 		if next.Self() == nil {
-			return parent
+			return done(parent)
 		}
+		passed = append(passed, state)
 		parent = next
 	}
 }

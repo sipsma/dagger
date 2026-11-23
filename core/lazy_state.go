@@ -50,6 +50,34 @@ type LazyState struct {
 	// reader sees the body's output before it has run. The value whose op this
 	// is sets it (OnBodyDone).
 	bodyDone atomic.Pointer[func(context.Context, dagql.LazyGroupKey) error]
+	// partSources are, for a container op, the result each part it passes
+	// through is copied from (containerPartSource), once that is settled;
+	// guarded by LazyMu.
+	partSources map[dagql.PartKey]dagql.AnyResult
+}
+
+// partSource returns the source remembered for a part the op passes through.
+func (lazy *LazyState) partSource(part dagql.PartKey) (dagql.AnyResult, bool) {
+	if lazy.LazyMu == nil {
+		return nil, false
+	}
+	lazy.LazyMu.Lock()
+	defer lazy.LazyMu.Unlock()
+	src, ok := lazy.partSources[part]
+	return src, ok
+}
+
+// rememberPartSource keeps the source of a part the op passes through.
+func (lazy *LazyState) rememberPartSource(part dagql.PartKey, src dagql.AnyResult) {
+	if lazy.LazyMu == nil {
+		return
+	}
+	lazy.LazyMu.Lock()
+	defer lazy.LazyMu.Unlock()
+	if lazy.partSources == nil {
+		lazy.partSources = map[dagql.PartKey]dagql.AnyResult{}
+	}
+	lazy.partSources[part] = src
 }
 
 // lazyGroupOnce is one group's object-side run-once state. mu is held
