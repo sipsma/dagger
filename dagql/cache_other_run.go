@@ -88,42 +88,11 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 	}
 	// The rows the bundle's values stand over, from its roots down, not
 	// below a row whose content no run under it changes.
-	outputs := map[uint64][]TransferredOutput{}
-	for _, output := range commit.prep.bundle.Outputs {
-		outputs[uint64(output.Ordinal)] = append(outputs[uint64(output.Ordinal)], output)
-	}
-	reached := map[uint64]bool{}
-	var stack []uint64
-	for _, root := range commit.prep.bundle.Roots {
-		stack = append(stack, uint64(root.Ordinal))
-	}
-	for len(stack) > 0 {
-		id := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if reached[id] {
-			continue
-		}
-		reached[id] = true
+	reached := commit.prep.reachUnless(func(id uint64) bool {
 		row := commit.byOrdinal[id]
-		if call := frameOf(row); call != nil && (call.Follows == FollowsKey || row.action == mergeKeep && sameContent(row, call)) {
-			continue
-		}
-		if value := commit.prep.index[id]; value != nil {
-			stack = append(stack, value.DependencyIDs...)
-		}
-		// A row's outputs name their owners' rows and their services
-		// directly (storedClosureChildrenLocked).
-		for _, output := range outputs[id] {
-			if output.Owner != nil {
-				stack = append(stack, output.Owner.DependencyIDs...)
-			}
-			if output.Value != nil {
-				for _, service := range output.Value.Services {
-					stack = append(stack, service.ServiceResultID)
-				}
-			}
-		}
-	}
+		call := frameOf(row)
+		return call != nil && (call.Follows == FollowsKey || row.action == mergeKeep && sameContent(row, call))
+	})
 	var other []TransferOrdinal
 	for _, row := range commit.rows {
 		if row.action != mergeKeep || row.target == nil || row.value.Run == nil || !reached[row.ordinal] {
@@ -141,4 +110,36 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 	}
 	slices.Sort(other)
 	return other
+}
+
+// reachUnless returns the rows the bundle's roots reach, through each row's
+// dependencies and the owners and services its outputs name, not descending
+// below a row stop holds for. Embedded outputs are the record's offers
+// (embedMergedParts).
+func (prep *valueMergePrep) reachUnless(stop func(uint64) bool) map[uint64]bool {
+	reached := map[uint64]bool{}
+	var stack []uint64
+	for _, root := range prep.bundle.Roots {
+		stack = append(stack, uint64(root.Ordinal))
+	}
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if reached[id] {
+			continue
+		}
+		reached[id] = true
+		value := prep.index[id]
+		if value == nil || stop(id) {
+			continue
+		}
+		stack = append(stack, value.DependencyIDs...)
+		for _, offer := range value.Record.Envelope.PendingOffers {
+			stack = append(stack, offer.Owner.DependencyIDs...)
+			for _, service := range offer.Value.Services {
+				stack = append(stack, service.ServiceResultID)
+			}
+		}
+	}
+	return reached
 }
