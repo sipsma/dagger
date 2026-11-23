@@ -305,6 +305,52 @@ func TestContainerFinalDelegationSweepDoesNotStartParentWork(t *testing.T) {
 	require.NotNil(t, child.lazyOpForRouting())
 }
 
+// A layer whose metadata settled before the part it passes through was
+// written below copies that part once it is final, when one of its own
+// groups runs: its value comes from where the delegation copies it, as it
+// would had the chain been built after the part was written. A module's Go
+// runtime is such a chain: its layers settle before codegen's exec runs, and
+// its top's execMeta is the exec's.
+func TestContainerFinalDelegationSweepCopiesFromSource(t *testing.T) {
+	t.Parallel()
+	ctx, cache, srv, sessionID := newContainerPartsTestCtx(t)
+
+	baseOp := &containerPartsTestBaseOp{LazyState: NewLazyState()}
+	base := &Container{
+		FS:           new(LazyAccessor[*Directory, *Container]),
+		MetaSnapshot: new(LazyAccessor[bkcache.ImmutableRef, *Container]),
+		Lazy:         baseOp,
+	}
+	layers := []dagql.ObjectResult[*Container]{attachContainerPartsTestResult(t, ctx, cache, srv, sessionID, "sweep-source-base", base)}
+	for i := range 3 {
+		layer := &Container{
+			FS:           new(LazyAccessor[*Directory, *Container]),
+			MetaSnapshot: new(LazyAccessor[bkcache.ImmutableRef, *Container]),
+			Lazy: &ContainerWithEnvVariableLazy{
+				LazyState: NewLazyState(),
+				Parent:    layers[len(layers)-1],
+				Name:      fmt.Sprintf("K%d", i),
+				Value:     "v",
+			},
+		}
+		layers = append(layers, attachContainerPartsTestResult(t, ctx, cache, srv, sessionID, fmt.Sprintf("sweep-source-%d", i), layer))
+	}
+	top := layers[len(layers)-1]
+	topOp := top.Self().lazyOpForRouting().(LazyContainerParts)
+
+	// Every layer's metadata settles before anything below is written.
+	require.NoError(t, cache.EvaluateParts(ctx, top, ContainerPartMetadata))
+	require.NoError(t, cache.EvaluateParts(ctx, layers[0], ContainerPartExecMeta))
+	require.NoError(t, cache.EvaluateParts(ctx, top, ContainerPartFS))
+
+	require.True(t, topOp.ContainerLazyState().GroupConsumed(containerDelegationGroup(ContainerPartExecMeta)), "the top's execMeta was copied from the base, where it is final")
+	require.Equal(t, int32(1), baseOp.execMetaRuns.Load(), "the base's execMeta ran once")
+	for i, layer := range layers[1 : len(layers)-1] {
+		op := layer.Self().lazyOpForRouting().(LazyContainerParts)
+		require.False(t, op.ContainerLazyState().GroupConsumed(containerDelegationGroup(ContainerPartExecMeta)), "layer %d in between copies nothing", i)
+	}
+}
+
 func TestContainerMetadataOnlyMountMutationParts(t *testing.T) {
 	tests := []struct {
 		name       string
