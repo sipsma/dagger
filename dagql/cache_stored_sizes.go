@@ -98,15 +98,12 @@ func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, 
 	outputs := &storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}
 	// A root a bundle of these roots leaves out for another run of a step
 	// carries nothing, as a gone root doesn't.
-	left := c.oneRunLeftOut(roots, held, nowUnix)
+	chk := c.newOneRunCheck(held, nowUnix)
 	for i, number := range roots {
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
-		if left[sharedResultID(number)] {
-			continue
-		}
-		size, closure, own, misses := c.walkStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, outputs)
+		size, closure, own, misses := c.walkStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, outputs, chk)
 		if len(misses) > 0 && !measure {
 			sizes[i] = StoredSize{Unmeasured: true}
 			continue
@@ -183,7 +180,7 @@ func (c *Cache) storedSizesRLock() func() {
 // (ordinary), or the recipient (held), have its inputs, never for an input
 // another call adds. Otherwise its first stored alternative's inputs are
 // priced, which is the call a bundle that can't place it chooses too.
-func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
+func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen, chk *oneRunCheck) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
 	hold := c.readInPieces()
 	hold.report = c.testStoredSizesHold
 	defer hold.done()
@@ -194,7 +191,12 @@ func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy,
 	if res == nil || res.noValueLocked() {
 		return StoredSize{}, nil, 0, nil
 	}
+	mark := outputs.mark()
 	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, outputs, hold, nil)
+	if !c.oneRunRootLocked(chk, walk.order) {
+		outputs.undo(mark)
+		return StoredSize{}, nil, 0, nil
+	}
 	return walk.size, walk.closure, own, walk.misses
 }
 
@@ -289,6 +291,35 @@ func (l *storedClosureList) callInput(input *sharedResult) {
 type storedOutputsSeen struct {
 	layers map[*storedLayer]bool
 	blobs  map[digest.Digest]digest.Digest
+	// added are the layers and blobs in the order the walks added them, so
+	// that what a root's walk added can be taken back when the root is left
+	// out (undo).
+	addedLayers []*storedLayer
+	addedBlobs  []digest.Digest
+}
+
+// outputsMark is how much a storedOutputsSeen had added at a point.
+type outputsMark struct{ layers, blobs int }
+
+func (o *storedOutputsSeen) mark() outputsMark {
+	if o == nil {
+		return outputsMark{}
+	}
+	return outputsMark{len(o.addedLayers), len(o.addedBlobs)}
+}
+
+// undo takes back what was added since m.
+func (o *storedOutputsSeen) undo(m outputsMark) {
+	if o == nil {
+		return
+	}
+	for _, layer := range o.addedLayers[m.layers:] {
+		delete(o.layers, layer)
+	}
+	for _, blob := range o.addedBlobs[m.blobs:] {
+		delete(o.blobs, blob)
+	}
+	o.addedLayers, o.addedBlobs = o.addedLayers[:m.layers], o.addedBlobs[:m.blobs]
 }
 
 // addOutputs counts what res's own stored parts add to the message
@@ -302,11 +333,13 @@ func (w *storedSizeWalk) addOutputs(res *sharedResult) {
 		for _, layer := range part.layers {
 			if !w.outputs.layers[layer] {
 				w.outputs.layers[layer] = true
+				w.outputs.addedLayers = append(w.outputs.addedLayers, layer)
 				w.size.OutputBytes += layer.wire
 			}
 			blob := layer.layer.Descriptor.Digest
 			if pack, ok := w.outputs.blobs[blob]; !ok {
 				w.outputs.blobs[blob] = layer.pack
+				w.outputs.addedBlobs = append(w.outputs.addedBlobs, blob)
 				w.size.OutputBytes += storedBlobAddressAllowance
 			} else if pack != layer.pack {
 				w.size.OutputBytes += storedBlobAddressAllowance
@@ -664,15 +697,12 @@ func (c *Cache) StoredClosure(ctx context.Context, roots []uint64, nowUnix int64
 		list.asked[sharedResultID(number)] = true
 	}
 	seen, ordinary := map[sharedResultID]bool{}, map[sharedResultID]bool{}
-	left := c.oneRunLeftOut(roots, held, nowUnix)
+	chk := c.newOneRunCheck(held, nowUnix)
 	for _, number := range roots {
 		if err := context.Cause(ctx); err != nil {
 			return StoredClosureResult{}, err
 		}
-		if left[sharedResultID(number)] {
-			continue
-		}
-		order, closure, own := c.listStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, list)
+		order, closure, own := c.listStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, list, chk)
 		for _, res := range order {
 			out.Entries = append(out.Entries, StoredClosureEntry{Number: uint64(res.id), Held: list.held[res.id]})
 		}
@@ -690,7 +720,7 @@ func (c *Cache) StoredClosure(ctx context.Context, roots []uint64, nowUnix int64
 // listStoredRoot is StoredClosure's walk of one root, beyond seen, in
 // pieces: the entries it adds in the bundle's order, those it reached, and
 // how many of those, first, are the root's ordinary closure.
-func (c *Cache) listStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, list *storedClosureList) ([]*sharedResult, []sharedResultID, int) {
+func (c *Cache) listStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, list *storedClosureList, chk *oneRunCheck) ([]*sharedResult, []sharedResultID, int) {
 	hold := c.readInPieces()
 	defer hold.done()
 	if held != nil {
@@ -700,7 +730,15 @@ func (c *Cache) listStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy,
 	if res == nil || res.noValueLocked() {
 		return nil, nil, 0
 	}
+	inputs := len(list.callInputs)
 	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, nil, hold, list)
+	if !c.oneRunRootLocked(chk, walk.order) {
+		for _, id := range list.callInputs[inputs:] {
+			delete(list.inputs, sharedResultID(id))
+		}
+		list.callInputs = list.callInputs[:inputs]
+		return nil, nil, 0
+	}
 	return walk.order, walk.closure, own
 }
 
@@ -727,11 +765,14 @@ func (c *Cache) StoredLowerHalf(ctx context.Context, root uint64, nowUnix int64,
 		defer c.rlockEngineLocked(held.Cache).runlock()
 	}
 	res := c.resultsByID[sharedResultID(root)]
-	if res == nil || res.noValueLocked() || c.oneRunRootsLocked([]*sharedResult{res}, held, nowUnix)[res.id] {
+	if res == nil || res.noValueLocked() {
 		return nil, 0, nil
 	}
 	walk, _ := c.storedRootWalkLocked(res, nowUnix, held, map[sharedResultID]bool{}, map[sharedResultID]bool{},
 		&storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}, nil, nil)
+	if !c.oneRunRootLocked(c.newOneRunCheck(held, nowUnix), walk.order) {
+		return nil, 0, nil
+	}
 	above := map[sharedResultID]bool{res.id: true}
 	var below []*sharedResult
 	carried := 0

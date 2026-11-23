@@ -26,7 +26,7 @@ type StoredBundleResult struct {
 	NoValue []uint64
 	// OtherRun are the roots the bundle leaves out because each would carry
 	// another run of a step than the one it carries, the recipient's or the
-	// first its roots reach (oneRunRootsLocked), in their order: to the
+	// first its roots reach (oneRunCheck), in their order: to the
 	// recipient they are misses.
 	OtherRun []uint64
 	// Held are the numbers of the entries the bundle carries as held rows.
@@ -130,6 +130,20 @@ func (h *HeldBy) sendableLocked(group []*keptCall) []*keptCall {
 
 // heldLocked reports whether the recipient holds res at nowUnix. A nil
 // HeldBy holds nothing. Requires egraphMu.
+// ownsRunLocked reports whether the recipient holds res at nowUnix, as
+// heldLocked does but for Not: an entry in Not goes in full, though the
+// recipient may hold it, as a lookup's roots do, and the run of its step the
+// recipient holds is still that one (oneRunCheck). Requires egraphMu.
+func (h *HeldBy) ownsRunLocked(res *sharedResult, nowUnix int64) bool {
+	if h == nil || !res.hasCallFrameLocked() {
+		return false
+	}
+	if h.Also != nil && h.Also(uint64(res.id)) && (res.expiresAtUnix == 0 || res.expiresAtUnix > nowUnix) {
+		return true
+	}
+	return h.holdsLocked(res, nowUnix)
+}
+
 func (h *HeldBy) heldLocked(res *sharedResult, nowUnix int64) bool {
 	if h == nil || !res.hasCallFrameLocked() {
 		return false
@@ -276,15 +290,15 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 	if len(rootEntries) == 0 {
 		return out, nil, nil
 	}
-	if rootEntries, out.OtherRun = c.leaveOutOtherRunsLocked(rootEntries, held, nowUnix); len(rootEntries) == 0 {
-		return out, nil, nil
-	}
 	c.storedBundleBuilds.Add(1)
-	build, notWhole, err := c.storedBundleWholeWalkLocked(rootEntries, nowUnix, held)
+	build, rootEntries, notWhole, otherRun, err := c.storedBundleWholeWalkLocked(rootEntries, nowUnix, held)
 	if err != nil {
 		return StoredBundleResult{}, nil, err
 	}
-	out.NotWhole = notWhole
+	out.NotWhole, out.OtherRun = notWhole, otherRun
+	if len(rootEntries) == 0 {
+		return out, nil, nil
+	}
 	if opts.alsoRoots != nil {
 		rootEntries = build.alsoRoots(rootEntries, opts.alsoRoots)
 	}
@@ -389,19 +403,33 @@ func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int6
 }
 
 // storedBundleWholeWalkLocked walks the roots' closures into a build
-// (storedBundleWalkLocked) and, with held.Whole, walks them again while the
-// build holds a held row the recipient doesn't hold whole, which then goes
-// in full, as a caller building again would walk it. It returns the last
-// build and those rows, in the order found. Requires egraphMu.
-func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy) (*storedBundleBuild, []uint64, error) {
-	build, err := c.storedBundleWalkLocked(rootEntries, nowUnix, held, nil)
-	if err != nil || held == nil || !held.Whole {
-		return build, nil, err
+// (storedBundleWalkLocked) and walks them again while the build has a root
+// that carries another run of a step than the build carries
+// (otherRunRootLocked), the first of which it leaves out, and, with
+// held.Whole, while the build holds a held row the recipient doesn't hold
+// whole, which then goes in full, as a caller building again would walk it.
+// It returns the last build, the roots it walked, those held rows in the
+// order found, and the roots left out, in their order. Requires egraphMu.
+func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy) (*storedBundleBuild, []*sharedResult, []uint64, []uint64, error) {
+	var whole *wholeHolds
+	if held != nil && held.Whole {
+		whole = &wholeHolds{cache: held.Cache, byFile: held.ByFile, known: map[uint64]bool{}}
 	}
-	whole := &wholeHolds{cache: held.Cache, byFile: held.ByFile, known: map[uint64]bool{}}
-	var all []uint64
+	var all, otherRun []uint64
 	var notWhole map[sharedResultID]bool
-	for {
+	for len(rootEntries) > 0 {
+		build, err := c.storedBundleWalkLocked(rootEntries, nowUnix, held, notWhole)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if i := c.otherRunRootLocked(build); i >= 0 {
+			otherRun = append(otherRun, uint64(rootEntries[i].id))
+			rootEntries = slices.Delete(slices.Clone(rootEntries), i, i+1)
+			continue
+		}
+		if whole == nil {
+			return build, rootEntries, all, otherRun, nil
+		}
 		var found []uint64
 		for _, res := range build.order {
 			if build.held[res.id] && !c.holdsWholeLocked(whole, res) {
@@ -409,7 +437,7 @@ func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix
 			}
 		}
 		if len(found) == 0 {
-			return build, all, nil
+			return build, rootEntries, all, otherRun, nil
 		}
 		if notWhole == nil {
 			notWhole = map[sharedResultID]bool{}
@@ -418,10 +446,8 @@ func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix
 			notWhole[sharedResultID(number)] = true
 		}
 		all = append(all, found...)
-		if build, err = c.storedBundleWalkLocked(rootEntries, nowUnix, held, notWhole); err != nil {
-			return nil, nil, err
-		}
 	}
+	return nil, nil, all, otherRun, nil
 }
 
 // wholeHolds is what a build has found of which holdings of one engine

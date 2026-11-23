@@ -2797,7 +2797,7 @@ type Cache struct {
 	storedBundleBuilds atomic.Uint64
 	// keptSecondRun is set, on the Cloud, once the cache keeps a second run
 	// (secondRunOf): only then can a bundle reach two runs of one step
-	// (oneRunRootsLocked).
+	// (oneRunCheck).
 	keptSecondRun atomic.Bool
 
 	// taughtContentQueued counts the entries queued for a frame rewrite

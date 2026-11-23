@@ -231,72 +231,88 @@ func (c *Cache) entriesOfRecipeLocked(recipe digest.Digest) []*sharedResult {
 	return append(out, others...)
 }
 
-// oneRunRootsLocked returns, of roots in their order, those a bundle for
-// held's recipient leaves out because each would carry another run of a step
-// than the one the bundle carries. A bundle carries at most one run of each
-// step: the recipient's, when it holds one (heldLocked), else the first the
-// roots' dependency closures reach. An engine keeps one entry a recipe:
-// another run's record sent to it lands on the entry it has, so what the
-// bundle carries over that run would stand over the engine's own, and a
-// held row and a full row of one recipe make its merge refuse the bundle
-// whole. A root left out is a miss to the recipient, which runs it as its own
-// cache would. The walk follows dependencies and stops at an entry the
-// recipient holds, as a bundle carries nothing below a held row. It runs only
-// on a cache that has kept a second run: on any other, no step has two
-// entries. Requires egraphMu.
-func (c *Cache) oneRunRootsLocked(roots []*sharedResult, held *HeldBy, nowUnix int64) map[sharedResultID]bool {
+// oneRunCheck is a build's choice of the run of each step it carries, root
+// by root: a bundle carries at most one run of each step, the recipient's
+// when it holds one (ownsRunLocked), else the first its roots reach. An
+// engine keeps one entry a recipe: another run's record sent to it lands on
+// the entry it has, so what the bundle carries over that run would stand over
+// the engine's own, and a held row and a full row of one recipe make its
+// merge refuse the bundle whole. A root that would carry another run is left
+// out, a miss to the recipient, which runs it as its own cache would. The
+// check judges what each root's walk actually added (its closure, its kept
+// calls' inputs, and what a whole holding's walk exposes), so a bundle, its
+// listing and its pricing, each walking its roots in order, leave out the
+// same roots. A nil check, on a cache that never kept a second run, where no
+// step has two entries, passes every root.
+type oneRunCheck struct {
+	held   *HeldBy
+	now    int64
+	chosen map[digest.Digest]*sharedResult
+}
+
+func (c *Cache) newOneRunCheck(held *HeldBy, nowUnix int64) *oneRunCheck {
 	if !c.blobBacked || !c.keptSecondRun.Load() {
 		return nil
 	}
-	chosen := map[digest.Digest]*sharedResult{}
-	var left map[sharedResultID]bool
-	for _, root := range roots {
-		picks := map[digest.Digest]*sharedResult{}
-		visited := map[sharedResultID]bool{}
-		stack := []*sharedResult{root}
-		other := false
-		for len(stack) > 0 && !other {
-			res := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if res == nil || visited[res.id] {
-				continue
-			}
-			visited[res.id] = true
-			if recipe, ok := c.contestedRecipeLocked(res); ok {
-				pick := chosen[recipe]
-				if pick == nil {
-					pick = picks[recipe]
-				}
-				if pick == nil {
-					if pick = c.recipientRunLocked(recipe, held, nowUnix); pick == nil {
-						pick = res
-					}
-					picks[recipe] = pick
-				}
-				if pick != res {
-					other = true
-					continue
-				}
-			}
-			if held.heldLocked(res, nowUnix) {
-				continue
-			}
-			for dep := range res.deps {
-				stack = append(stack, c.resultsByID[dep])
-			}
-		}
-		if other {
-			if left == nil {
-				left = map[sharedResultID]bool{}
-			}
-			left[root.id] = true
+	return &oneRunCheck{held: held, now: nowUnix, chosen: map[digest.Digest]*sharedResult{}}
+}
+
+// rootLocked reports whether a root whose walk added entries carries only
+// runs the check carries, and if so takes its choices. Requires egraphMu.
+func (c *Cache) oneRunRootLocked(chk *oneRunCheck, entries []*sharedResult) bool {
+	if chk == nil {
+		return true
+	}
+	var picks map[digest.Digest]*sharedResult
+	for _, res := range entries {
+		recipe, ok := c.contestedRecipeLocked(res)
+		if !ok {
 			continue
 		}
-		for recipe, pick := range picks {
-			chosen[recipe] = pick
+		pick := chk.chosen[recipe]
+		if pick == nil {
+			pick = picks[recipe]
+		}
+		if pick == nil {
+			if pick = c.recipientRunLocked(recipe, chk.held, chk.now); pick == nil {
+				pick = res
+			}
+			if picks == nil {
+				picks = map[digest.Digest]*sharedResult{}
+			}
+			picks[recipe] = pick
+		}
+		if pick != res {
+			return false
 		}
 	}
-	return left
+	for recipe, pick := range picks {
+		chk.chosen[recipe] = pick
+	}
+	return true
+}
+
+// otherRunRootLocked returns the index of the first of build's roots whose
+// entries, as the build's owners name them, carry another run of a step than
+// the build carries (oneRunRootLocked), or -1. The build's order has each
+// root's entries after the earlier roots'. Requires egraphMu.
+func (c *Cache) otherRunRootLocked(build *storedBundleBuild) int {
+	chk := c.newOneRunCheck(build.heldBy, build.now)
+	if chk == nil {
+		return -1
+	}
+	for i := 0; i < len(build.order); {
+		owner := build.owners[build.order[i].id]
+		j := i
+		for j < len(build.order) && build.owners[build.order[j].id] == owner {
+			j++
+		}
+		if !c.oneRunRootLocked(chk, build.order[i:j]) {
+			return owner
+		}
+		i = j
+	}
+	return -1
 }
 
 // contestedRecipeLocked returns the recipe of res when the cache stores
@@ -322,73 +338,16 @@ func (c *Cache) contestedRecipeLocked(res *sharedResult) (digest.Digest, bool) {
 }
 
 // recipientRunLocked returns the entry of recipe held's recipient holds,
-// if it holds one (heldLocked): the run of the step a bundle for it carries.
-// Requires egraphMu.
+// if it holds one (ownsRunLocked): the run of the step a bundle for it
+// carries. Requires egraphMu.
 func (c *Cache) recipientRunLocked(recipe digest.Digest, held *HeldBy, nowUnix int64) *sharedResult {
 	if held == nil {
 		return nil
 	}
 	for _, res := range c.entriesOfRecipeLocked(recipe) {
-		if held.heldLocked(res, nowUnix) {
+		if held.ownsRunLocked(res, nowUnix) {
 			return res
 		}
 	}
 	return nil
-}
-
-// oneRunRootsOfLocked is oneRunRootsLocked of roots named by number, as the
-// cache's listings and pricing take them: the numbers it leaves out, of
-// those the cache has a value for. Requires egraphMu.
-func (c *Cache) oneRunRootsOfLocked(roots []uint64, held *HeldBy, nowUnix int64) map[sharedResultID]bool {
-	if !c.blobBacked || !c.keptSecondRun.Load() {
-		return nil
-	}
-	entries := make([]*sharedResult, 0, len(roots))
-	seen := make(map[sharedResultID]bool, len(roots))
-	for _, number := range roots {
-		res := c.resultsByID[sharedResultID(number)]
-		if res == nil || res.noValueLocked() || seen[res.id] {
-			continue
-		}
-		seen[res.id] = true
-		entries = append(entries, res)
-	}
-	return c.oneRunRootsLocked(entries, held, nowUnix)
-}
-
-// oneRunLeftOut is oneRunRootsOfLocked in a hold of its own, for the cache's
-// listings and pricing, which walk their roots in pieces: the roots a
-// StoredBundle of the same roots for the same recipient leaves out
-// (StoredBundleResult.OtherRun), which they then carry nothing of.
-func (c *Cache) oneRunLeftOut(roots []uint64, held *HeldBy, nowUnix int64) map[sharedResultID]bool {
-	if !c.blobBacked || !c.keptSecondRun.Load() {
-		return nil
-	}
-	c.egraphMu.RLock()
-	defer c.egraphMu.RUnlock()
-	if held != nil {
-		defer c.rlockEngineLocked(held.Cache).runlock()
-	}
-	return c.oneRunRootsOfLocked(roots, held, nowUnix)
-}
-
-// leaveOutOtherRunsLocked returns roots without those a bundle for held's
-// recipient leaves out for another run of a step (oneRunRootsLocked), and
-// those, by number, in their order (StoredBundleResult.OtherRun). Requires
-// egraphMu.
-func (c *Cache) leaveOutOtherRunsLocked(roots []*sharedResult, held *HeldBy, nowUnix int64) ([]*sharedResult, []uint64) {
-	left := c.oneRunRootsLocked(roots, held, nowUnix)
-	if len(left) == 0 {
-		return roots, nil
-	}
-	kept := make([]*sharedResult, 0, len(roots)-len(left))
-	var out []uint64
-	for _, res := range roots {
-		if left[res.id] {
-			out = append(out, uint64(res.id))
-			continue
-		}
-		kept = append(kept, res)
-	}
-	return kept, out
 }
