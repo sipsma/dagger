@@ -46,12 +46,12 @@ var heldRowSizeDigest = digest.Digest("xxh3:0000000000000000")
 // are never less than what a bundle of them carries (walkStoredRoot). A root
 // the cache has no value for, or one an earlier root's closure already
 // holds, adds nothing; so does an entry of a closure with no stored record,
-// and nothing below it is walked. It doesn't judge what the bundle withholds
-// (withholdBuild), whose walk of each root's whole closure would hold
-// egraphMu far longer than the walk in pieces does: a root the bundle
-// withholds, or the input of a call it doesn't send for that, is priced in
-// full. What lists a bundle's records to send them ahead of it does judge
-// (StoredClosure, StoredLowerHalf).
+// and nothing below it is walked. Unless asked (StoredSizesWithholding), it
+// doesn't judge what the bundle withholds (withholdBuild), whose walk of
+// each root's whole closure holds egraphMu far longer than the walk in
+// pieces does: a root the bundle withholds, or the input of a call it
+// doesn't send for that, is priced in full, and counted as carried for the
+// roots after it.
 //
 // Each entry's value is encoded once, with its references at entry numbers,
 // and its size memoized with its normalized record (normalizeStoredTransfer)
@@ -74,8 +74,33 @@ var heldRowSizeDigest = digest.Digest("xxh3:0000000000000000")
 // no single hold would have seen at once, but every entry as the cache held
 // it at some moment of the walk. With no write during it, a walk counts
 // what one hold would. Only a blob-backed cache answers.
-func (c *Cache) StoredSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy) ([]StoredSize, error) {
-	return c.storedSizes(ctx, roots, nowUnix, held, true)
+func (c *Cache) StoredSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy, opts ...StoredSizesOption) ([]StoredSize, error) {
+	var o storedSizesOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return c.storedSizes(ctx, roots, nowUnix, held, true, o)
+}
+
+// StoredSizesOption sets how StoredSizes prices.
+type StoredSizesOption func(*storedSizesOptions)
+
+type storedSizesOptions struct {
+	withholding bool
+}
+
+// StoredSizesWithholding has StoredSizes price as StoredBundle withholds: a
+// root the bundle withholds (keptRootsLocked) adds nothing, and its closure
+// isn't counted as carried for the roots after it; a call the bundle doesn't
+// send for a withheld input (callOverWithheldLocked) adds no input. Its
+// judgment walks each root's whole closure under one hold of egraphMu, on
+// top of the walk in pieces. A set file's cut needs it: its parts keep to
+// their bound only if each root is priced for what its part carries.
+// Placement's pricing doesn't.
+func StoredSizesWithholding() StoredSizesOption {
+	return func(o *storedSizesOptions) {
+		o.withholding = true
+	}
 }
 
 // MeasuredStoredSizes answers as StoredSizes does without measuring anything:
@@ -83,8 +108,12 @@ func (c *Cache) StoredSizes(ctx context.Context, roots []uint64, nowUnix int64, 
 // yet measured is answered Unmeasured, with no records or bytes, and the
 // later roots are measured as if it weren't there. It normalizes and encodes
 // nothing: a held row's size is computed (heldRowSize).
-func (c *Cache) MeasuredStoredSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy) ([]StoredSize, error) {
-	return c.storedSizes(ctx, roots, nowUnix, held, false)
+func (c *Cache) MeasuredStoredSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy, opts ...StoredSizesOption) ([]StoredSize, error) {
+	var o storedSizesOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return c.storedSizes(ctx, roots, nowUnix, held, false, o)
 }
 
 // StoredSizeEncodes counts the values StoredSizes has measured: each first
@@ -94,18 +123,29 @@ func (c *Cache) StoredSizeEncodes() uint64 {
 	return c.storedSizeEncodes.Load()
 }
 
-func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy, measure bool) ([]StoredSize, error) {
+func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, held *HeldBy, measure bool, o storedSizesOptions) ([]StoredSize, error) {
 	if !c.blobBacked {
 		return nil, fmt.Errorf("stored sizes: the cache has no blob store")
 	}
 	sizes := make([]StoredSize, len(roots))
+	var withhold *withholdBuild
+	var kept map[sharedResultID]bool
+	if o.withholding {
+		withhold = c.newWithholdBuild()
+		release := c.storedSizesRLock()
+		kept = withhold.keptStoredRootsLocked(roots)
+		release()
+	}
 	seen, ordinary := map[sharedResultID]bool{}, map[sharedResultID]bool{}
 	outputs := &storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}
 	for i, number := range roots {
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
-		size, closure, own, misses := c.walkStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, outputs)
+		if kept != nil && !kept[sharedResultID(number)] {
+			continue
+		}
+		size, closure, own, misses := c.walkStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, outputs, withhold)
 		if len(misses) > 0 && !measure {
 			sizes[i] = StoredSize{Unmeasured: true}
 			continue
@@ -176,7 +216,7 @@ func (c *Cache) storedSizesRLock() func() {
 // (ordinary), or the recipient (held), have its inputs, never for an input
 // another call adds. Otherwise its first stored alternative's inputs are
 // priced, which is the call a bundle that can't place it chooses too.
-func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
+func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy, seen, ordinary map[sharedResultID]bool, outputs *storedOutputsSeen, withhold *withholdBuild) (StoredSize, []sharedResultID, int, []storedSizeMiss) {
 	hold := c.readInPieces()
 	hold.report = c.testStoredSizesHold
 	defer hold.done()
@@ -184,7 +224,7 @@ func (c *Cache) walkStoredRoot(root sharedResultID, nowUnix int64, held *HeldBy,
 	if res == nil || res.noValueLocked() {
 		return StoredSize{}, nil, 0, nil
 	}
-	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, outputs, nil, hold, nil)
+	walk, own := c.storedRootWalkLocked(res, nowUnix, held, seen, ordinary, outputs, withhold, hold, nil)
 	return walk.size, walk.closure, own, walk.misses
 }
 

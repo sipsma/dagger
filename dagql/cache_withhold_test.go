@@ -221,13 +221,14 @@ func withholdTestCallOverAWithheldInput(t *testing.T, held func(*receiverCallTes
 }
 
 // What StoredClosure and StoredLowerHalf list of a bundle without building
-// it is what StoredBundle carries: nothing of a root it withholds, and no
-// input of a call it doesn't send. A set file cuts a root priced over its
-// part bound into parts of the records StoredClosure lists below it, ahead
-// of the root's own part; a root that part then withholds would leave those
-// records with nothing the file retains over them, which an engine that
-// restores the file drops.
-func TestStoredListingsCountNothingABundleWithholds(t *testing.T) {
+// it, and what StoredSizes prices when asked to withhold, is what
+// StoredBundle carries: nothing of a root it withholds, and no input of a
+// call it doesn't send. A set file cuts a root priced over its part bound
+// into parts of the records StoredClosure lists below it, ahead of the
+// root's own part; a root that part then withholds would leave those records
+// with nothing the file retains over them, which an engine that restores the
+// file drops. Plain pricing, placement's, counts them.
+func TestStoredListingsAndWithholdingPricesCountNothingABundleWithholds(t *testing.T) {
 	t.Parallel()
 	t.Run("a withheld root", func(t *testing.T) {
 		t.Parallel()
@@ -241,6 +242,12 @@ func TestStoredListingsCountNothingABundleWithholds(t *testing.T) {
 		closure, err := cloud.StoredClosure(ctx, []uint64{r}, now, nil)
 		require.NoError(t, err)
 		require.Empty(t, closure.Entries)
+		sizes, err := cloud.StoredSizes(ctx, []uint64{r}, now, nil, StoredSizesWithholding())
+		require.NoError(t, err)
+		require.Equal(t, StoredSize{}, sizes[0], "priced as withheld, the root adds nothing")
+		sizes, err = cloud.StoredSizes(ctx, []uint64{r}, now, nil)
+		require.NoError(t, err)
+		require.Equal(t, 2, sizes[0].Records, "plain pricing counts R and P")
 		lower, carried, err := cloud.StoredLowerHalf(ctx, r, now, nil)
 		require.NoError(t, err)
 		require.Empty(t, lower)
@@ -255,6 +262,9 @@ func TestStoredListingsCountNothingABundleWithholds(t *testing.T) {
 		closure, err = cloud.StoredClosure(ctx, []uint64{r}, now, nil)
 		require.NoError(t, err)
 		require.Len(t, closure.Entries, len(built.Bundle.Values))
+		sizes, err = cloud.StoredSizes(ctx, []uint64{r}, now, nil, StoredSizesWithholding())
+		require.NoError(t, err)
+		require.Equal(t, len(built.Bundle.Values), sizes[0].Records)
 	})
 	t.Run("a call over a withheld input", func(t *testing.T) {
 		t.Parallel()
@@ -276,6 +286,9 @@ func TestStoredListingsCountNothingABundleWithholds(t *testing.T) {
 		require.Empty(t, built.Withheld)
 		require.Empty(t, built.CallInputs, "the call over the withheld input isn't sent")
 
+		sizes, err := test.cloud.StoredSizes(test.ctx, []uint64{test.number}, now, nil, StoredSizesWithholding())
+		require.NoError(t, err)
+		require.Equal(t, len(built.Bundle.Values), sizes[0].Records, "priced as withheld, the input isn't counted")
 		closure, err := test.cloud.StoredClosure(test.ctx, []uint64{test.number}, now, nil)
 		require.NoError(t, err)
 		require.Empty(t, closure.CallInputs)
