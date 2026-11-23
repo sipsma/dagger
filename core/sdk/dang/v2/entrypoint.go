@@ -216,21 +216,25 @@ func (r *entrypointRuntime) Call(
 			)
 			// An exec that the entrypoint starts is cached by its own recipe,
 			// which misses the call's implicit inputs, such as the clients the
-			// workspace declares. An entrypoint keys its exec on the call by
-			// declaring a nullable callDigest argument; one that does not
-			// declare it never receives it. The recipe digest is stable, so
-			// the exec answers again when dagql evaluates a call again, such
-			// as after a prune; it already changes per call for never and per
-			// session for per-session functions. A function with an explicit
-			// TTL gets a new digest on every evaluation instead: its result
-			// can expire before that TTL when a call with a shorter one
-			// returned the same result. So it runs again whenever dagql
-			// evaluates it, also after a pruned result or a failed attempt.
+			// workspace declares. An entrypoint keys its module process's exec
+			// on the call by declaring a nullable callDigest argument; one
+			// that does not declare it never receives it.
+			//
+			// That exec is the function's run, as a container runtime's exec
+			// is, and like it, it answers only the evaluation that made it:
+			// callDigest is the call's recipe digest with a value of this
+			// evaluation's own. What the process was given and what it
+			// returns name results by handle, numbers in this engine
+			// process's cache: served to another evaluation, from another
+			// session, after a restart or from another engine, they name
+			// results that may be gone, or another call's, of any type. What
+			// the cache keeps and shares is the call's result, whose
+			// references persistence and import map to each engine's own.
+			// So dagql's cache policy alone decides when the function runs:
+			// whenever dagql evaluates the call, also after a failed attempt
+			// or a pruned or expired result.
 			if execMD != nil && execMD.CallDigest != "" {
-				callDigest := execMD.CallDigest
-				if fnCall.CacheTTLSeconds() > 0 {
-					callDigest = hashutil.HashStrings(callDigest.String(), rand.Text())
-				}
+				callDigest := hashutil.HashStrings(execMD.CallDigest.String(), rand.Text())
 				callArgs = append(callArgs, entrypoint.StringCallArg("callDigest", callDigest.String()))
 			}
 			result, err := callEntrypointMethod(ctx, env, entrypointName, "call", moduleContext, callArgs)
