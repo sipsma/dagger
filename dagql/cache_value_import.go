@@ -425,6 +425,22 @@ func validateHeldRow(row TransferredValue) error {
 // the output's address: the same state, or a completed output of a part the
 // record has pending; and an output with a chain, which becomes an offer,
 // only of a pending part, and as an offer the part takes.
+// checkHeldPart checks a part an export puts on a held row against the
+// Cloud's own copy of that part, the row's recipe's current entry's
+// (entryPartsWhyLocked). The row's recipe is the copy's, so the two are
+// interchangeable: a part the row says is pending is held by a copy that has
+// it completed, which holds everything still to come of it, as long as the
+// row puts nothing on it to store. Every other part is checked as a bundle
+// checks an output against its own record (checkOutputPart): an upload onto
+// a completed part, and a part in any other state than the copy's, don't
+// hold.
+func checkHeldPart(output TransferredOutput, part CapturedCodecOutput) error {
+	if output.State == "pending" && part.State == "completed" && output.Chain == nil && output.Value == nil && output.Owner == nil {
+		return nil
+	}
+	return checkOutputPart(output, part)
+}
+
 func checkOutputPart(output TransferredOutput, part CapturedCodecOutput) error {
 	if output.State != part.State && (part.State != "pending" || output.State != "completed") {
 		return fmt.Errorf("output state differs from recorded part: %s against %s", output.State, part.State)
