@@ -816,3 +816,74 @@ func TestARowOverARecipeDecidedByALaterRecordFollowsThatDecision(t *testing.T) {
 	cloud.egraphMu.RUnlock()
 	require.True(t, rootOverR, "U stands over cache-b's R")
 }
+
+// A bundle carries one run of a step. Asked for the first run of a step and
+// a result over its second run, it carries the first, which its roots reach
+// first, and leaves the result out: an engine keeps one entry a recipe, and
+// sent both it would refuse the bundle, or land the second run on the first.
+// The cache's listing and pricing of the same roots agree. Asked for the
+// result alone, the bundle carries it over its own run, as before.
+func TestABundleCarriesOneRunOfAStep(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+	second, root := secondRunTestNumber(bundle, reply, s.bStep), secondRunTestNumber(bundle, reply, s.bRoot)
+	s.checkKeptApart(t, second, root)
+	now := time.Now().Unix()
+
+	both, err := s.cloud.StoredBundle(s.cctx, []uint64{s.first, root}, now, nil)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{root}, both.OtherRun, "the result over the second run is left out")
+	var numbers []uint64
+	for _, value := range both.Bundle.Values {
+		numbers = append(numbers, value.SenderNumber)
+	}
+	require.Contains(t, numbers, s.first)
+	require.NotContains(t, numbers, second, "one run of the step")
+	require.NotContains(t, numbers, root)
+
+	listed, err := s.cloud.StoredClosure(s.cctx, []uint64{s.first, root}, now, nil)
+	require.NoError(t, err)
+	for _, entry := range listed.Entries {
+		require.NotContains(t, []uint64{second, root}, entry.Number, "the listing leaves out what the bundle does")
+	}
+	sizes, err := s.cloud.StoredSizes(s.cctx, []uint64{s.first, root}, now, nil)
+	require.NoError(t, err)
+	require.Positive(t, sizes[0].Records)
+	require.Zero(t, sizes[1].Records, "the pricing carries nothing of it")
+
+	alone, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, now, nil)
+	require.NoError(t, err)
+	require.Empty(t, alone.OtherRun)
+	numbers = numbers[:0]
+	for _, value := range alone.Bundle.Values {
+		numbers = append(numbers, value.SenderNumber)
+	}
+	require.Contains(t, numbers, second, "alone, the result goes over its own run")
+}
+
+// A bundle for an engine that holds one run of a step carries that run of
+// it, and leaves out a result over another run: the engine would land the
+// other run's record on its own entry, and the result would stand over its
+// own run. To it the result is a miss, which it runs over its own run.
+func TestABundleForAnEngineHoldingARunLeavesOutResultsOverAnother(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+	second, root := secondRunTestNumber(bundle, reply, s.bStep), secondRunTestNumber(bundle, reply, s.bRoot)
+	s.checkKeptApart(t, second, root)
+	_, err := s.cloud.AttachRemoteHolding(s.cctx, HolderKey{Cache: "cache-c", Number: 7}, RemoteHolding{Recipe: s.recipe})
+	require.NoError(t, err)
+	held, ok := s.cloud.HolderEntry(HolderKey{Cache: "cache-c", Number: 7})
+	require.True(t, ok)
+	require.Equal(t, s.first, held, "cache-c holds the first run")
+
+	sent, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, time.Now().Unix(), &HeldBy{Cache: "cache-c"})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{root}, sent.OtherRun)
+	require.Empty(t, sent.Bundle.Values)
+
+	other, err := s.cloud.StoredBundle(s.cctx, []uint64{root}, time.Now().Unix(), &HeldBy{Cache: "cache-d"})
+	require.NoError(t, err)
+	require.Empty(t, other.OtherRun, "an engine holding neither run is sent the result over its run")
+}

@@ -24,6 +24,7 @@ type StoredBundleResult struct {
 	// known only through holdings.
 	Gone    []uint64
 	NoValue []uint64
+	OtherRun []uint64
 	// Held are the numbers of the entries the bundle carries as held rows.
 	Held []uint64
 	// NotWhole are, with HeldBy.Whole, the numbers of the entries the
