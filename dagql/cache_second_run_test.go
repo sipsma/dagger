@@ -720,3 +720,99 @@ func TestAKeptUnderMarkGoesWithItsLastStoredParentsEdge(t *testing.T) {
 	_, ok := s.cloud.EntryRun(second)
 	require.False(t, ok, "released at cache-b's end")
 }
+
+// A result that comes in a later export, over a copy of a step that folded
+// with the step below it, meets the copy as a held row whose own step
+// follows from its inputs: it is another value all the same, over the
+// engine's own run of the step below. The Cloud asks for the copy again,
+// then for the step under it, and keeps both apart, the result over them.
+func TestALaterUniqueResultOverAFoldedCopyAsksForTheRunsBelowIt(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	actx, a, asrv := transferTestCache(t)
+	aStep := secondRunTestStep(t, actx, a, asrv, "second-run-step", "a-run")
+	aCopy := persistedListTestResult(t, actx, a, asrv, "second-run-copy", &transferTestValue{Text: "a-copy"})
+	transferTestDependency(a, actx, aCopy, aStep)
+	aBundle, aReply := secondRunTestExport(t, actx, a, nil, cloud, ctx, "cache-a", aCopy)
+	firstStep, firstCopy := secondRunTestNumber(aBundle, aReply, aStep), secondRunTestNumber(aBundle, aReply, aCopy)
+
+	bctx, b, bsrv := transferTestCache(t)
+	bStep := secondRunTestStep(t, bctx, b, bsrv, "second-run-step", "b-run")
+	bCopy := persistedListTestResult(t, bctx, b, bsrv, "second-run-copy", &transferTestValue{Text: "b-copy"})
+	transferTestDependency(b, bctx, bCopy, bStep)
+	bRoot := secondRunTestStep(t, bctx, b, bsrv, "second-run-unique", "b-root")
+	transferTestDependency(b, bctx, bRoot, bCopy)
+	known := NewKnownRows()
+	copyBundle, copyReply := secondRunTestExport(t, bctx, b, known, cloud, ctx, "cache-b", bCopy)
+	require.Equal(t, firstCopy, secondRunTestNumber(copyBundle, copyReply, bCopy), "alone, the copy folds")
+	require.Equal(t, firstStep, secondRunTestNumber(copyBundle, copyReply, bStep), "and so does the step")
+
+	var bundle ValueBundle
+	var reply MergeReply
+	asked := 0
+	for range 4 {
+		bundle, reply = secondRunTestExport(t, bctx, b, known, cloud, ctx, "cache-b", bRoot)
+		if len(reply.Stale) == 0 {
+			break
+		}
+		require.False(t, reply.Committed)
+		asked++
+	}
+	require.Empty(t, reply.Stale, "asked again, the runs below come in full")
+	require.Positive(t, asked, "the result isn't installed over the first run's copy")
+	secondStep, secondCopy, root := secondRunTestNumber(bundle, reply, bStep), secondRunTestNumber(bundle, reply, bCopy), secondRunTestNumber(bundle, reply, bRoot)
+	require.NotEqual(t, firstStep, secondStep)
+	require.NotEqual(t, firstCopy, secondCopy)
+	cloud.egraphMu.RLock()
+	_, rootOverCopy := cloud.resultsByID[sharedResultID(root)].deps[sharedResultID(secondCopy)]
+	_, copyOverStep := cloud.resultsByID[sharedResultID(secondCopy)].deps[sharedResultID(secondStep)]
+	cloud.egraphMu.RUnlock()
+	require.True(t, rootOverCopy, "the result stands over cache-b's copy")
+	require.True(t, copyOverStep, "which stands over cache-b's run of the step")
+}
+
+// A bundle can carry two records of one recipe: an expired P that a live R
+// depends on, and the current P', which comes after R in the bundle's
+// order. The recipe is decided by its best record, P', kept apart as
+// another run under the result U over R; R, which follows from its inputs,
+// is then another value too, and U stands over it, whatever order the rows
+// came in.
+func TestARowOverARecipeDecidedByALaterRecordFollowsThatDecision(t *testing.T) {
+	t.Parallel()
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	actx, a, asrv := transferTestCache(t)
+	aP := secondRunTestStep(t, actx, a, asrv, "two-values", "a value")
+	aR := persistedListTestResult(t, actx, a, asrv, "two-values-parent", DynamicResultArrayOutput{Elem: &transferTestValue{}, Values: []AnyResult{aP}})
+	aBundle, aReply := secondRunTestExport(t, actx, a, nil, cloud, ctx, "cache-a", aR)
+	firstR := secondRunTestNumber(aBundle, aReply, aR)
+	require.NotZero(t, firstR)
+
+	bctx, b, bsrv := transferTestCache(t)
+	old := secondRunTestStep(t, bctx, b, bsrv, "two-values", "old value")
+	r := persistedListTestResult(t, bctx, b, bsrv, "two-values-parent", DynamicResultArrayOutput{Elem: &transferTestValue{}, Values: []AnyResult{old}})
+	u := secondRunTestStep(t, bctx, b, bsrv, "two-values-unique", "b-root")
+	transferTestDependency(b, bctx, u, r)
+	mergeTestExpire(b, old.cacheSharedResult())
+	frame := old.cacheSharedResult().loadResultCall().clone()
+	fresh, err := b.GetOrInitCall(bctx, "fresh-session", bsrv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
+		return NewResultForCall(&transferTestValue{Text: "fresh value"}, frame)
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.ReleaseSession(bctx, "fresh-session")) })
+	bundle := cloudTestBundle(t, bctx, b, u, fresh)
+	require.Len(t, bundle.Values, 4)
+	require.Equal(t, mergeTestOrdinalOf(t, bundle, fresh.cacheSharedResult()), bundle.Values[3].Ordinal, "P' comes after R")
+
+	reply, err := cloud.MergeValues(ctx, "cache-b", bundle)
+	require.NoError(t, err)
+	require.Empty(t, reply.Stale)
+	secondP := mergeTestValueOf(t, reply, mergeTestOrdinalOf(t, bundle, fresh.cacheSharedResult())).Number
+	secondR := mergeTestValueOf(t, reply, mergeTestOrdinalOf(t, bundle, r.cacheSharedResult())).Number
+	root := mergeTestValueOf(t, reply, mergeTestOrdinalOf(t, bundle, u.cacheSharedResult())).Number
+	require.True(t, secondRunTestFacts(t, cloud, secondP).SecondRun, "P' is kept apart")
+	require.NotEqual(t, firstR, secondR, "R over it is another value")
+	cloud.egraphMu.RLock()
+	_, rootOverR := cloud.resultsByID[sharedResultID(root)].deps[sharedResultID(secondR)]
+	cloud.egraphMu.RUnlock()
+	require.True(t, rootOverR, "U stands over cache-b's R")
+}
