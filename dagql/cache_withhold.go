@@ -269,17 +269,13 @@ func (w *withholdBuild) otherRunCarriedLocked(roots ...*sharedResult) (bool, sha
 				if !ok {
 					prev, ok = runs[recipe]
 				}
-				if ok && *prev.run != *res.run && !w.c.sameContentLocked(prev, res) {
+				if ok && *prev.run != *res.run {
 					return true, res.id
 				}
 				if !ok {
 					runs[recipe] = res
 				}
 			}
-		}
-		if w.c.entryFollowsLocked(res) == FollowsKey {
-			// What is below it changes nothing a value over it holds.
-			continue
 		}
 		for _, id := range storedClosureChildrenLocked(res) {
 			if child := w.c.resultsByID[id]; child != nil {
@@ -370,7 +366,7 @@ func (w *withholdBuild) recipientHoldsOtherRunLocked(res *sharedResult) bool {
 // whose foldedRuns answer for it, and the walk stops there. Requires
 // egraphMu.
 func (w *withholdBuild) overFoldedRunLocked(res *sharedResult) bool {
-	if res.run == nil {
+	if res.run == nil || w.c.entryFollowsLocked(res) == FollowsKey {
 		return false
 	}
 	for _, id := range storedClosureChildrenLocked(res) {
@@ -397,7 +393,9 @@ func (w *withholdBuild) foldedReachLocked(res *sharedResult) []CacheID {
 			reach = append(reach, run.Cache)
 		}
 	}
-	if !w.c.entryCanDifferLocked(res) {
+	// Nor below a step whose content its key addresses: no run under it
+	// shows in what is over it.
+	if !w.c.entryCanDifferLocked(res) && w.c.entryFollowsLocked(res) != FollowsKey {
 		for _, id := range storedClosureChildrenLocked(res) {
 			if child := w.c.resultsByID[id]; child != nil {
 				for _, cache := range w.foldedReachLocked(child) {

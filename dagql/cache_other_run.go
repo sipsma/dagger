@@ -68,7 +68,7 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 		if row == nil {
 			return nil
 		}
-		if rec, ok := commit.prep.records[uint64(row.ordinal)]; ok && rec.Call != nil {
+		if rec, ok := commit.prep.records[row.ordinal]; ok && rec.Call != nil {
 			return rec.Call
 		}
 		if row.plan.row == nil {
@@ -77,7 +77,9 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 		return row.plan.row.loadResultCall()
 	}
 	sameContent := func(row *mergeRow, call *ResultCall) bool {
-		if row.target == nil || call == nil {
+		// A held row carries no frame of its own: its plan's is the
+		// engine's own entry's, so what the Cloud holds of it isn't known.
+		if row.target == nil || call == nil || commit.prep.held[row.ordinal] {
 			return false
 		}
 		content := call.ContentDigest()
@@ -86,6 +88,10 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 	}
 	// The rows the bundle's values stand over, from its roots down, not
 	// below a row whose content no run under it changes.
+	outputs := map[uint64][]TransferredOutput{}
+	for _, output := range commit.prep.bundle.Outputs {
+		outputs[uint64(output.Ordinal)] = append(outputs[uint64(output.Ordinal)], output)
+	}
 	reached := map[uint64]bool{}
 	var stack []uint64
 	for _, root := range commit.prep.bundle.Roots {
@@ -105,10 +111,22 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 		if value := commit.prep.index[id]; value != nil {
 			stack = append(stack, value.DependencyIDs...)
 		}
+		// A row's outputs name their owners' rows and their services
+		// directly (storedClosureChildrenLocked).
+		for _, output := range outputs[id] {
+			if output.Owner != nil {
+				stack = append(stack, output.Owner.DependencyIDs...)
+			}
+			if output.Value != nil {
+				for _, service := range output.Value.Services {
+					stack = append(stack, service.ServiceResultID)
+				}
+			}
+		}
 	}
 	var other []TransferOrdinal
 	for _, row := range commit.rows {
-		if row.action != mergeKeep || row.target == nil || row.value.Run == nil || !reached[uint64(row.ordinal)] {
+		if row.action != mergeKeep || row.target == nil || row.value.Run == nil || !reached[row.ordinal] {
 			continue
 		}
 		call := frameOf(row)
