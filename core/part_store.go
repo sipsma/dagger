@@ -508,8 +508,8 @@ func (s *containerPartStore) Publish() {
 			a.snapshot.isSet = true
 		}
 	}
-	// Before and after, so a walk that overlaps the store remembers nothing
-	// a later walk can use (containerPartSourceEpoch).
+	// Before and after: the epoch is odd while the store is under way, so a
+	// walk that overlaps it remembers nothing (containerPartSourceEpoch).
 	containerPartSourceEpoch.Add(1)
 	r.acquiredOutput.Store(s.view)
 	containerPartSourceEpoch.Add(1)

@@ -64,15 +64,17 @@ type rememberedPartSource struct {
 }
 
 // partSource returns the source remembered for a part the op passes
-// through, if it was found in epoch.
-func (lazy *LazyState) partSource(part dagql.PartKey, epoch uint64) (dagql.AnyResult, bool) {
+// through, while no container has gained an acquired output since the walk
+// that found it began: the epoch now, not when the caller's walk began, so a
+// walk that overlaps an install doesn't take a source found before it.
+func (lazy *LazyState) partSource(part dagql.PartKey) (dagql.AnyResult, bool) {
 	if lazy.LazyMu == nil {
 		return nil, false
 	}
 	lazy.LazyMu.Lock()
 	defer lazy.LazyMu.Unlock()
 	src, ok := lazy.partSources[part]
-	if !ok || src.epoch != epoch {
+	if !ok || src.epoch != containerPartSourceEpoch.Load() {
 		return nil, false
 	}
 	return src.result, true
