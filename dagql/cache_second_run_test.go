@@ -887,3 +887,68 @@ func TestABundleForAnEngineHoldingARunLeavesOutResultsOverAnother(t *testing.T) 
 	require.NoError(t, err)
 	require.Empty(t, other.OtherRun, "an engine holding neither run is sent the result over its run")
 }
+
+// A lookup's roots go in full whatever the engine holds of them (HeldBy.Not),
+// but the run of a step an engine holds is still the one it holds: a bundle
+// asked for a result over the second run and for the first run, which the
+// recipient holds and is asked for in full, carries the first run and leaves
+// the result out.
+func TestABundleCarriesTheRunItsRecipientHoldsThoughItGoesInFull(t *testing.T) {
+	t.Parallel()
+	s := newSecondRunTestSetup(t)
+	bundle, reply := secondRunTestExport(t, s.bctx, s.b, nil, s.cloud, s.cctx, "cache-b", s.bRoot)
+	second, root := secondRunTestNumber(bundle, reply, s.bStep), secondRunTestNumber(bundle, reply, s.bRoot)
+	s.checkKeptApart(t, second, root)
+	_, err := s.cloud.AttachRemoteHolding(s.cctx, HolderKey{Cache: "cache-c", Number: 7}, RemoteHolding{Recipe: s.recipe})
+	require.NoError(t, err)
+
+	sent, err := s.cloud.StoredBundle(s.cctx, []uint64{root, s.first}, time.Now().Unix(), &HeldBy{Cache: "cache-c", Not: map[uint64]bool{s.first: true}})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{root}, sent.OtherRun, "the result over the run cache-c doesn't hold is left out")
+	var numbers []uint64
+	for _, value := range sent.Bundle.Values {
+		require.Empty(t, value.Held)
+		numbers = append(numbers, value.SenderNumber)
+	}
+	require.Equal(t, []uint64{s.first}, numbers, "the run cache-c holds goes, in full")
+}
+
+// A held row a recipient doesn't hold whole goes in full (HeldBy.Whole), and
+// what that walk exposes counts toward the run a bundle carries: a bundle of
+// a result H over a step's second run, which the recipient holds but not
+// whole, and of a result U over the step's first run carries H over its run
+// and leaves U out, never both runs.
+func TestABundleCountsTheRunsAWholeHoldingExposes(t *testing.T) {
+	t.Parallel()
+	cctx, cloud := storedPartTestCache(t, WithBlobStore())
+	actx, a, asrv := transferTestCache(t)
+	aStep := secondRunTestStep(t, actx, a, asrv, "second-run-step", "a-run")
+	aRoot := secondRunTestStep(t, actx, a, asrv, "second-run-a-root", "a-root")
+	transferTestDependency(a, actx, aRoot, aStep)
+	aBundle, aReply := secondRunTestExport(t, actx, a, nil, cloud, cctx, "cache-a", aRoot)
+	first, u := secondRunTestNumber(aBundle, aReply, aStep), secondRunTestNumber(aBundle, aReply, aRoot)
+	recipe := secondRunTestRecipe(t, cloud, first)
+
+	bctx, b, bsrv := transferTestCache(t)
+	bStep := secondRunTestStep(t, bctx, b, bsrv, "second-run-step", "b-run")
+	bRoot := secondRunTestStep(t, bctx, b, bsrv, "second-run-unique", "b-root")
+	transferTestDependency(b, bctx, bRoot, bStep)
+	_, err := cloud.AttachRemoteHolding(cctx, HolderKey{Cache: "cache-b", Number: uint64(bStep.cacheSharedResult().id)}, RemoteHolding{Recipe: recipe})
+	require.NoError(t, err)
+	bBundle, bReply := secondRunTestExport(t, bctx, b, nil, cloud, cctx, "cache-b", bRoot)
+	second, h := secondRunTestNumber(bBundle, bReply, bStep), secondRunTestNumber(bBundle, bReply, bRoot)
+	require.NotEqual(t, first, second, "cache-b's run is kept apart")
+
+	// cache-c holds H, with a dependency it holds nothing of: not whole.
+	heldTestHoldOver(t, cloud, "cache-c", 7, h, []uint64{99})
+	sent, err := cloud.StoredBundle(cctx, []uint64{h, u}, time.Now().Unix(), &HeldBy{Cache: "cache-c", Whole: true})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{h}, sent.NotWhole)
+	require.Equal(t, []uint64{u}, sent.OtherRun, "U over the other run is left out")
+	var numbers []uint64
+	for _, value := range sent.Bundle.Values {
+		numbers = append(numbers, value.SenderNumber)
+	}
+	require.Contains(t, numbers, second)
+	require.NotContains(t, numbers, first, "one run of the step")
+}
