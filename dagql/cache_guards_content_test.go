@@ -82,24 +82,8 @@ func TestAValueOverAnotherRunWithTheRecipientsContentIsNotWithheld(t *testing.T)
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cctx, cloud := storedPartTestCache(t, WithBlobStore())
-			actx, a, asrv := transferTestCache(t)
-			aStep := secondRunTestStep(t, actx, a, asrv, "guards-step", "a-run")
-			guardsTestFrame(t, a, aStep, "", contents[0])
-			bundle, reply := secondRunTestExport(t, actx, a, nil, cloud, cctx, "cache-a", aStep)
-			s := &secondRunTestSetup{cctx: cctx, cloud: cloud, first: secondRunTestNumber(bundle, reply, aStep)}
-			s.recipe = secondRunTestRecipe(t, cloud, s.first)
-			bctx, b, bsrv := transferTestCache(t)
-			bStep := secondRunTestStep(t, bctx, b, bsrv, "guards-step", "b-run")
-			guardsTestFrame(t, b, bStep, "", contents[1])
-			bRoot := secondRunTestStep(t, bctx, b, bsrv, "guards-unique", "b-root")
-			transferTestDependency(b, bctx, bRoot, bStep)
-			_, err := cloud.AttachRemoteHolding(cctx, HolderKey{Cache: "cache-b", Number: uint64(bStep.cacheSharedResult().id)}, RemoteHolding{Recipe: s.recipe})
-			require.NoError(t, err)
-			bundle, reply = secondRunTestExport(t, bctx, b, nil, cloud, cctx, "cache-b", bRoot)
-			second, root := secondRunTestNumber(bundle, reply, bStep), secondRunTestNumber(bundle, reply, bRoot)
-			require.NotZero(t, root)
-			require.NotEqual(t, s.first, second, "cache-b's run is an entry of its own")
+			s, _, root := guardsTestTwoRuns(t, contents[0], contents[1])
+			cloud, cctx := s.cloud, s.cctx
 			got, err := cloud.StoredBundle(cctx, []uint64{root}, time.Now().Unix(), guardsTestRecipient(t, s))
 			require.NoError(t, err)
 			if name == "same content" {
@@ -109,6 +93,47 @@ func TestAValueOverAnotherRunWithTheRecipientsContentIsNotWithheld(t *testing.T)
 			}
 		})
 	}
+}
+
+// guardsTestTwoRuns has cache-a's run of a step, of content digest a, merged
+// into a new Cloud, then cache-b's own run of it, of content digest b, with
+// a unique result over it, which the Cloud keeps apart as a second run. It
+// returns the setup and the Cloud's numbers for cache-b's run and result.
+func guardsTestTwoRuns(t *testing.T, a, b digest.Digest) (*secondRunTestSetup, uint64, uint64) {
+	t.Helper()
+	cctx, cloud := storedPartTestCache(t, WithBlobStore())
+	actx, ac, asrv := transferTestCache(t)
+	aStep := secondRunTestStep(t, actx, ac, asrv, "guards-step", "a-run")
+	guardsTestFrame(t, ac, aStep, "", a)
+	bundle, reply := secondRunTestExport(t, actx, ac, nil, cloud, cctx, "cache-a", aStep)
+	s := &secondRunTestSetup{cctx: cctx, cloud: cloud, first: secondRunTestNumber(bundle, reply, aStep)}
+	s.recipe = secondRunTestRecipe(t, cloud, s.first)
+	bctx, bc, bsrv := transferTestCache(t)
+	bStep := secondRunTestStep(t, bctx, bc, bsrv, "guards-step", "b-run")
+	guardsTestFrame(t, bc, bStep, "", b)
+	bRoot := secondRunTestStep(t, bctx, bc, bsrv, "guards-unique", "b-root")
+	transferTestDependency(bc, bctx, bRoot, bStep)
+	_, err := cloud.AttachRemoteHolding(cctx, HolderKey{Cache: "cache-b", Number: uint64(bStep.cacheSharedResult().id)}, RemoteHolding{Recipe: s.recipe})
+	require.NoError(t, err)
+	bundle, reply = secondRunTestExport(t, bctx, bc, nil, cloud, cctx, "cache-b", bRoot)
+	second, root := secondRunTestNumber(bundle, reply, bStep), secondRunTestNumber(bundle, reply, bRoot)
+	require.NotZero(t, root)
+	require.NotEqual(t, s.first, second, "cache-b's run is an entry of its own")
+	return s, second, root
+}
+
+// One bundle still carries one run of a step, even where the two runs'
+// content is the same: an engine decides a recipe once, and lands a second
+// row of it on the entry the first makes, which has no run yet to judge.
+// The root over the second run is withheld from the bundle, as for runs
+// whose content differs.
+func TestABundleCarriesOneRunOfAStepWhateverItsContent(t *testing.T) {
+	t.Parallel()
+	same := digest.FromString("same")
+	s, _, root := guardsTestTwoRuns(t, same, same)
+	got, err := s.cloud.StoredBundle(s.cctx, []uint64{s.first, root}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{root}, got.Withheld, "the root over the second run, after the first run")
 }
 
 // An engine takes a served value over another run of a step it holds where

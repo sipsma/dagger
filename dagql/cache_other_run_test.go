@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
+
+	"github.com/dagger/dagger/dagql/call"
 )
 
 // otherRunTestBundle has engine a compute a root R over P, its Cloud merge
@@ -277,7 +280,31 @@ func TestAStoredBundleWithholdsAValueOverAStepTheRecipientRanItself(t *testing.T
 // over it, even when the Cloud doesn't know yet.
 func TestAMergeRefusesAHeldRowOfAnotherRun(t *testing.T) {
 	t.Parallel()
+	for _, content := range []bool{false, true} {
+		t.Run(map[bool]string{false: "the engine's run has no content digest", true: "the engine's run has a content digest"}[content], func(t *testing.T) {
+			t.Parallel()
+			heldRowRefusalTest(t, content)
+		})
+	}
+}
+
+// heldRowRefusalTest is TestAMergeRefusesAHeldRowOfAnotherRun, with b's own
+// run of the step naming a content digest when content is set: a held row
+// carries none of its own, so what the Cloud holds of it isn't known, and
+// the engine's own digest says nothing of it.
+func heldRowRefusalTest(t *testing.T, content bool) {
 	cctx, cloud, bctx, b, r, _, _ := heldRowTestCloud(t)
+	if content {
+		b.egraphMu.Lock()
+		for _, res := range b.resultsByID {
+			if own := res.loadResultCall(); own != nil && own.Field == "held-run-dep" {
+				frame := own.clone()
+				frame.ExtraDigests = append(frame.ExtraDigests, call.ExtraDigest{Digest: digest.FromString("b's run"), Label: call.ExtraDigestLabelContent})
+				res.storeResultCall(frame)
+			}
+		}
+		b.egraphMu.Unlock()
+	}
 	// As though the Cloud didn't know yet that b ran the step itself: only
 	// the engine can tell.
 	cloud.egraphMu.Lock()
