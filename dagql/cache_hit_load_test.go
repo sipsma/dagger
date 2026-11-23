@@ -152,6 +152,75 @@ func TestHitLoadSizesItsDecodeBesideAReader(t *testing.T) {
 	require.Equal(t, sum, total, "the payload byte count follows its entries")
 }
 
+// A hit's load of a record from the Cloud whose decoded value must own other
+// results, as a decoded module object owns its module, takes the graph lock
+// for writing only for an edge the record didn't already bring. An edge the
+// entry has, such as the module a shared module's object already depends on,
+// changes nothing, and a write for it would wait for every reader and hold
+// every new one back. An edge it lacks is still added.
+func TestHitLoadWritesOnlyNewDecodedDependencies(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		extra bool
+	}{
+		{name: "the record's own dependency"},
+		{name: "and a result the record didn't depend on", extra: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			set := firstUseTestCloud(t)
+			ctx, engine, srv := transferTestCache(t)
+			reply, err := engine.MergeValues(ctx, cloudCacheID, set.bundle)
+			require.NoError(t, err)
+			root := firstUseTestEntry(t, set.bundle, reply, set.bad)
+			dep := sharedResultID(firstUseTestEntry(t, set.bundle, reply, set.dep))
+			good := sharedResultID(firstUseTestEntry(t, set.bundle, reply, set.good))
+			engine.egraphMu.RLock()
+			_, had := engine.resultsByID[sharedResultID(root)].deps[dep]
+			engine.egraphMu.RUnlock()
+			require.True(t, had, "the record brings its dependency")
+
+			transferDecodeHooks.Store(root, func(ctx context.Context, dec *PersistDecodeContext, value *transferTestValue) error {
+				child, err := dec.ResultRef(ctx, value.Child)
+				if err != nil {
+					return err
+				}
+				value.decodedDeps = []AnyResult{child}
+				if tc.extra {
+					other, err := dec.ResultRef(ctx, uint64(good))
+					if err != nil {
+						return err
+					}
+					value.decodedDeps = append(value.decodedDeps, other)
+				}
+				return nil
+			})
+			t.Cleanup(func() { transferDecodeHooks.Delete(root) })
+
+			takes := lockTakes(t, engine)
+			frame := &ResultCall{Kind: ResultCallKindField, Field: "fu-bad", Type: NewResultCallType((&transferTestValue{}).Type())}
+			req := &CallRequest{ResultCall: frame, CacheEvidence: NewCacheDecision()}
+			_, err = engine.GetOrInitCall(ctx, "test-session", srv, req, func(context.Context) (AnyResult, error) {
+				return nil, errors.New("the call ran: it should hit the record")
+			})
+			require.NoError(t, err)
+			require.Equal(t, CacheOutcomeHit, req.CacheEvidence.Outcome)
+			require.Positive(t, req.CacheEvidence.HitLoad().Decoded, "the hit decoded its record")
+
+			_, wrote := takes()["addExplicitDependencies"]
+			require.Equal(t, tc.extra, wrote, "the load takes the graph lock for writing to add a dependency only when one is new")
+			engine.egraphMu.RLock()
+			deps := engine.resultsByID[sharedResultID(root)].deps
+			_, hasDep := deps[dep]
+			_, hasGood := deps[good]
+			engine.egraphMu.RUnlock()
+			require.True(t, hasDep)
+			require.Equal(t, tc.extra, hasGood, "a new dependency is added")
+		})
+	}
+}
+
 // A call with no request fails with why: reading what a hit's span gathers
 // doesn't read the request a failed call may not have.
 func TestGetOrInitCallWithNoRequestFails(t *testing.T) {

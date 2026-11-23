@@ -42,6 +42,14 @@ type transferTestValue struct {
 	revisionHook func()
 	// unready makes the output revision read report a held persistence guard.
 	unready atomic.Bool
+	// decodedDeps are the results a decoded value must own, as a decoded
+	// module object owns its module (HasDecodedDependencyResults); a decode
+	// hook sets them.
+	decodedDeps []AnyResult
+}
+
+func (v *transferTestValue) DecodedDependencyResults() []AnyResult {
+	return v.decodedDeps
 }
 
 // transferTestField is one named field of a transferTestValue's body: a name,
