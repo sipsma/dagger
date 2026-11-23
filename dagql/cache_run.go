@@ -48,6 +48,12 @@ const (
 	// besides its metadata complete, and the row didn't install it from a
 	// Cloud offer, after the merge installed the record.
 	runRanByEvaluation
+	// runRanByOffer: the record is a second run's (secondRunOf), and a lazy
+	// row of the run's holding reported a part besides its metadata
+	// complete from a Cloud offer: the engine's value of the step has
+	// content, another run's, which what it built over the entry was built
+	// over (noteSecondRunContentLocked).
+	runRanByOffer
 )
 
 // savedRunLocked returns a copy of the run res's stored record names, for a
@@ -264,6 +270,9 @@ type RunCounts struct {
 	RanByProof      int `json:"ranByProof"`
 	RanByCall       int `json:"ranByCall"`
 	RanByEvaluation int `json:"ranByEvaluation"`
+	// RanByOffer are second runs whose engine installed content from a
+	// Cloud offer (runRanByOffer).
+	RanByOffer int `json:"ranByOffer"`
 	// NotRanRecords name the NotRan records, by number: a run among them
 	// that an engine's telemetry shows ran is a fault in what the Cloud
 	// learned.
@@ -306,6 +315,8 @@ func (c *Cache) StoredRuns() RunCounts {
 			counts.RanByCall++
 		case runRanByEvaluation:
 			counts.RanByEvaluation++
+		case runRanByOffer:
+			counts.RanByOffer++
 		default:
 			counts.NotRan++
 			recipe, _ := c.entryRecipeLocked(uint64(id))
