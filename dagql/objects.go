@@ -721,17 +721,17 @@ func (r ObjectResult[T]) preselect(ctx context.Context, srv *Server, sel Selecto
 	}
 	req := &CallRequest{
 		ResultCall: &ResultCall{
-			Kind:              ResultCallKindField,
-			Type:              NewResultCallType(astType),
-			Field:             sel.Field,
-			FollowsFromInputs: field.Spec.FollowsFromInputs,
-			ContentMayChange:  field.Spec.ContentMayChange(),
-			View:              view,
-			Nth:               int64(sel.Nth),
-			Receiver:          receiverRef,
-			Module:            module,
-			Args:              frameArgs,
-			ImplicitInputs:    implicitInputs,
+			Kind:             ResultCallKindField,
+			Type:             NewResultCallType(astType),
+			Field:            sel.Field,
+			Follows:          field.Spec.Follows,
+			ContentMayChange: field.Spec.ContentMayChange(),
+			View:             view,
+			Nth:              int64(sel.Nth),
+			Receiver:         receiverRef,
+			Module:           module,
+			Args:             frameArgs,
+			ImplicitInputs:   implicitInputs,
 		},
 		TTL:                  field.Spec.TTL,
 		DoNotCache:           field.Spec.DoNotCache != "",
@@ -1136,26 +1136,29 @@ type FieldSpec struct {
 	// fields that only read immutable values.
 	DeduplicateTelemetry bool
 
-	// FollowsFromInputs marks a field whose result is a function of its
-	// inputs' values and its arguments alone. The bar a field must meet to
-	// declare it: two runs of it over the same inputs give the same result,
-	// every byte of what an engine stores and sends of it, file times left
-	// out. For a directory that is its whole snapshot, not only the path the
-	// directory names, which is all core's content digest covers: a sparse
-	// tree keeps its lists beside its files. Nothing it writes may come from
-	// the order of a map's walk or of goroutines finishing, from a clock or a
-	// random id, or from the engine's own state. Another
-	// cache's run of such a call is then the same result as this cache's own
-	// wherever their inputs are, and the next run gives the content a stored
-	// run has: a stored value over it goes out without its content
-	// (entryCanDifferLocked). A call that runs a process or a module's code
-	// doesn't follow from its inputs. It may read from outside the engine only
-	// content addressed by a hash its key holds, such as a commit, blob ids or
-	// an image digest, or select a call that does and return that call's own
-	// result, as Container.from by tag does. A field found not to meet the bar
-	// is undeclared, not worked around. The call frame carries it
-	// (ResultCall.FollowsFromInputs).
-	FollowsFromInputs bool
+	// Follows is the field's claim that its result is the same from run to
+	// run, and on what (FollowsClaim): FollowsInputs, a function of its
+	// inputs' content and its arguments, or FollowsKey, a function of hashes
+	// its own key holds. The bar a field must meet to claim either: two runs
+	// of it give the same result, every byte of what an engine stores and
+	// sends of it, file times left out. For a directory that is its whole
+	// snapshot, not only the path the directory names, which is all core's
+	// content digest covers: a sparse tree keeps its lists beside its files.
+	// Nothing it writes may come from the order of a map's walk or of
+	// goroutines finishing, from a clock or a random id, or from the engine's
+	// own state. For FollowsInputs the two runs are over the same inputs; for
+	// FollowsKey over two separately made runs of them, since what it holds
+	// is addressed by its key alone. Another cache's run of such a call is
+	// then the same result as this cache's own wherever their inputs are, and
+	// the next run gives the content a stored run has: a stored value over it
+	// goes out without its content (entryCanDifferLocked). A call that runs a
+	// process or a module's code makes neither claim. It may read from outside
+	// the engine only content addressed by a hash its key holds, such as a
+	// commit, blob ids or an image digest, or select a call that does and
+	// return that call's own result, as Container.from by tag does. A field
+	// found not to meet the bar claims nothing, not worked around. The call
+	// frame carries it (ResultCall.Follows).
+	Follows FollowsClaim
 
 	// Trivial marks fields that only unwrap data from their receiver rather
 	// than performing meaningful work. Their telemetry spans are internal, and
@@ -1801,13 +1804,24 @@ func (spec *FieldSpec) ContentMayChange() bool {
 	return cacheUsageSizeMayChangeFromSelf(spec.Type)
 }
 
-// FollowsFromInputs marks the field's result as a function of its inputs
-// and arguments alone. See FieldSpec.FollowsFromInputs.
+// FollowsFromInputs claims the field's result is a function of its inputs'
+// content and its arguments (FollowsInputs). See FieldSpec.Follows.
 func (field Field[T]) FollowsFromInputs() Field[T] {
+	return field.follows(FollowsInputs)
+}
+
+// FollowsFromKey claims the field's result is a function of hashes its own
+// key holds (FollowsKey): what its inputs' runs are doesn't change what it
+// holds. See FieldSpec.Follows.
+func (field Field[T]) FollowsFromKey() Field[T] {
+	return field.follows(FollowsKey)
+}
+
+func (field Field[T]) follows(claim FollowsClaim) Field[T] {
 	if field.Spec.extend {
 		panic("cannot call on extended field")
 	}
-	field.Spec.FollowsFromInputs = true
+	field.Spec.Follows = claim
 	return field
 }
 

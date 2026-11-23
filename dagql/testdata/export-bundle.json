@@ -45,7 +45,7 @@
               "nonNull": true
             },
             "field": "row0",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         }
       },
@@ -71,7 +71,7 @@
               "nonNull": true
             },
             "field": "row1",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -100,7 +100,7 @@
               "nonNull": true
             },
             "field": "row2",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -129,7 +129,7 @@
               "nonNull": true
             },
             "field": "row3",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -158,7 +158,7 @@
               "nonNull": true
             },
             "field": "side",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -187,7 +187,7 @@
               "nonNull": true
             },
             "field": "row4",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -216,7 +216,7 @@
               "nonNull": true
             },
             "field": "row5",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -245,7 +245,7 @@
               "nonNull": true
             },
             "field": "row6",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -274,7 +274,7 @@
               "nonNull": true
             },
             "field": "row7",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -304,7 +304,7 @@
               "nonNull": true
             },
             "field": "mountA",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         },
         "dependencyIDs": [
@@ -334,7 +334,7 @@
               "nonNull": true
             },
             "field": "mountB",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         }
       },
@@ -361,7 +361,7 @@
               "nonNull": true
             },
             "field": "mountC",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         }
       },
@@ -388,7 +388,7 @@
               "nonNull": true
             },
             "field": "cli",
-            "followsFromInputs": true
+            "follows": "inputs"
           }
         }
       }

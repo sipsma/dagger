@@ -2705,7 +2705,7 @@ func gitTreeFollowsFromInputs(keepsGitDir bool) bool {
 
 func canonicalGitTreeArgs(req *dagql.CallRequest, repoDiscardsGitDir, discardGitDir bool, depth int, includeTags bool) {
 	if req.ResultCall != nil && !gitTreeFollowsFromInputs(!repoDiscardsGitDir && !discardGitDir) {
-		req.ResultCall.FollowsFromInputs = false
+		req.ResultCall.Follows = ""
 	}
 	if repoDiscardsGitDir || discardGitDir {
 		if repoDiscardsGitDir || !discardGitDir {

@@ -273,7 +273,7 @@ func TestFieldsThatFollowFromInputsDeclareIt(t *testing.T) {
 		require.True(t, ok, tc.typ)
 		spec, ok := typ.FieldSpec(tc.field, "")
 		require.True(t, ok, tc.typ+"."+tc.field)
-		require.Equal(t, tc.follows, spec.FollowsFromInputs, tc.typ+"."+tc.field)
+		require.Equal(t, tc.follows, spec.Follows != "", tc.typ+"."+tc.field)
 	}
 
 	root := e.srv.Root()
@@ -287,7 +287,7 @@ func TestFieldsThatFollowFromInputsDeclareIt(t *testing.T) {
 	} {
 		frame, err := res.ResultCall()
 		require.NoError(t, err, name)
-		require.True(t, frame.FollowsFromInputs, name)
+		require.True(t, frame.FollowsFromInputs(), name)
 	}
 }
 
@@ -328,7 +328,7 @@ func TestGitTreeFollowsFromItsInputsWithoutGitDir(t *testing.T) {
 		require.True(t, ok, typ)
 		spec, ok := class.FieldSpec("tree", "")
 		require.True(t, ok, typ)
-		require.True(t, spec.FollowsFromInputs, typ+".tree")
+		require.True(t, spec.Follows != "", typ+".tree")
 	}
 
 	ctx, srv, cache, _ := resolverOutputFixture(t)
@@ -355,6 +355,6 @@ func TestGitTreeFollowsFromItsInputsWithoutGitDir(t *testing.T) {
 		require.NoError(t, srv.Select(ctx, ref, &tree, dagql.Selector{Field: "tree", Args: tc.args}), tc.name)
 		frame, err := tree.ResultCall()
 		require.NoError(t, err, tc.name)
-		require.Equal(t, tc.follows, frame.FollowsFromInputs, tc.name)
+		require.Equal(t, tc.follows, frame.FollowsFromInputs(), tc.name)
 	}
 }

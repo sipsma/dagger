@@ -44,9 +44,9 @@ func (c *Cache) entryCanDifferWhyLocked(res *sharedResult) (bool, string) {
 	}
 	if res.stored != nil || res.persistedEnvelope != nil {
 		if call := res.loadResultCall(); call != nil {
-			note(call.FollowsFromInputs)
+			note(call.FollowsFromInputs())
 		} else if body := res.stored; body != nil && body.frame != nil {
-			note(body.follows)
+			note(body.follows != "")
 		}
 	}
 	for _, ref := range res.holderRefsLocked() {

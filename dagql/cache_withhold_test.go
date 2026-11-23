@@ -14,7 +14,7 @@ import (
 // holding of P's run in cache-a, at its replacement count.
 func withholdTestCloud(t *testing.T, follows bool) (context.Context, *Cache, uint64, uint64, HolderKey, uint64) {
 	t.Helper()
-	return withholdTestCloudFrame(t, func(frame *ResultCall) { frame.FollowsFromInputs = follows })
+	return withholdTestCloudFrame(t, func(frame *ResultCall) { frame.Follows = testFollows(follows) })
 }
 
 // withholdTestCloudFrame is withholdTestCloud with edit applied to P's frame.
@@ -335,4 +335,13 @@ func TestStoredBundleSendsNoCallOverAnotherRunTheBundleCarries(t *testing.T) {
 	require.Empty(t, built.Bundle.Calls, "the call's input is another run of b's receiver")
 	require.Empty(t, built.CallInputs)
 	require.Equal(t, 1, built.UnsendableCalls)
+}
+
+// testFollows is the claim a test's frame makes: that it follows from its
+// inputs when follows is set, and nothing otherwise.
+func testFollows(follows bool) FollowsClaim {
+	if follows {
+		return FollowsInputs
+	}
+	return ""
 }

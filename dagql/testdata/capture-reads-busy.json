@@ -40,7 +40,7 @@
             "nonNull": true
           },
           "field": "reads-busy-b",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [

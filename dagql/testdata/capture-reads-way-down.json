@@ -70,7 +70,7 @@
             "nonNull": true
           },
           "field": "reads-list-root",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [

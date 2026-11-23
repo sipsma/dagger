@@ -22,7 +22,7 @@ func secondRunTestStep(t *testing.T, ctx context.Context, c *Cache, srv *Server,
 	res := persistedListTestResult(t, ctx, c, srv, field, &transferTestValue{Text: text})
 	c.egraphMu.Lock()
 	frame := res.cacheSharedResult().loadResultCall().clone()
-	frame.FollowsFromInputs = false
+	frame.Follows = ""
 	res.cacheSharedResult().storeResultCall(frame)
 	c.egraphMu.Unlock()
 	return res

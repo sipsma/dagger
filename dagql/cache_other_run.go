@@ -69,7 +69,7 @@ func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 		}
 		// A step whose content may change is the engine's own state: it
 		// keeps its copy, and the value over it says its own declaration.
-		if call == nil || call.FollowsFromInputs || call.ContentMayChange {
+		if call == nil || call.FollowsFromInputs() || call.ContentMayChange {
 			continue
 		}
 		if run, known := c.engineRunLocked(row.target); known && run != *row.value.Run {

@@ -103,9 +103,9 @@ type storedBody struct {
 	frameBytes int64
 	recipe     digest.Digest
 	// follows is the held frame's declaration that the result follows from
-	// its inputs (ResultCall.FollowsFromInputs), kept beside it so that no
+	// its inputs, or from its key (ResultCall.Follows), kept beside it so that no
 	// reader decompresses the frame for it (entryCanDifferLocked).
-	follows bool
+	follows FollowsClaim
 	// mayChange is the held frame's word that the result's content may
 	// change (ResultCall.ContentMayChange), kept beside it as follows is.
 	mayChange bool
@@ -249,7 +249,7 @@ func (b *storedBody) withFrameEncoded(c *Cache, call *ResultCall, enc *zstd.Enco
 		frame:         bytes.Clone(enc.EncodeAll(raw, nil)),
 		frameBytes:    int64(len(raw)),
 		recipe:        recipe,
-		follows:       call.FollowsFromInputs,
+		follows:       call.Follows,
 		mayChange:     call.ContentMayChange,
 		refs:          b.refs,
 	}, nil

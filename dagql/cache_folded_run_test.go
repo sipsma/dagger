@@ -95,7 +95,7 @@ func canDiffer(t *testing.T, c *Cache, res AnyResult) {
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
 	frame := res.cacheSharedResult().loadResultCall().clone()
-	frame.FollowsFromInputs = false
+	frame.Follows = ""
 	res.cacheSharedResult().storeResultCall(frame)
 }
 
@@ -190,7 +190,7 @@ func bridged(t *testing.T, c *Cache, res AnyResult, extra call.ExtraDigest) {
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
 	frame := res.cacheSharedResult().loadResultCall().clone()
-	frame.FollowsFromInputs = false
+	frame.Follows = ""
 	frame.ExtraDigests = append(frame.ExtraDigests, extra)
 	res.cacheSharedResult().storeResultCall(frame)
 }

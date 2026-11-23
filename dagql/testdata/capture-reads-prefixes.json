@@ -176,7 +176,7 @@
             "nonNull": true
           },
           "field": "reads-fresh",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": null,
@@ -205,7 +205,7 @@
             "nonNull": true
           },
           "field": "reads-top",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [

@@ -221,13 +221,12 @@ type ResultCall struct {
 	// profileSkip in core/telemetry.go.
 	ProfileSkip bool `json:"profileSkip,omitempty"`
 
-	// FollowsFromInputs is the field's declaration that its result is a
-	// function of its inputs and arguments alone (FieldSpec.FollowsFromInputs),
-	// set when the frame is built. Like ProfileSkip it is a pure function of
-	// the recipe, travels with the frame through clone, fork and records,
-	// and enters no digest. A record carries it, so another cache, or the
-	// Cloud, reads it without the schema.
-	FollowsFromInputs bool `json:"followsFromInputs,omitempty"`
+	// Follows is the field's claim that its result is the same from run to
+	// run, and on what (FieldSpec.Follows), set when the frame is built. Like
+	// ProfileSkip it is a pure function of the recipe, travels with the frame
+	// through clone, fork and records, and enters no digest. A record carries
+	// it, so another cache, or the Cloud, reads it without the schema.
+	Follows FollowsClaim `json:"follows,omitempty"`
 
 	// ContentMayChange says that the result's content can change after it is
 	// made, for the same identity, as its type says (CacheUsageMayChange):
@@ -235,7 +234,7 @@ type ResultCall struct {
 	// fetching updates, an HTTP state. Such a result is its engine's own
 	// state, not a run of a step: no store keeps its content, and what is
 	// built over it is judged by its own declaration (entryCanDifferLocked).
-	// It is set when the frame is built, travels as FollowsFromInputs does,
+	// It is set when the frame is built, travels as Follows does,
 	// and enters no digest.
 	ContentMayChange bool `json:"contentMayChange,omitempty"`
 
@@ -327,8 +326,8 @@ func (frame *ResultCall) cloneWith(memo resultCallCloneMemo) *ResultCall {
 		ExtraDigests: slices.Clone(frame.ExtraDigests),
 		ProfileSkip:  frame.ProfileSkip,
 		// A pure function of the recipe, as ProfileSkip is.
-		FollowsFromInputs: frame.FollowsFromInputs,
-		ContentMayChange:  frame.ContentMayChange,
+		Follows:          frame.Follows,
+		ContentMayChange: frame.ContentMayChange,
 		// Immutable once set, so the clone shares it.
 		ContentPreferred: frame.carriedContentPreferred(),
 	}
@@ -375,8 +374,8 @@ func (frame *ResultCall) fork() *ResultCall {
 		// wrongly profile a reflection-list walk — inheritance is the correct rule.
 		ProfileSkip: frame.ProfileSkip,
 		// An element of a list that follows from its inputs does too.
-		FollowsFromInputs: frame.FollowsFromInputs,
-		ContentMayChange:  frame.ContentMayChange,
+		Follows:          frame.Follows,
+		ContentMayChange: frame.ContentMayChange,
 	}
 }
 
@@ -1979,4 +1978,24 @@ func (frame *ResultCall) callLiteral(
 	default:
 		return nil, fmt.Errorf("unknown result call frame literal kind %q", frameLit.Kind)
 	}
+}
+
+// FollowsClaim is a call's claim that its result is the same from run to
+// run, and on what (FieldSpec.Follows). The zero claim is none: another run
+// of the call can give another result.
+type FollowsClaim string
+
+const (
+	// FollowsInputs: a function of its inputs' content and its arguments.
+	FollowsInputs FollowsClaim = "inputs"
+	// FollowsKey: a function of hashes its own key holds, whatever runs its
+	// inputs are, as git's objects by their ids or an HTTP body by its
+	// digest.
+	FollowsKey FollowsClaim = "key"
+)
+
+// FollowsFromInputs reports whether the frame claims its result is the same
+// from run to run, on its inputs or on its key (Follows).
+func (frame *ResultCall) FollowsFromInputs() bool {
+	return frame != nil && frame.Follows != ""
 }

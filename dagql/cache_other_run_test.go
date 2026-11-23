@@ -15,7 +15,7 @@ import (
 // follows from its inputs only when follows is set.
 func otherRunTestBundle(t *testing.T, follows bool) (actx context.Context, a *Cache, bundle ValueBundle, pOrdinal uint64) {
 	t.Helper()
-	return otherRunTestBundleFrame(t, func(frame *ResultCall) { frame.FollowsFromInputs = follows })
+	return otherRunTestBundleFrame(t, func(frame *ResultCall) { frame.Follows = testFollows(follows) })
 }
 
 // otherRunTestBundleFrame is otherRunTestBundle with edit applied to P's
@@ -144,11 +144,11 @@ func secondRunTestFollows(t *testing.T, cloud *Cache, number uint64) {
 	require.NotNil(t, res)
 	if call := res.loadResultCall(); call != nil {
 		frame := call.clone()
-		frame.FollowsFromInputs = true
+		frame.Follows = FollowsInputs
 		res.storeResultCall(frame)
 	}
 	if res.stored != nil {
-		res.stored.follows = true
+		res.stored.follows = FollowsInputs
 	}
 	require.False(t, cloud.entryCanDifferLocked(res))
 }

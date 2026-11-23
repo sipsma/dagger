@@ -92,7 +92,7 @@ func heldTestSessionValue(t *testing.T, ctx context.Context, c *Cache, srv *Serv
 	// A constant of its field, so the engine's run of it is the Cloud's
 	// entry's: a held row of another run of a step that can differ is
 	// refused (otherRunRowsLocked).
-	frame := &ResultCall{Kind: ResultCallKindField, Field: "bundle-dep", Type: NewResultCallType((&transferTestValue{}).Type()), FollowsFromInputs: true}
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "bundle-dep", Type: NewResultCallType((&transferTestValue{}).Type()), Follows: FollowsInputs}
 	res, err := c.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
 		return NewResultForCall(&transferTestValue{Text: "dep"}, frame)
 	})

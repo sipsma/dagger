@@ -21,7 +21,7 @@ func keptTaughtBundle(t *testing.T, extras ...call.ExtraDigest) (ValueBundle, ui
 	t.Helper()
 	ctx, c, srv := transferTestCache(t)
 	value := String("kept")
-	frame := &ResultCall{Kind: ResultCallKindField, Field: "kept-taught", Type: NewResultCallType(value.Type()), ExtraDigests: extras, FollowsFromInputs: true}
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "kept-taught", Type: NewResultCallType(value.Type()), ExtraDigests: extras, Follows: FollowsInputs}
 	res, err := c.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
 		return NewResultForCall(value, frame)
 	})

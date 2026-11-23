@@ -716,7 +716,7 @@ func callEndAttrs(ctx context.Context, span trace.Span, req *dagql.CallRequest, 
 // follows from its inputs (dagql.FieldSpec.FollowsFromInputs) on a call row
 // that reached a cache decision, as its other cache facts are stamped.
 func appendFollowsFromInputsAttr(attrs []attribute.KeyValue, req *dagql.CallRequest) []attribute.KeyValue {
-	if req.CacheEvidence == nil || req.CacheEvidence.Outcome == "" || req.ResultCall == nil || !req.ResultCall.FollowsFromInputs {
+	if req.CacheEvidence == nil || req.CacheEvidence.Outcome == "" || !req.ResultCall.FollowsFromInputs() {
 		return attrs
 	}
 	return append(attrs, attribute.String(telemetryattrs.CacheFollowsFromInputsAttr, "true"))

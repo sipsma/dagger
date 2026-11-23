@@ -43,7 +43,7 @@
             "nonNull": true
           },
           "field": "reads-fileA",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [
@@ -75,7 +75,7 @@
             "nonNull": true
           },
           "field": "reads-fileB",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [
@@ -107,7 +107,7 @@
             "nonNull": true
           },
           "field": "reads-fileC",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [

@@ -62,7 +62,7 @@ func TestAValueOverAStepWhoseContentMayChangeIsNotWithheld(t *testing.T) {
 		t.Run(map[bool]string{false: "record held whole", true: "record compressed"}[compressed], func(t *testing.T) {
 			t.Parallel()
 			ctx, cloud, r, p, key, replacements := withholdTestCloudFrame(t, func(frame *ResultCall) {
-				frame.FollowsFromInputs = false
+				frame.Follows = ""
 				frame.ContentMayChange = true
 			})
 			withholdTestRan(t, ctx, cloud, p, key, replacements, false)
@@ -88,7 +88,7 @@ func TestAValueOverAStepWhoseContentMayChangeIsNotWithheld(t *testing.T) {
 func TestAMergeOverAStepWhoseContentMayChangeIsNotRefused(t *testing.T) {
 	t.Parallel()
 	_, _, bundle, p := otherRunTestBundleFrame(t, func(frame *ResultCall) {
-		frame.FollowsFromInputs = false
+		frame.Follows = ""
 		frame.ContentMayChange = true
 	})
 	bctx, b, bsrv := transferTestCache(t)

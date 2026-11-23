@@ -25,7 +25,7 @@
             "nonNull": true
           },
           "field": "reads-recipe",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [
@@ -71,7 +71,7 @@
             "nonNull": true
           },
           "field": "reads-recipe-root",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": [
@@ -103,7 +103,7 @@
             "nonNull": true
           },
           "field": "reads-recipe",
-          "followsFromInputs": true
+          "follows": "inputs"
         }
       },
       "Dependencies": null,

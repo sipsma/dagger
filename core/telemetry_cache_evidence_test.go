@@ -949,7 +949,7 @@ func TestRecordCacheEvidenceMappingFollowsFromInputs(t *testing.T) {
 			t.Parallel()
 			sr, span := evidenceTestRecordingSpan(t)
 			frame := evidenceTestFrame("follows")
-			frame.FollowsFromInputs = tc.follows
+			frame.Follows = followsTestClaim(tc.follows)
 			req := &dagql.CallRequest{ResultCall: frame, CacheEvidence: &dagql.CacheDecision{Outcome: tc.outcome, MissUnknownInputIndex: -1}}
 			span.SetAttributes(appendFollowsFromInputsAttr(nil, req)...)
 			got := evidenceTestCacheAttrs(t, evidenceTestEndedAttrs(t, sr, span))
@@ -960,4 +960,13 @@ func TestRecordCacheEvidenceMappingFollowsFromInputs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// followsTestClaim is the claim a test's frame makes: that it follows from
+// its inputs when follows is set, and nothing otherwise.
+func followsTestClaim(follows bool) dagql.FollowsClaim {
+	if follows {
+		return dagql.FollowsInputs
+	}
+	return ""
 }

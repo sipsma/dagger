@@ -1924,7 +1924,7 @@ func (c *Cache) keepsApartLocked(prep *valueMergePrep, best map[string]*mergeRow
 	if call := prep.records[row.ordinal].Call; call != nil && call.ContentMayChange {
 		return false
 	}
-	if call := prep.records[row.ordinal].Call; call == nil || !call.FollowsFromInputs {
+	if call := prep.records[row.ordinal].Call; !call.FollowsFromInputs() {
 		return true
 	}
 	for _, dep := range row.value.DependencyIDs {
