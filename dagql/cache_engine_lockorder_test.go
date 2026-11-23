@@ -27,7 +27,7 @@ import (
 // again with the next piece (readPieces.step): neither is followed, and a
 // function that takes it only through a step holds none across it.
 var (
-	engineLockTakers = []string{"rlockEngineLocked", "lockEngine"}
+	engineLockTakers = []string{"rlockEngineLocked", "lockEngine", "lockWrite", "rlockRead"}
 	pieceSteps       = []string{"step"}
 )
 
@@ -69,22 +69,43 @@ func TestEngineCacheLocksDontNest(t *testing.T) {
 
 // An engine cache's lock is only ever taken under egraphMu: each function
 // that takes it either takes egraphMu for reading itself first, or is a
-// helper whose name says it requires egraphMu (…Locked), or is the read in
-// pieces, which holds egraphMu with each piece.
+// helper whose name says it requires egraphMu (…Locked), or a method of a
+// hold of the cache (RemoteWrites) or of a read in pieces (readPieces),
+// which hold egraphMu for as long as they live.
 func TestEngineCacheLocksAreTakenUnderTheCachesLock(t *testing.T) {
 	t.Parallel()
 	funcs := dagqlBodies(t)
-	for _, name := range functionsCalling(funcs.bodies, engineLockTakers...) {
+	for name, fns := range funcs.bodies {
 		if strings.HasSuffix(name, "Locked") || slices.Contains(engineLockTakers, name) {
 			continue
 		}
-		takes := false
-		for _, fn := range funcs.bodies[name] {
+		for _, fn := range fns {
+			if !slices.ContainsFunc(calledNames(fn), func(n string) bool { return slices.Contains(engineLockTakers, n) }) {
+				continue
+			}
+			if recv := receiverName(fn); recv == "RemoteWrites" || recv == "readPieces" {
+				continue
+			}
 			src := funcs.source(fn)
-			takes = takes || strings.Contains(src, "egraphMu.RLock()") || strings.Contains(src, "readInPieces()") || strings.Contains(src, "storedSizesRLock()")
+			takes := strings.Contains(src, "egraphMu.RLock()") || strings.Contains(src, "readInPieces()") || strings.Contains(src, "storedSizesRLock()")
+			require.True(t, takes, "%s takes an engine cache's lock without egraphMu", name)
 		}
-		require.True(t, takes, "%s takes an engine cache's lock without egraphMu", name)
 	}
+}
+
+// receiverName is the name of fn's receiver's type, empty for a function.
+func receiverName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return ""
+	}
+	typ := fn.Recv.List[0].Type
+	if star, ok := typ.(*ast.StarExpr); ok {
+		typ = star.X
+	}
+	if id, ok := typ.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }
 
 // An entry's holder list's lock is a leaf: what holds it calls nothing
