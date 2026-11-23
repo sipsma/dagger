@@ -1709,8 +1709,9 @@ func containerPartsTestPassThroughCopies(t *testing.T, layers []dagql.ObjectResu
 // from the layer that wrote it, not through every layer in between: the
 // layers below the top used to run one pass-through copy per mount below
 // them, n²/2 in all. Parts are demanded one at a time from the top mount
-// down, so no final-delegation sweep finds a written part below it to copy
-// and the count is deterministic.
+// down, so the only written part a final-delegation sweep finds below a
+// layer is the base's fs, demanded first, which each layer copies at most
+// once: the count stays below n.
 func TestContainerMountedFileChainCopiesFromWriter(t *testing.T) {
 	t.Parallel()
 	ctx, cache, srv, sessionID := newContainerPartsTestCtx(t)
