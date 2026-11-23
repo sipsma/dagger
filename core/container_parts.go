@@ -448,9 +448,11 @@ func (container *Container) runLazyGroupAdmitted(ctx context.Context, op LazyCon
 }
 
 // consumeFinalParentDelegations copies every remaining delegated snapshot
-// part whose parent part is already final. These copies start no parent work:
-// an unrefined pending parent is never final, and a refined parent is final
-// for a part only after the group that fills that part has completed.
+// part that is already final where its delegation copies it from: the parent,
+// or the nearest result below it that does not pass the part through
+// (containerPartSource). These copies start no parent work: an unrefined
+// pending source is never final, and a refined source is final for a part
+// only after the group that fills that part has completed.
 func (container *Container) consumeFinalParentDelegations(ctx context.Context, op LazyContainerParts) error {
 	parent := op.ContainerLazyParent()
 	parentCtr := parent.Self()
@@ -471,7 +473,12 @@ func (container *Container) consumeFinalParentDelegations(ctx context.Context, o
 			continue
 		}
 
-		final, err := containerParentPartFinal(ctx, parentCtr, part)
+		// The part is final where the delegation copies it from: the
+		// nearest result below that does not pass it through
+		// (containerPartSource), not only the parent, which passes it
+		// through unevaluated when its metadata settled before the part
+		// was written.
+		final, err := containerParentPartFinal(ctx, containerPartSource(ctx, parent, part).Self(), part)
 		if err != nil {
 			return err
 		}
