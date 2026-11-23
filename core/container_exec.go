@@ -1416,18 +1416,30 @@ func (ssh *execSSHMountInstance) Mount() ([]ctrdmount.Mount, func() error, error
 // makes count as (ContainerExecState.readScope): what reads made under the
 // exec's call count as, but for the exec that runs a module's process for
 // the function call its client answers, as an SDK entrypoint's withExec does
-// (ModuleProcessModule). That process answers the call, as the one
-// ContainerRuntime.Call starts with the call does, and runs whenever the call
-// does: the entrypoint keys its withExec to the call. So its reads count as
-// reads made under the call (FunctionCall.ReadScope), not as reads under a
-// cached call, which runs only when its lookup misses.
-func execReadScope(ctx context.Context, moduleContext dagql.ObjectResult[*Module], functionCall *FunctionCall) dagql.ReadScope {
+// (ModuleProcessModule), keyed to the call by the call's digest in its
+// environment, as the entrypoint Dagger generates keys it (callDigest). That
+// process answers the call, as the one ContainerRuntime.Call starts with the
+// call does, and runs whenever the call does. So its reads count as reads
+// made under the call (FunctionCall.ReadScope), not as reads under a cached
+// call, which runs only when its lookup misses. Any other exec the
+// entrypoint runs, keyed otherwise, can be served from the cache to a later
+// run of the call: its process's reads are under it.
+func execReadScope(ctx context.Context, container *Container, moduleContext dagql.ObjectResult[*Module], functionCall *FunctionCall) dagql.ReadScope {
 	if functionCall == nil && moduleContext.Self() != nil {
-		if fnCall, err := moduleProcessCall(ctx); err == nil && fnCall != nil {
+		if fnCall, err := moduleProcessCall(ctx); err == nil && fnCall != nil && fnCall.callDigest != "" && keyedToCall(container, fnCall.callDigest) {
 			return fnCall.ReadScope()
 		}
 	}
 	return dagql.CurrentReadScope(ctx)
+}
+
+// keyedToCall reports whether container's environment carries callDigest as
+// a value.
+func keyedToCall(container *Container, callDigest digest.Digest) bool {
+	return slices.ContainsFunc(container.Config.Env, func(kv string) bool {
+		_, value, ok := strings.Cut(kv, "=")
+		return ok && value == callDigest.String()
+	})
 }
 
 // mutates container caller must have handled cloning or creating a new child.
@@ -1452,7 +1464,7 @@ func (container *Container) WithExec(
 		EngineWork:     functionCall.EngineWork() || IsEngineWork(ctx),
 		originalExecMD: copyExecInputMetadata(execMD),
 		callerRecipe:   dagql.CallerRecipe(ctx),
-		readScope:      execReadScope(ctx, moduleContext, functionCall),
+		readScope:      execReadScope(ctx, container, moduleContext, functionCall),
 	}
 	container.Lazy = &ContainerExecLazy{State: state}
 	container.ImageRef = ""

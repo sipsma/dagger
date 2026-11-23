@@ -1099,6 +1099,8 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 	// The function's own call, which the cache installed as the caller of
 	// what runs under it, is the caller of the calls its module makes.
 	fnCall.callerRecipe = dagql.CallerRecipe(ctx)
+	// The digest an entrypoint keys the function's process by.
+	fnCall.callDigest = execMD.CallDigest
 	// The part reads they make count as reads made under the function's
 	// call, which the recipe alone doesn't say: a session-bound call's own
 	// reads count, under the call above it.

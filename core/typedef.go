@@ -2573,6 +2573,12 @@ type FunctionCall struct {
 	// boundary, which a Go context value doesn't cross.
 	callerRecipe digest.Digest
 
+	// callDigest is the digest an SDK entrypoint keys the call's process by
+	// (ExecutionMetadata.CallDigest), carried engine-side only like
+	// callerRecipe: the exec whose environment carries it is the call's
+	// process (execReadScope).
+	callDigest digest.Digest
+
 	// readScope is what the part reads made under this function call count
 	// as (dagql.CurrentReadScope), carried engine-side only like
 	// callerRecipe, for the same reason: the module's requests to answer it
