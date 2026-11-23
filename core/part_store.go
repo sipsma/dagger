@@ -508,7 +508,11 @@ func (s *containerPartStore) Publish() {
 			a.snapshot.isSet = true
 		}
 	}
+	// Before and after, so a walk that overlaps the store remembers nothing
+	// a later walk can use (containerPartSourceEpoch).
+	containerPartSourceEpoch.Add(1)
 	r.acquiredOutput.Store(s.view)
+	containerPartSourceEpoch.Add(1)
 }
 func (container *Container) PreparePartStore(ctx context.Context, dec *dagql.PersistDecodeContext, record dagql.PersistedRecord, d dagql.PartDescriptor, ref bkcache.ImmutableRef) (dagql.PreparedPartStore, error) {
 	previous := container.acquiredOutput.Load()

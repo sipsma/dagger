@@ -51,33 +51,45 @@ type LazyState struct {
 	// is sets it (OnBodyDone).
 	bodyDone atomic.Pointer[func(context.Context, dagql.LazyGroupKey) error]
 	// partSources are, for a container op, the result each part it passes
-	// through is copied from (containerPartSource), once that is settled;
-	// guarded by LazyMu.
-	partSources map[dagql.PartKey]dagql.AnyResult
+	// through is copied from (containerPartSource), once that is settled,
+	// with the epoch it was found in; guarded by LazyMu.
+	partSources map[dagql.PartKey]rememberedPartSource
 }
 
-// partSource returns the source remembered for a part the op passes through.
-func (lazy *LazyState) partSource(part dagql.PartKey) (dagql.AnyResult, bool) {
+// rememberedPartSource is a source containerPartSource found, and the
+// epoch (containerPartSourceEpoch) its walk began in.
+type rememberedPartSource struct {
+	result dagql.AnyResult
+	epoch  uint64
+}
+
+// partSource returns the source remembered for a part the op passes
+// through, if it was found in epoch.
+func (lazy *LazyState) partSource(part dagql.PartKey, epoch uint64) (dagql.AnyResult, bool) {
 	if lazy.LazyMu == nil {
 		return nil, false
 	}
 	lazy.LazyMu.Lock()
 	defer lazy.LazyMu.Unlock()
 	src, ok := lazy.partSources[part]
-	return src, ok
+	if !ok || src.epoch != epoch {
+		return nil, false
+	}
+	return src.result, true
 }
 
-// rememberPartSource keeps the source of a part the op passes through.
-func (lazy *LazyState) rememberPartSource(part dagql.PartKey, src dagql.AnyResult) {
+// rememberPartSource keeps the source of a part the op passes through, found
+// by a walk that began in epoch.
+func (lazy *LazyState) rememberPartSource(part dagql.PartKey, src dagql.AnyResult, epoch uint64) {
 	if lazy.LazyMu == nil {
 		return
 	}
 	lazy.LazyMu.Lock()
 	defer lazy.LazyMu.Unlock()
 	if lazy.partSources == nil {
-		lazy.partSources = map[dagql.PartKey]dagql.AnyResult{}
+		lazy.partSources = map[dagql.PartKey]rememberedPartSource{}
 	}
-	lazy.partSources[part] = src
+	lazy.partSources[part] = rememberedPartSource{result: src, epoch: epoch}
 }
 
 // lazyGroupOnce is one group's object-side run-once state. mu is held
