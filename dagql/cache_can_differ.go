@@ -3,6 +3,8 @@ package dagql
 import (
 	"sync"
 
+	"github.com/opencontainers/go-digest"
+
 	"github.com/dagger/dagger/engine/slog"
 )
 
@@ -157,4 +159,47 @@ func (h HoldingFacts) Declares() (follows, known bool) {
 func (h HoldingFacts) CanDiffer() bool {
 	follows, known := h.Declares()
 	return !known || !follows
+}
+
+// entryFollowsLocked returns the claim res's stored record makes on what its
+// result follows (ResultCall.Follows): from the record's frame, or from its
+// stored body's copy while the frame is compressed. A record the Cloud
+// doesn't hold claims nothing. Requires egraphMu.
+func (c *Cache) entryFollowsLocked(res *sharedResult) FollowsClaim {
+	if res.stored == nil && res.persistedEnvelope == nil {
+		return ""
+	}
+	if call := res.loadResultCall(); call != nil {
+		return call.Follows
+	}
+	if body := res.stored; body != nil && body.frame != nil {
+		return body.follows
+	}
+	return ""
+}
+
+// entryContentDigestLocked returns res's content digest as its stored record
+// names it (ResultCall.ContentDigest), or "" where the record names none.
+// Requires egraphMu.
+func (c *Cache) entryContentDigestLocked(res *sharedResult) digest.Digest {
+	if res.stored == nil && res.persistedEnvelope == nil {
+		return ""
+	}
+	if call := res.loadResultCall(); call != nil {
+		return call.ContentDigest()
+	}
+	if body := res.stored; body != nil && body.frame != nil {
+		return body.content
+	}
+	return ""
+}
+
+// sameContentLocked reports whether a and b hold the same content as the
+// cache knows it: both records name a content digest, and it is the same.
+// Two runs of a step whose content is the same are one run, as the cache
+// treats them; where either content isn't known, they are two. Requires
+// egraphMu.
+func (c *Cache) sameContentLocked(a, b *sharedResult) bool {
+	content := c.entryContentDigestLocked(a)
+	return content != "" && content == c.entryContentDigestLocked(b)
 }

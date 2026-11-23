@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
+
+	"github.com/dagger/dagger/dagql/call"
 )
 
 // withholdTestCloud merges an export of a root R over P from cache-a into a
@@ -312,9 +315,13 @@ func TestStoredBundleSendsNoCallOverAnotherRunTheBundleCarries(t *testing.T) {
 	t.Parallel()
 	test := newReceiverCallTest(t)
 	bctx, b, bsrv := transferTestCache(t)
-	bReceiver, err := b.GetOrInitCall(bctx, "test-session", bsrv, &CallRequest{ResultCall: receiverTestFrame("a"), IsPersistable: true},
+	// b's own run of the receiver, whose content differs from a's: the two
+	// runs are two, as the cache knows them.
+	bFrame := receiverTestFrame("a")
+	bFrame.ExtraDigests = []call.ExtraDigest{{Digest: digest.FromString("receiver content, b's run"), Label: call.ExtraDigestLabelContent}}
+	bReceiver, err := b.GetOrInitCall(bctx, "test-session", bsrv, &CallRequest{ResultCall: bFrame, IsPersistable: true},
 		func(context.Context) (AnyResult, error) {
-			return NewResultForCall(&transferTestValue{Text: "receiver, b's run"}, receiverTestFrame("a"))
+			return NewResultForCall(&transferTestValue{Text: "receiver, b's run"}, bFrame)
 		})
 	require.NoError(t, err)
 	bRoot := secondRunTestStep(t, bctx, b, bsrv, "over-b-receiver", "b-root")

@@ -106,6 +106,10 @@ type storedBody struct {
 	// its inputs, or from its key (ResultCall.Follows), kept beside it so that no
 	// reader decompresses the frame for it (entryCanDifferLocked).
 	follows FollowsClaim
+	// content is the held frame's content digest (ResultCall.ContentDigest),
+	// kept beside it as follows is, for the guards that judge two runs by
+	// their content (sameContentLocked).
+	content digest.Digest
 	// mayChange is the held frame's word that the result's content may
 	// change (ResultCall.ContentMayChange), kept beside it as follows is.
 	mayChange bool
@@ -250,6 +254,7 @@ func (b *storedBody) withFrameEncoded(c *Cache, call *ResultCall, enc *zstd.Enco
 		frameBytes:    int64(len(raw)),
 		recipe:        recipe,
 		follows:       call.Follows,
+		content:       call.ContentDigest(),
 		mayChange:     call.ContentMayChange,
 		refs:          b.refs,
 	}, nil

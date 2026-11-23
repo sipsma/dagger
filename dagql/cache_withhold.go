@@ -156,8 +156,10 @@ func (w *withholdBuild) withheldLocked(res *sharedResult) (bool, sharedResultID)
 	if w.recipientHoldsOtherRunLocked(res) || w.overFoldedRunLocked(res) || w.c.entryCanDifferLocked(res) && w.c.ownRunRanLocked(res) && w.c.runNotStoredWholeLocked(res) {
 		by = res.id
 	}
+	// Below an entry whose content is its own whatever runs its inputs are
+	// (runsBelowDontShowLocked), nothing changes what a value over it holds.
 	for _, id := range storedClosureChildrenLocked(res) {
-		if by != 0 {
+		if by != 0 || w.runsBelowDontShowLocked(res) {
 			break
 		}
 		child := w.c.resultsByID[id]
@@ -229,7 +231,7 @@ func (w *withholdBuild) recipientHoldsFoldedRunLocked(res *sharedResult) bool {
 // entries of the roots it keeps, and the run it carries of each recipe.
 type carriedRuns struct {
 	entries map[sharedResultID]bool
-	runs    map[digest.Digest]RunName
+	runs    map[digest.Digest]*sharedResult
 }
 
 // otherRunCarriedLocked reports whether the closures of roots, which the
@@ -245,10 +247,10 @@ type carriedRuns struct {
 func (w *withholdBuild) otherRunCarriedLocked(roots ...*sharedResult) (bool, sharedResultID) {
 	carried := &w.carried
 	if carried.entries == nil {
-		carried.entries, carried.runs = map[sharedResultID]bool{}, map[digest.Digest]RunName{}
+		carried.entries, carried.runs = map[sharedResultID]bool{}, map[digest.Digest]*sharedResult{}
 	}
 	seen := map[sharedResultID]bool{}
-	runs := map[digest.Digest]RunName{}
+	runs := map[digest.Digest]*sharedResult{}
 	stack := slices.Clone(roots)
 	for len(stack) > 0 {
 		res := stack[len(stack)-1]
@@ -263,15 +265,21 @@ func (w *withholdBuild) otherRunCarriedLocked(roots ...*sharedResult) (bool, sha
 				recipes = append(recipes, res.secondRunOf)
 			}
 			for _, recipe := range recipes {
-				run, ok := carried.runs[recipe]
+				prev, ok := carried.runs[recipe]
 				if !ok {
-					run, ok = runs[recipe]
+					prev, ok = runs[recipe]
 				}
-				if ok && run != *res.run {
+				if ok && *prev.run != *res.run && !w.c.sameContentLocked(prev, res) {
 					return true, res.id
 				}
-				runs[recipe] = *res.run
+				if !ok {
+					runs[recipe] = res
+				}
 			}
+		}
+		if w.c.entryFollowsLocked(res) == FollowsKey {
+			// What is below it changes nothing a value over it holds.
+			continue
 		}
 		for _, id := range storedClosureChildrenLocked(res) {
 			if child := w.c.resultsByID[id]; child != nil {
@@ -286,6 +294,39 @@ func (w *withholdBuild) otherRunCarriedLocked(roots ...*sharedResult) (bool, sha
 		carried.runs[recipe] = run
 	}
 	return false, 0
+}
+
+// runsBelowDontShowLocked reports whether no run below res changes what a
+// value over res holds: res's record claims its result is a function of
+// hashes its own key holds (FollowsKey), or the recipient holds a run of
+// res's step whose content is res's (sameContentLocked), so that what is
+// over res sees its content, not its inputs' runs. The walk that withholds
+// doesn't go below it. Requires egraphMu.
+func (w *withholdBuild) runsBelowDontShowLocked(res *sharedResult) bool {
+	if w.c.entryFollowsLocked(res) == FollowsKey {
+		return true
+	}
+	if w.held == nil || w.c.entryContentDigestLocked(res) == "" {
+		return false
+	}
+	for _, recipe := range entryRecipesLocked(res) {
+		for _, other := range w.c.entriesOfRecipeLocked(recipe) {
+			if w.c.sameContentLocked(other, res) && w.held.heldLocked(other, w.now) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// entryRecipesLocked returns the recipes res is an entry of: those it is
+// indexed under, and the recipe it is a second run of. Requires egraphMu.
+func entryRecipesLocked(res *sharedResult) []digest.Digest {
+	recipes := slices.Clip(res.recipeKeys)
+	if res.secondRunOf != "" {
+		recipes = append(recipes, res.secondRunOf)
+	}
+	return recipes
 }
 
 // recipientHoldsOtherRunLocked reports whether the bundle's recipient holds
@@ -309,13 +350,9 @@ func (w *withholdBuild) recipientHoldsOtherRunLocked(res *sharedResult) bool {
 	case w.recipientHoldsFoldedRunLocked(res):
 		return true
 	}
-	recipes := slices.Clip(res.recipeKeys)
-	if res.secondRunOf != "" {
-		recipes = append(recipes, res.secondRunOf)
-	}
-	for _, recipe := range recipes {
+	for _, recipe := range entryRecipesLocked(res) {
 		for _, other := range w.c.entriesOfRecipeLocked(recipe) {
-			if other != res && other.run != nil && *other.run != *res.run && w.held.heldLocked(other, w.now) {
+			if other != res && other.run != nil && *other.run != *res.run && !w.c.sameContentLocked(other, res) && w.held.heldLocked(other, w.now) {
 				return true
 			}
 		}

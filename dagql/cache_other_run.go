@@ -49,27 +49,72 @@ func (c *Cache) engineRunLocked(res *sharedResult) (RunName, bool) {
 
 // otherRunRowsLocked returns, on an engine, sorted, the rows of commit merge
 // would keep onto the cache's current entry, held rows among them, where the
-// row's step can differ, the Cloud named the row's run, and the entry's run
-// is another. A held row names the run the Cloud believes the engine holds,
-// and the engine may have run the step itself before the Cloud learned of
-// it. Requires egraphMu.
+// row's step can differ, the Cloud named the row's run, the entry's run is
+// another, and the two runs' content isn't the same as the cache knows it
+// (a row whose content digest is the entry's is one run with it). A held row
+// names the run the Cloud believes the engine holds, and the engine may have
+// run the step itself before the Cloud learned of it. Only rows the bundle's
+// values stand over count: a row reached from its roots only through a row
+// whose content its key addresses (FollowsKey), or through a kept row whose
+// content is the engine's own, changes nothing those values hold.
+// Requires egraphMu.
 func (c *Cache) otherRunRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 	if c.blobBacked {
 		return nil
 	}
-	var other []TransferOrdinal
-	for _, row := range commit.rows {
-		if row.action != mergeKeep || row.target == nil || row.value.Run == nil {
+	// A row's frame is its record's; a kept row is prepared light, so its
+	// frame is its plan's.
+	frameOf := func(row *mergeRow) *ResultCall {
+		if row == nil {
+			return nil
+		}
+		if rec, ok := commit.prep.records[uint64(row.ordinal)]; ok && rec.Call != nil {
+			return rec.Call
+		}
+		if row.plan.row == nil {
+			return nil
+		}
+		return row.plan.row.loadResultCall()
+	}
+	sameContent := func(row *mergeRow, call *ResultCall) bool {
+		if row.target == nil || call == nil {
+			return false
+		}
+		content := call.ContentDigest()
+		own := row.target.loadResultCall()
+		return content != "" && own != nil && content == own.ContentDigest()
+	}
+	// The rows the bundle's values stand over, from its roots down, not
+	// below a row whose content no run under it changes.
+	reached := map[uint64]bool{}
+	var stack []uint64
+	for _, root := range commit.prep.bundle.Roots {
+		stack = append(stack, uint64(root.Ordinal))
+	}
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if reached[id] {
 			continue
 		}
-		// A kept row is prepared light, so its frame is its plan's.
-		var call *ResultCall
-		if row.plan.row != nil {
-			call = row.plan.row.loadResultCall()
+		reached[id] = true
+		row := commit.byOrdinal[id]
+		if call := frameOf(row); call != nil && (call.Follows == FollowsKey || row.action == mergeKeep && sameContent(row, call)) {
+			continue
 		}
+		if value := commit.prep.index[id]; value != nil {
+			stack = append(stack, value.DependencyIDs...)
+		}
+	}
+	var other []TransferOrdinal
+	for _, row := range commit.rows {
+		if row.action != mergeKeep || row.target == nil || row.value.Run == nil || !reached[uint64(row.ordinal)] {
+			continue
+		}
+		call := frameOf(row)
 		// A step whose content may change is the engine's own state: it
 		// keeps its copy, and the value over it says its own declaration.
-		if call == nil || call.FollowsFromInputs() || call.ContentMayChange {
+		if call == nil || call.FollowsFromInputs() || call.ContentMayChange || sameContent(row, call) {
 			continue
 		}
 		if run, known := c.engineRunLocked(row.target); known && run != *row.value.Run {
