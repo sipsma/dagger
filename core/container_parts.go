@@ -1006,10 +1006,12 @@ func delegateContainerPart(ctx context.Context, dst *Container, parent dagql.Obj
 }
 
 // containerPartSourceEpoch advances when a container gains or replaces an
-// acquired output (containerPartStore.Publish). A container this engine
-// built can gain one when an offered part is installed into it, and a walk
-// then stops there, before a source an earlier walk remembered past it: a
-// remembered source counts only while the epoch its walk began in holds.
+// acquired output (containerPartStore.Publish), and is odd while it does. A
+// container this engine built can gain one when an offered part is installed
+// into it, and a walk then stops there, before a source an earlier walk
+// remembered past it. So only a walk that begins at an even epoch remembers,
+// and what it remembers counts only while the epoch is still the one it
+// began at.
 var containerPartSourceEpoch atomic.Uint64
 
 // containerPartSource returns the result that delegation copies part
@@ -1032,7 +1034,7 @@ func containerPartSource(ctx context.Context, parent dagql.ObjectResult[*Contain
 	// while no result gains an acquired output (containerPartSourceEpoch).
 	epoch := containerPartSourceEpoch.Load()
 	var passed []*LazyState
-	settled := true
+	settled := epoch%2 == 0
 	done := func(src dagql.ObjectResult[*Container]) dagql.ObjectResult[*Container] {
 		if settled {
 			for _, state := range passed {
@@ -1067,7 +1069,7 @@ func containerPartSource(ctx context.Context, parent dagql.ObjectResult[*Contain
 		if state.GroupConsumed(group) {
 			return done(parent)
 		}
-		if src, ok := state.partSource(part, epoch); ok {
+		if src, ok := state.partSource(part); ok {
 			if src, ok := src.(dagql.ObjectResult[*Container]); ok {
 				return done(src)
 			}
