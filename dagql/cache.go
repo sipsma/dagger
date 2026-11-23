@@ -2853,6 +2853,11 @@ type Cache struct {
 	// sharedHoldMisses counts the writes in shared holds that changed state
 	// engines share (RemoteWrites.unlockWrite).
 	sharedHoldMisses atomic.Uint64
+	// engineHolds are each engine cache's hold lock, held for the life of a
+	// hold of its writes (HoldEngineWrites), so that one is held at a time:
+	// taken before egraphMu. engineHoldsMu guards the map, a leaf.
+	engineHoldsMu sync.Mutex
+	engineHolds   map[CacheID]*sync.Mutex
 	// uploads counts, on a blob-backed cache, the uploads of parts its
 	// reader marks in progress, by entry and part address key
 	// (StartPartUploads, EndPartUploads). Memory only, as the reader's own

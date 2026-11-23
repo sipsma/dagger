@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/opencontainers/go-digest"
@@ -44,6 +45,9 @@ type RemoteWrites struct {
 	// the hold holds the cache's lock for reading now.
 	engine CacheID
 	shared bool
+	// one is the engine cache's hold lock a hold of its writes holds for
+	// its life (HoldEngineWrites).
+	one *sync.Mutex
 }
 
 // HoldRemoteWrites takes the cache's lock for writing, until the returned
@@ -55,10 +59,32 @@ func (c *Cache) HoldRemoteWrites() *RemoteWrites {
 
 // HoldEngineWrites takes the cache's lock for reading, for writes of the
 // engine cache's holdings beside the cache's readers and other engine
-// caches' writes, until the returned hold's Release.
+// caches' writes, until the returned hold's Release. One hold of an engine
+// cache's writes is held at a time: a second waits for the first's
+// Release, before it takes the cache's lock, so that nothing changes the
+// engine cache's state between a write's plan and the write but the hold's
+// own writes.
 func (c *Cache) HoldEngineWrites(engine CacheID) *RemoteWrites {
+	one := c.engineHoldLock(engine)
+	one.Lock()
 	c.egraphMu.RLock()
-	return &RemoteWrites{c: c, engine: engine, shared: true}
+	return &RemoteWrites{c: c, engine: engine, shared: true, one: one}
+}
+
+// engineHoldLock returns the lock that lets one hold of the engine cache's
+// writes be held at a time (HoldEngineWrites), creating it.
+func (c *Cache) engineHoldLock(engine CacheID) *sync.Mutex {
+	c.engineHoldsMu.Lock()
+	defer c.engineHoldsMu.Unlock()
+	if c.engineHolds == nil {
+		c.engineHolds = map[CacheID]*sync.Mutex{}
+	}
+	one := c.engineHolds[engine]
+	if one == nil {
+		one = &sync.Mutex{}
+		c.engineHolds[engine] = one
+	}
+	return one
 }
 
 // Shared reports whether the hold holds the cache's lock for reading now:
@@ -83,7 +109,9 @@ func (w *RemoteWrites) Exclusive() {
 
 // Share turns a hold of one engine cache's writes, turned exclusive, back
 // into a shared one: it lets go of the cache's lock for writing and takes it
-// for reading. Nothing for a shared hold, or a hold of the whole cache.
+// for reading. Anything can change while it lets go: a holder shares before
+// it plans its next write, never between a plan and its write. Nothing for a
+// shared hold, or a hold of the whole cache.
 func (w *RemoteWrites) Share() {
 	if w.shared || w.engine == "" {
 		return
@@ -113,6 +141,9 @@ func (w *RemoteWrites) Release(ctx context.Context) error {
 		c.egraphMu.RUnlock()
 	} else {
 		c.egraphMu.Unlock()
+	}
+	if w.one != nil {
+		w.one.Unlock()
 	}
 	return runOnReleaseFuncs(ctx, releases)
 }
@@ -336,11 +367,17 @@ func (w *RemoteWrites) ApplyMergedReply(ctx context.Context, cache CacheID, sent
 func (w *RemoteWrites) ApplyMergedReplyPiece(ctx context.Context, a *MergedReplyApply, stop func() bool) (change RemoteChange, done bool) {
 	state, ok := w.lockWrite(a.cache)
 	if !ok {
-		// A shared hold's holder plans the piece first
-		// (PlanMergedReplyPiece): a piece that would create the engine
-		// cache's state takes the cache to itself.
-		w.refused("apply a merged reply's piece", a.cache)
-		return change, false
+		if a.cache != w.engine || w.c.mergedReplySharesLocked(a) != 0 {
+			// A shared hold's holder plans the piece first
+			// (PlanMergedReplyPiece): a piece that would create the engine
+			// cache's state takes the cache to itself.
+			w.refused("apply a merged reply's piece", a.cache)
+			return change, false
+		}
+		// An engine cache with no state, whose records' Cloud entries are
+		// all gone, lands nothing: the reply ends, with nothing written.
+		a.next = len(a.targets)
+		return change, true
 	}
 	defer func() { w.unlockWrite(state, change) }()
 	defer w.c.takeChangesLocked(&change)

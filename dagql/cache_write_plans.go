@@ -41,11 +41,6 @@ func (c *Cache) attachSharesLocked(key HolderKey, desc RemoteHolding, prepared P
 	if prepared.err != nil {
 		return 0
 	}
-	if c.egraphDigestToClass == nil {
-		// The e-graph is made by the cache's first write (initEgraphLocked),
-		// and its first entry with it.
-		return SharedNewEntry
-	}
 	var w SharedWrites
 	entry, h := c.holdingLocked(key)
 	if h == nil {
@@ -54,10 +49,15 @@ func (c *Cache) attachSharesLocked(key HolderKey, desc RemoteHolding, prepared P
 		}
 		entry = c.resultsByID[c.entriesByRecipe[desc.Recipe]]
 		if entry == nil {
-			// A new entry starts empty: what the write does to it is
-			// planned against an entry with nothing yet.
-			w |= SharedNewEntry
-			entry = &sharedResult{}
+			// A new entry, the cache's first making its e-graph
+			// (initEgraphLocked), is taught its identity and any content
+			// digest, and keeps the call and its expiry as an empty entry
+			// would.
+			w |= SharedNewEntry | SharedIdentity
+			if desc.ContentDigest != "" {
+				w |= SharedTaughtContent
+			}
+			return w | c.keepCallSharesLocked(&sharedResult{}, desc, prepared.kept)
 		}
 	}
 	w |= c.teachSharesLocked(entry, desc.Recipe, desc.Request, desc.ContentDigest, desc.Term)
@@ -151,6 +151,8 @@ func (c *Cache) runRanSharesLocked(key HolderKey, entry *sharedResult, replaceme
 // created by its first holding there. Requires egraphMu.
 func (c *Cache) mergedReplySharesLocked(a *MergedReplyApply) SharedWrites {
 	if c.egraphDigestToClass == nil {
+		// A merged reply's write makes the e-graph when the cache has none
+		// (initEgraphLocked), as the cache's first write does.
 		return SharedNewEntry
 	}
 	if c.remoteCaches[a.cache] != nil {

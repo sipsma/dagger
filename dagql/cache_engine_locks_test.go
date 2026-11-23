@@ -253,10 +253,14 @@ func TestEngineWritesInSharedHoldsAtOnce(t *testing.T) {
 					desc.ContentDigest = testDigest(fmt.Sprintf("shared-hold-content-%d", i%shared))
 				}
 				prepared := PrepareRemoteHolding(key, desc)
+				// The hold goes back to shared before the plan, never
+				// between the plan and its write: anything can change
+				// while it lets go.
+				if !w.Shared() && w.Contended() {
+					w.Share()
+				}
 				if w.PlanAttach(key, desc, prepared) != 0 {
 					w.Exclusive()
-				} else if !w.Shared() && w.Contended() {
-					w.Share()
 				}
 				_, err := w.AttachPreparedRemoteHolding(ctx, key, desc, prepared)
 				assert.NoError(t, err)
