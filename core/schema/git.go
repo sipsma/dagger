@@ -93,7 +93,7 @@ func (s *gitSchema) Install(srv *dagql.Server) {
 	}.Install(srv)
 
 	dagql.Fields[*core.GitRepository]{
-		dagql.NodeFunc("__sparseFiles", s.sparseFiles).FollowsFromInputs().
+		dagql.NodeFunc("__sparseFiles", s.sparseFiles).FollowsFromKey().
 			View(AfterVersion("v1.0.0-beta.26")).
 			IsPersistable().
 			Doc(`(Internal-only) The given files of this repository, by object ID, with only those fetched.`).
@@ -353,14 +353,14 @@ func (s *gitSchema) Install(srv *dagql.Server) {
 		dagql.NodeFunc("__fullCheckout", s.fullCheckout).
 			IsPersistable().
 			Doc(`(Internal-only) Materialize full history and Git metadata regardless of keepGitDir.`),
-		dagql.NodeFunc("__sparseWorkspaceTree", s.sparseWorkspaceTree).FollowsFromInputs().
+		dagql.NodeFunc("__sparseWorkspaceTree", s.sparseWorkspaceTree).FollowsFromKey().
 			View(AfterVersion("v1.0.0-beta.26")).
 			IsPersistable().
 			Doc(`(Internal-only) The files of this ref that loading a workspace at it reads, with only those fetched.`).
 			Args(
 				dagql.Arg("cwd").Doc("The workspace directory, from the repository's root."),
 			),
-		dagql.NodeFuncWithDynamicInputs("tree", s.tree, s.treeCacheKey).FollowsFromInputs().
+		dagql.NodeFuncWithDynamicInputs("tree", s.tree, s.treeCacheKey).FollowsFromKey().
 			IsPersistable().
 			View(AllVersion).
 			Doc(`The filesystem tree at this ref.`).
@@ -517,7 +517,7 @@ func (s *gitSchema) Install(srv *dagql.Server) {
 			Args(
 				dagql.Arg("includePreRelease").Doc(`Include pre-release tags when choosing the latest tag.`),
 			),
-		dagql.NodeFuncWithDynamicInputs("tree", s.commitTree, s.commitTreeCacheKey).FollowsFromInputs().
+		dagql.NodeFuncWithDynamicInputs("tree", s.commitTree, s.commitTreeCacheKey).FollowsFromKey().
 			IsPersistable().
 			Doc(`The filesystem tree at this commit.`).
 			Args(
@@ -2688,24 +2688,27 @@ func (s *gitSchema) commitTreeCacheKey(ctx context.Context, parent dagql.ObjectR
 }
 
 // canonicalGitTreeArgs drops a tree call's arguments that shape nothing in
-// it (treeCacheKey), and keeps the field's declaration that the tree follows
-// from its inputs only where gitTreeFollowsFromInputs says it does.
-// gitTreeFollowsFromInputs reports whether a tree call follows from its
-// inputs (dagql.FieldSpec.FollowsFromInputs), as the field declares. A tree's
-// files are its commit's, which its key's SHA addresses. One that keeps .git
-// doesn't: its pack's bytes differ from run to run, though git reads the same
+// it (treeCacheKey), and keeps the claim gitTreeFollows makes for it.
+// gitTreeFollows returns the claim a tree call makes on what its result
+// follows (dagql.FieldSpec.Follows). A tree's files are its commit's, which
+// its key's SHA addresses (dagql.FollowsKey). One that keeps .git isn't:
+// its pack's bytes differ from run to run, though git reads the same
 // objects from them, and its tags, with includeTags, are those the
 // repository has when it's fetched, which no hash in its key addresses.
 // The engine's own cache counts two trees of one commit as the same, .git
-// or not, and so does this form, for a trial: every tree follows. The
-// strict form, a tree that keeps .git can differ, is the alternative to it.
-func gitTreeFollowsFromInputs(keepsGitDir bool) bool {
-	return true
+// or not, and so does this form, for a trial: a tree that keeps .git
+// follows from its inputs (dagql.FollowsInputs). The strict form, a tree
+// that keeps .git can differ, is the alternative to it.
+func gitTreeFollows(keepsGitDir bool) dagql.FollowsClaim {
+	if keepsGitDir {
+		return dagql.FollowsInputs
+	}
+	return dagql.FollowsKey
 }
 
 func canonicalGitTreeArgs(req *dagql.CallRequest, repoDiscardsGitDir, discardGitDir bool, depth int, includeTags bool) {
-	if req.ResultCall != nil && !gitTreeFollowsFromInputs(!repoDiscardsGitDir && !discardGitDir) {
-		req.ResultCall.Follows = ""
+	if req.ResultCall != nil {
+		req.ResultCall.Follows = gitTreeFollows(!repoDiscardsGitDir && !discardGitDir)
 	}
 	if repoDiscardsGitDir || discardGitDir {
 		if repoDiscardsGitDir || !discardGitDir {

@@ -322,7 +322,7 @@ func TestFieldsWhoseContentMayChangeSayIt(t *testing.T) {
 
 // A git tree without .git is its commit's files, which its key's SHA
 // addresses, so its call says it follows from its inputs. One that keeps
-// .git doesn't (gitTreeFollowsFromInputs): its pack's bytes differ from run
+// .git doesn't (gitTreeFollows): its pack's bytes differ from run
 // to run, and its tags, if it fetches them, are those the repository has
 // then.
 func TestGitTreeFollowsFromItsInputsWithoutGitDir(t *testing.T) {
