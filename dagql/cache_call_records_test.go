@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -445,6 +446,44 @@ func TestCallRecordOfAnotherCheckIsNotSent(t *testing.T) {
 				require.Empty(t, built.Bundle.Calls)
 				require.Empty(t, built.CallInputs, "the call's receiver isn't carried")
 				require.Len(t, built.Bundle.Values, 1)
+				return
+			}
+			require.Len(t, built.Bundle.Calls, 1)
+			require.Equal(t, []uint64{test.receiverNumber}, built.CallInputs)
+			require.True(t, test.freshReceiverHits(t, built.Bundle))
+		})
+	}
+}
+
+// A bundle for a recipient whose check hit another run's call by term sends
+// that call, though the check's runs never made its request digest: the
+// check's own call was keyed to its client, and matched the other run's by
+// its self digest over its inputs' classes. A term the check didn't hit
+// sends nothing. StoredSizes prices each as it is built.
+func TestCallRecordOfATermItsCheckHitIsSent(t *testing.T) {
+	t.Parallel()
+	test := newReceiverCallTest(t)
+	entry := storedBundleTestEntry(test.cloud, test.number)
+	test.cloud.egraphMu.RLock()
+	var term RemoteTerm
+	for _, kept := range entry.calls {
+		term = RemoteTerm{Self: kept.id.self, Inputs: slices.Clone(kept.id.inputs)}
+	}
+	test.cloud.egraphMu.RUnlock()
+	require.NotEmpty(t, term.Self)
+	other := RemoteTerm{Self: digest.FromString("another call"), Inputs: term.Inputs}
+	for name, hit := range map[string]RemoteTerm{"its term": term, "another term": other} {
+		t.Run(name, func(t *testing.T) {
+			held := &HeldBy{Calls: func(digest.Digest) bool { return false }, Terms: []RemoteTerm{hit}}
+			built, err := test.cloud.StoredBundle(test.ctx, []uint64{test.number}, time.Now().Unix(), held)
+			require.NoError(t, err)
+			sizes, err := test.cloud.StoredSizes(test.ctx, []uint64{test.number}, time.Now().Unix(), held)
+			require.NoError(t, err)
+			require.Equal(t, len(built.Bundle.Values), sizes[0].Records, "priced as built")
+			require.Zero(t, built.UnsendableCalls)
+			if name == "another term" {
+				require.Empty(t, built.Bundle.Calls)
+				require.Empty(t, built.CallInputs)
 				return
 			}
 			require.Len(t, built.Bundle.Calls, 1)

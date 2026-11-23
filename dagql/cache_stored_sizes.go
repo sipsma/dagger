@@ -196,6 +196,7 @@ func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *Hel
 	for _, id := range walk.closure {
 		mine[id] = true
 	}
+	termKeys := c.heldTermKeysLocked(held)
 	for i := 0; i < len(walk.order); i++ {
 		entry := walk.order[i]
 		if hold != nil {
@@ -208,7 +209,7 @@ func (c *Cache) storedRootWalkLocked(res *sharedResult, nowUnix int64, held *Hel
 			continue
 		}
 		for _, group := range c.keptCallTermsLocked(entry) {
-			if group = held.sendableLocked(group); len(group) == 0 {
+			if group = c.sendableCallsLocked(held, termKeys, group); len(group) == 0 {
 				continue
 			}
 			_, add := c.placeableCallLocked(group, func(input *sharedResult) bool {

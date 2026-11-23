@@ -100,12 +100,40 @@ type HeldBy struct {
 	// marks nothing partial, and adds none of its inputs. Without it, every
 	// kept call may go. It is called under the cache's lock, as Also is.
 	Calls func(request digest.Digest) bool
+	// Terms are the terms of the calls the recipient's check hit by term
+	// (a structural hit): its runs' calls, keyed to their own sessions or
+	// receivers, that matched a kept call of another run by their self
+	// digest over their inputs' classes. With Calls, a bundle may send
+	// every kept call of one of these terms too: the check's engine, had it
+	// run the check itself, would hold the call that hit, and a later run's
+	// call of the same term hits it whichever run made it. A term's key is
+	// taken at the build, over the classes its inputs have then.
+	Terms []RemoteTerm
 }
 
-// sendableLocked returns those of group, the kept calls of one term, that a
-// bundle for the recipient may send (Calls). Requires egraphMu.
-func (h *HeldBy) sendableLocked(group []*keptCall) []*keptCall {
+// heldTermKeysLocked returns the keys of h's terms over the classes their
+// inputs have now, as keptCallTermKeyLocked keys a kept call. Requires
+// egraphMu.
+func (c *Cache) heldTermKeysLocked(h *HeldBy) map[string]bool {
+	if h == nil || h.Calls == nil || len(h.Terms) == 0 {
+		return nil
+	}
+	keys := make(map[string]bool, len(h.Terms))
+	for _, term := range h.Terms {
+		keys[c.keptCallTermKeyLocked(&keptCall{id: callIdentity{self: term.Self, inputs: term.Inputs}})] = true
+	}
+	return keys
+}
+
+// sendableCallsLocked returns those of group, the kept calls of one term,
+// that a bundle for the recipient h may send: every one when the term is
+// one of the recipient's (HeldBy.Terms, keyed in terms), else those Calls
+// names. Requires egraphMu.
+func (c *Cache) sendableCallsLocked(h *HeldBy, terms map[string]bool, group []*keptCall) []*keptCall {
 	if h == nil || h.Calls == nil {
+		return group
+	}
+	if len(terms) > 0 && len(group) > 0 && terms[c.keptCallTermKeyLocked(group[0])] {
 		return group
 	}
 	for i, kept := range group {
@@ -350,7 +378,7 @@ func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int6
 	for _, res := range rootEntries {
 		seenRoot[res.id] = true
 	}
-	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, heldBy: held, notWhole: notWhole, held: map[sharedResultID]bool{},
+	build := &storedBundleBuild{now: nowUnix, ordinals: map[sharedResultID]TransferOrdinal{}, heldBy: held, termKeys: c.heldTermKeysLocked(held), notWhole: notWhole, held: map[sharedResultID]bool{},
 		owners: map[sharedResultID]int{}, ordinary: map[sharedResultID]bool{}, rootSeen: seenRoot}
 	build.bundle.Version = ValueBundleVersion
 	visiting := map[sharedResultID]bool{}
@@ -481,6 +509,8 @@ type storedBundleBuild struct {
 	heldBy   *HeldBy
 	notWhole map[sharedResultID]bool
 	held     map[sharedResultID]bool
+	// termKeys are the keys of the recipient's terms (heldTermKeysLocked).
+	termKeys map[string]bool
 	// rootSeen are the roots' entries, and callRoots the entries added as
 	// roots for the inputs of calls the bundle sends, callInputs their
 	// numbers, and unsendableCalls the terms it sends no call for
