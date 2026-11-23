@@ -387,3 +387,91 @@ func TestCacheReportsPartsReadUnderANestedClientsRequest(t *testing.T) {
 		{ResultID: id(uncachedUnderSessionBound), Part: partsTestPartFS, Session: session},
 	}, sessionReadsOf(t, *reported, before))
 }
+
+// delegatingReadsCodec is the parts value's family's codec, which says, as
+// Container's says of its metadata calls, that every part of a result of the
+// field "delegate" but its meta part is its receiver's unchanged. No other
+// test makes such a field.
+type delegatingReadsCodec struct{}
+
+func (delegatingReadsCodec) NormalizeForeign(v PersistedPayloadVisit) (ForeignPayload, error) {
+	return ForeignPayload{JSON: v.Payload}, nil
+}
+func (delegatingReadsCodec) ValidateForeign(PersistedPayloadVisit) error { return nil }
+func (delegatingReadsCodec) MapSnapshotParts(PersistedPayloadVisit) ([]CapturedCodecOutput, error) {
+	return nil, nil
+}
+func (delegatingReadsCodec) PartDelegatedTo(call *ResultCall, part PartKey) (uint64, bool) {
+	if call.Field != "delegate" || part == partsTestPartMeta || call.Receiver == nil || call.Receiver.ResultID == 0 {
+		return 0, false
+	}
+	return call.Receiver.ResultID, true
+}
+
+func init() {
+	RegisterPersistedObjectFamily(PersistedObjectFamily{Name: "dagql_test.ReadThrough", Typed: (*cacheTestPartsObject)(nil), Visitor: PersistedNoReferences{}, Transfer: delegatingReadsCodec{}})
+}
+
+// A read that counts of a part that is its receiver's unchanged reads the
+// receiver's part too, and counts as a read of it, up the receivers: the
+// part it reads is that part, as an install of it is the receiver's. A read
+// of the child's own part, or of a child of another field, reads only the
+// child's; and a read under a cached call counts for neither.
+func TestCacheReportsAReadOfADelegatedPartAsTheReceiversToo(t *testing.T) {
+	t.Parallel()
+	ctx, c, session, reported, mu, call := readsTestCache(t)
+	srv := cacheTestPartsServer(t)
+	child := func(field string, receiver ObjectResult[*cacheTestPartsObject]) ObjectResult[*cacheTestPartsObject] {
+		t.Helper()
+		obj := &cacheTestPartsObject{resolveFn: partsTestDirectResolve}
+		var res ObjectResult[*cacheTestPartsObject]
+		obj.groupEval = map[LazyGroupKey]LazyEvalFunc{partsTestGroupOut: func(ctx context.Context) error {
+			return c.partHostFor(res.cacheSharedResult()).RunNative(ctx, partsTestGroupOut, []PartKey{partsTestPartFS}, func(context.Context) error { return nil })
+		}}
+		frame := &ResultCall{
+			Kind:     ResultCallKindField,
+			Type:     NewResultCallType((&cacheTestPartsObject{}).Type()),
+			Field:    field,
+			Receiver: &ResultCallRef{ResultID: uint64(receiver.cacheSharedResult().id)},
+		}
+		resAny, err := c.GetOrInitCall(ctx, session, srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
+			return NewObjectResultForCall(obj, srv, frame)
+		})
+		assert.NilError(t, err)
+		res = resAny.(ObjectResult[*cacheTestPartsObject])
+		return res
+	}
+	// base <- middle <- top, each delegating: a read of top's part reads
+	// middle's and base's.
+	base := newPartsReadTestValue(t, c, ctx, "base", nil)
+	middle := child("delegate", base)
+	top := child("delegate", middle)
+	notDelegating := child("own", newPartsReadTestValue(t, c, ctx, "other-base", nil))
+	delegatingUnderCached := child("delegate", newPartsReadTestValue(t, c, ctx, "base-under-a-cached-call", nil))
+
+	id := func(r ObjectResult[*cacheTestPartsObject]) uint64 { return uint64(r.cacheSharedResult().id) }
+	before := time.Now()
+	call(ctx, "session-bound-at-the-top", true, false, func(ctx context.Context) error {
+		if err := c.EvaluateParts(ctx, top, partsTestPartFS); err != nil {
+			return err
+		}
+		if err := c.EvaluateParts(ctx, top, partsTestPartMeta); err != nil {
+			return err
+		}
+		return c.EvaluateParts(ctx, notDelegating, partsTestPartFS)
+	})
+	call(ctx, "cached-at-the-top", false, false, func(ctx context.Context) error {
+		return c.EvaluateParts(ctx, delegatingUnderCached, partsTestPartFS)
+	})
+	c.partReads.flush()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.DeepEqual(t, []PartRead{
+		{ResultID: id(top), Part: partsTestPartFS, Session: session},
+		{ResultID: id(middle), Part: partsTestPartFS, Session: session},
+		{ResultID: id(base), Part: partsTestPartFS, Session: session},
+		{ResultID: id(top), Part: partsTestPartMeta, Session: session},
+		{ResultID: id(notDelegating), Part: partsTestPartFS, Session: session},
+	}, sessionReadsOf(t, *reported, before))
+}
