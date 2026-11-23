@@ -952,3 +952,52 @@ func TestABundleCountsTheRunsAWholeHoldingExposes(t *testing.T) {
 	require.Contains(t, numbers, second)
 	require.NotContains(t, numbers, first, "one run of the step")
 }
+
+// A kept call's inputs are carried as roots of a bundle (its call roots), and
+// count toward the run of a step it carries: a bundle of a step's first run
+// and of an entry K with a kept call on a receiver A built over the step's
+// second run carries the first run and leaves K out, never both runs.
+func TestABundleCountsTheRunsAKeptCallsInputsCarry(t *testing.T) {
+	t.Parallel()
+	cloudCtx, cloud := storedPartTestCache(t, WithBlobStore())
+	xctx, x, xsrv := transferTestCache(t)
+	xStep := secondRunTestStep(t, xctx, x, xsrv, "second-run-step", "x-run")
+	xBundle, xReply := secondRunTestExport(t, xctx, x, nil, cloud, cloudCtx, "cache-x", xStep)
+	first := secondRunTestNumber(xBundle, xReply, xStep)
+
+	ctx, producer, srv := transferTestCache(t)
+	test := &receiverCallTest{callRecordTest: &callRecordTest{ctx: ctx, producer: producer, frame: receiverTestCall("a"), cloud: cloud}, srv: srv}
+	test.inner = persistedListTestResult(t, ctx, producer, srv, "inner", &transferTestValue{Text: "inner"})
+	aStep := secondRunTestStep(t, ctx, producer, srv, "second-run-step", "a-run")
+	receiver, err := producer.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: receiverTestFrame("a"), IsPersistable: true},
+		func(context.Context) (AnyResult, error) {
+			return NewResultForCall(&transferTestValue{Text: "receiver"}, receiverTestFrame("a"))
+		})
+	require.NoError(t, err)
+	transferTestDependency(producer, ctx, receiver, aStep)
+	_, err = producer.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: test.frame, IsPersistable: true},
+		func(context.Context) (AnyResult, error) { return test.inner, nil })
+	require.NoError(t, err)
+	bundle := exportTestBundle(t, ctx, producer, test.inner, receiver)
+	reply, err := cloud.MergeValues(cloudCtx, "cache-a", bundle)
+	require.NoError(t, err)
+	second := secondRunTestNumber(bundle, reply, aStep)
+	test.number = secondRunTestNumber(bundle, reply, test.inner)
+	require.NotEqual(t, first, second, "cache-a's run is kept apart under its receiver")
+	test.attach(t, cloudCtx, test.span(t, true, 0))
+
+	sent, err := cloud.StoredBundle(cloudCtx, []uint64{first, test.number}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{test.number}, sent.OtherRun, "K, whose call's receiver is over the other run, is left out")
+	var numbers []uint64
+	for _, value := range sent.Bundle.Values {
+		numbers = append(numbers, value.SenderNumber)
+	}
+	require.Contains(t, numbers, first)
+	require.NotContains(t, numbers, second, "one run of the step")
+
+	alone, err := cloud.StoredBundle(cloudCtx, []uint64{test.number}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Empty(t, alone.OtherRun)
+	require.Len(t, alone.Bundle.Calls, 1, "alone, K goes with its call, over the run its receiver was built over")
+}
