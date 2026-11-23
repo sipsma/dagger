@@ -338,6 +338,41 @@ func TestBuiltThenOfferedMountChainCopiesFromWriter(t *testing.T) {
 	requireMountChainLinear(t, builtThenOfferedMountChainCost(t, 16), builtThenOfferedMountChainCost(t, 64), 64)
 }
 
+// A source remembered past a layer this engine built counts no longer once
+// an offered part is installed into that layer: a walk stops at the layer
+// that now holds the part, as it does with nothing remembered, and doesn't
+// go on to the writer below it.
+func TestContainerPartSourceStopsAtALayerThatGainsAnOffer(t *testing.T) {
+	t.Parallel()
+	aStore, bStore := testutil.NewStore(t), testutil.NewStore(t)
+	actx, a, asrv := transferCache(t, aStore, "", "a")
+	bctx, b, bsrv := transferCache(t, bStore, "", "b")
+	const n = 4
+	exported := buildMountChain(t, actx, a, asrv, aStore, "a", n)
+	require.NoError(t, a.EvaluateParts(actx, exported.top, exported.parts()...))
+	built := buildMountChain(t, bctx, b, bsrv, bStore, "b", n)
+	require.NoError(t, b.EvaluateParts(bctx, built.top, ContainerPartMetadata))
+	parent, middle := built.layers[n-2], built.layers[1]
+	// Every layer passes fs through to the base, and the layers walked past
+	// remember it.
+	require.NotSame(t, middle.Self(), containerPartSource(bctx, parent, ContainerPartFS).Self())
+	selection := dagql.ValueSelection{Roots: []dagql.AnyResult{exported.top}, Outputs: exported.outputs}
+	require.NoError(t, a.WithExportedValues(actx, selection, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(_ context.Context, bundle *dagql.ExportedValues) error {
+		var source chainsContentSource
+		for _, entry := range bundle.Chains.Entries {
+			source = append(source, entry.Provider)
+		}
+		b.SetPartContentSource(source)
+		_, err := b.MergeValues(bctx, dagql.CloudCacheID, bundle.Bundle)
+		require.NoError(t, err)
+		require.True(t, b.HasPartOffer(middle, ContainerPartFS), "the merge offers the middle layer's rootfs")
+		require.NoError(t, b.EvaluateParts(bctx, middle, ContainerPartFS))
+		require.NotNil(t, middle.Self().acquiredOutput.Load(), "the installed offer gives the middle layer an acquired output")
+		require.Same(t, middle.Self(), containerPartSource(bctx, parent, ContainerPartFS).Self(), "the walk stops at the middle layer, which holds the part")
+		return nil
+	}))
+}
+
 // The same chain restored from the cache's own persisted state, with the
 // remote cache off, copies each mount from the layer that mounted it too.
 func TestRestoredMountChainCopiesFromWriter(t *testing.T) {
