@@ -256,24 +256,28 @@ func TestDeclaredFieldsFollowFromTheirInputs(t *testing.T) {
 // (TestGitTreeFollowsFromItsInputsWithoutGitDir).
 func TestFieldsThatFollowFromInputsDeclareIt(t *testing.T) {
 	e := newFollowsTestEngine(t, transferTestSalt(t), "follows-declared")
+	// The reads from outside the engine claim the stronger: what they hold is
+	// addressed by hashes their own keys hold, whatever runs their inputs are.
 	for _, tc := range []struct {
 		typ, field string
-		follows    bool
+		claim      dagql.FollowsClaim
 	}{
-		{"Container", "from", true},
-		{"Directory", "withPlatform", true},
-		{"Container", "withMountedCache", true},
-		{"Container", "__withSystemEnvVariable", true},
-		{"GitRepository", "__sparseFiles", true},
-		{"GitRef", "__sparseWorkspaceTree", true},
-		{"Query", "__httpFile", true},
-		{"Container", "withExec", false},
+		{"Container", "from", dagql.FollowsInputs},
+		{"Directory", "withPlatform", dagql.FollowsInputs},
+		{"Container", "withMountedCache", dagql.FollowsInputs},
+		{"Container", "__withSystemEnvVariable", dagql.FollowsInputs},
+		{"GitRepository", "__sparseFiles", dagql.FollowsKey},
+		{"GitRef", "__sparseWorkspaceTree", dagql.FollowsKey},
+		{"GitRef", "tree", dagql.FollowsKey},
+		{"GitCommit", "tree", dagql.FollowsKey},
+		{"Query", "__httpFile", dagql.FollowsKey},
+		{"Container", "withExec", ""},
 	} {
 		typ, ok := e.srv.ObjectType(tc.typ)
 		require.True(t, ok, tc.typ)
 		spec, ok := typ.FieldSpec(tc.field, "")
 		require.True(t, ok, tc.typ+"."+tc.field)
-		require.Equal(t, tc.follows, spec.Follows != "", tc.typ+"."+tc.field)
+		require.Equal(t, tc.claim, spec.Follows, tc.typ+"."+tc.field)
 	}
 
 	root := e.srv.Root()
@@ -335,26 +339,29 @@ func TestGitTreeFollowsFromItsInputsWithoutGitDir(t *testing.T) {
 	srv.InstallObject(dagql.NewClass[*core.GitRef](srv))
 	s := &gitSchema{}
 	dagql.Fields[*core.GitRepository]{dagql.NodeFunc("ref", s.ref).View(AllVersion).IsPersistable()}.Install(srv)
-	dagql.Fields[*core.GitRef]{dagql.NodeFuncWithDynamicInputs("tree", s.tree, s.treeCacheKey).FollowsFromInputs().View(AllVersion).IsPersistable()}.Install(srv)
+	dagql.Fields[*core.GitRef]{dagql.NodeFuncWithDynamicInputs("tree", s.tree, s.treeCacheKey).FollowsFromKey().View(AllVersion).IsPersistable()}.Install(srv)
 	u, err := gitutil.ParseURL("https://unreachable.invalid/repository.git")
 	require.NoError(t, err)
 	repo := resolverAttach(t, ctx, srv, cache, "repository", &core.GitRepository{Backend: &core.RemoteGitRepository{URL: u}, URL: dagql.NonNull(dagql.String(u.Remote()))})
 	var ref dagql.ObjectResult[*core.GitRef]
 	require.NoError(t, srv.Select(ctx, repo, &ref, dagql.Selector{Field: "ref", Args: []dagql.NamedInput{{Name: "name", Value: dagql.String(strings.Repeat("a", 40))}}}))
+	// A tree without .git is its commit's files, addressed by the SHA its key
+	// holds. One that keeps .git counts as the same from run to run, on this
+	// trial, by its inputs: its pack's bytes aren't addressed by its key.
 	for _, tc := range []struct {
-		name    string
-		args    []dagql.NamedInput
-		follows bool
+		name  string
+		args  []dagql.NamedInput
+		claim dagql.FollowsClaim
 	}{
-		{"without .git", []dagql.NamedInput{{Name: "discardGitDir", Value: dagql.Boolean(true)}}, true},
-		{"without .git, tags asked", []dagql.NamedInput{{Name: "discardGitDir", Value: dagql.Boolean(true)}, {Name: "includeTags", Value: dagql.Boolean(true)}}, true},
-		{"with .git", nil, true},
-		{"with .git and tags", []dagql.NamedInput{{Name: "includeTags", Value: dagql.Boolean(true)}}, true},
+		{"without .git", []dagql.NamedInput{{Name: "discardGitDir", Value: dagql.Boolean(true)}}, dagql.FollowsKey},
+		{"without .git, tags asked", []dagql.NamedInput{{Name: "discardGitDir", Value: dagql.Boolean(true)}, {Name: "includeTags", Value: dagql.Boolean(true)}}, dagql.FollowsKey},
+		{"with .git", nil, dagql.FollowsInputs},
+		{"with .git and tags", []dagql.NamedInput{{Name: "includeTags", Value: dagql.Boolean(true)}}, dagql.FollowsInputs},
 	} {
 		var tree dagql.ObjectResult[*core.Directory]
 		require.NoError(t, srv.Select(ctx, ref, &tree, dagql.Selector{Field: "tree", Args: tc.args}), tc.name)
 		frame, err := tree.ResultCall()
 		require.NoError(t, err, tc.name)
-		require.Equal(t, tc.follows, frame.FollowsFromInputs(), tc.name)
+		require.Equal(t, tc.claim, frame.Follows, tc.name)
 	}
 }

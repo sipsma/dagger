@@ -192,12 +192,22 @@ func gitMountNamespaces() error {
 	return <-errCh
 }
 
-// The git reads that follow from their inputs give the same snapshot, every
-// byte of it, on two engines a second apart: what each stores beside the
-// files it serves too, which the directory's content digest doesn't cover.
-// An engine's git commands make mount namespaces, so it runs privileged, in
-// test-split's testEbpf.
+// The git reads claim their content is addressed by hashes their own keys
+// hold (dagql.FollowsKey), the stronger claim: two runs of each over two
+// separately made runs of its receiver give the same snapshot, every byte of
+// it. Each engine here makes its own run of the repository, a second apart,
+// and what each stores beside the files it serves is compared too, which the
+// directory's content digest doesn't cover. An engine's git commands make
+// mount namespaces, so it runs privileged, in test-split's testEbpf.
 func TestDeclaredGitReadsFollowFromTheirInputs(t *testing.T) {
+	claims := newFollowsTestEngine(t, transferTestSalt(t), "follows-git-claims")
+	for typ, field := range map[string]string{"GitRepository": "__sparseFiles", "GitRef": "__sparseWorkspaceTree", "GitCommit": "tree"} {
+		objType, ok := claims.srv.ObjectType(typ)
+		require.True(t, ok, typ)
+		spec, ok := objType.FieldSpec(field, "")
+		require.True(t, ok, typ+"."+field)
+		require.Equal(t, dagql.FollowsKey, spec.Follows, typ+"."+field+" claims what this test shows")
+	}
 	if err := gitMountNamespaces(); err != nil {
 		t.Skipf("an engine's git commands make mount namespaces, which takes CAP_SYS_ADMIN; testEbpf runs this privileged: %v", err)
 	}
