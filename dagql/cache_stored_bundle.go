@@ -403,13 +403,15 @@ func (c *Cache) storedBundleWalkLocked(rootEntries []*sharedResult, nowUnix int6
 }
 
 // storedBundleWholeWalkLocked walks the roots' closures into a build
-// (storedBundleWalkLocked) and walks them again while the build has a root
-// that carries another run of a step than the build carries
-// (otherRunRootLocked), the first of which it leaves out, and, with
-// held.Whole, while the build holds a held row the recipient doesn't hold
-// whole, which then goes in full, as a caller building again would walk it.
-// It returns the last build, the roots it walked, those held rows in the
-// order found, and the roots left out, in their order. Requires egraphMu.
+// (storedBundleWalkLocked) and, with held.Whole, walks them again while the
+// build holds a held row the recipient doesn't hold whole, which then goes in
+// full, as a caller building again would walk it. Only once the walk is whole
+// is a root that carries another run of a step than the build carries
+// (otherRunRootLocked) left out, the first of them, and the rest walked
+// again: what goes in full can expose the run a root before it carries. It
+// returns the last build, the roots it walked, the held rows of that build
+// that went in full, in the order found, and the roots left out, in their
+// order. Requires egraphMu.
 func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix int64, held *HeldBy) (*storedBundleBuild, []*sharedResult, []uint64, []uint64, error) {
 	var whole *wholeHolds
 	if held != nil && held.Whole {
@@ -422,32 +424,39 @@ func (c *Cache) storedBundleWholeWalkLocked(rootEntries []*sharedResult, nowUnix
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
+		var found []uint64
+		if whole != nil {
+			for _, res := range build.order {
+				if build.held[res.id] && !c.holdsWholeLocked(whole, res) {
+					found = append(found, uint64(res.id))
+				}
+			}
+		}
+		if len(found) > 0 {
+			if notWhole == nil {
+				notWhole = map[sharedResultID]bool{}
+			}
+			for _, number := range found {
+				notWhole[sharedResultID(number)] = true
+			}
+			all = append(all, found...)
+			continue
+		}
 		if i := c.otherRunRootLocked(build); i >= 0 {
 			otherRun = append(otherRun, uint64(rootEntries[i].id))
 			rootEntries = slices.Delete(slices.Clone(rootEntries), i, i+1)
 			continue
 		}
-		if whole == nil {
-			return build, rootEntries, all, otherRun, nil
-		}
-		var found []uint64
-		for _, res := range build.order {
-			if build.held[res.id] && !c.holdsWholeLocked(whole, res) {
-				found = append(found, uint64(res.id))
+		// A held row found under a root since left out isn't carried.
+		carried := all[:0:0]
+		for _, number := range all {
+			if _, ok := build.owners[sharedResultID(number)]; ok {
+				carried = append(carried, number)
 			}
 		}
-		if len(found) == 0 {
-			return build, rootEntries, all, otherRun, nil
-		}
-		if notWhole == nil {
-			notWhole = map[sharedResultID]bool{}
-		}
-		for _, number := range found {
-			notWhole[sharedResultID(number)] = true
-		}
-		all = append(all, found...)
+		return build, rootEntries, carried, otherRun, nil
 	}
-	return nil, nil, all, otherRun, nil
+	return nil, nil, nil, otherRun, nil
 }
 
 // wholeHolds is what a build has found of which holdings of one engine
