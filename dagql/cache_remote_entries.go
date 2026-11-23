@@ -1221,7 +1221,7 @@ func (c *Cache) compactEqClassesAfterCollectionLocked(removed bool) {
 	}
 	start := time.Now()
 	c.eqClassChecks++
-	c.noteSharedWriteLocked(SharedEntryRemoved)
+	c.noteSharedWriteLocked(SharedClassesChecked)
 	compacted, oldSlots, newSlots := c.compactEqClassesLocked(false)
 	c.eqClassCheckedAt = now
 	c.eqClassCheckedSlots = c.eqClassSlotsLocked()
