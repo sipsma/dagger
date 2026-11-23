@@ -917,7 +917,8 @@ func TestABundleCarriesTheRunItsRecipientHoldsThoughItGoesInFull(t *testing.T) {
 // what that walk exposes counts toward the run a bundle carries: a bundle of
 // a result H over a step's second run, which the recipient holds but not
 // whole, and of a result U over the step's first run carries H over its run
-// and leaves U out, never both runs.
+// and leaves U out, never both runs. A root after U over H's run goes with
+// H: the walk is made whole before any root is left out.
 func TestABundleCountsTheRunsAWholeHoldingExposes(t *testing.T) {
 	t.Parallel()
 	cctx, cloud := storedPartTestCache(t, WithBlobStore())
@@ -933,10 +934,13 @@ func TestABundleCountsTheRunsAWholeHoldingExposes(t *testing.T) {
 	bStep := secondRunTestStep(t, bctx, b, bsrv, "second-run-step", "b-run")
 	bRoot := secondRunTestStep(t, bctx, b, bsrv, "second-run-unique", "b-root")
 	transferTestDependency(b, bctx, bRoot, bStep)
+	bOther := secondRunTestStep(t, bctx, b, bsrv, "second-run-unique-other", "b-other")
+	transferTestDependency(b, bctx, bOther, bStep)
 	_, err := cloud.AttachRemoteHolding(cctx, HolderKey{Cache: "cache-b", Number: uint64(bStep.cacheSharedResult().id)}, RemoteHolding{Recipe: recipe})
 	require.NoError(t, err)
-	bBundle, bReply := secondRunTestExport(t, bctx, b, nil, cloud, cctx, "cache-b", bRoot)
+	bBundle, bReply := secondRunTestExport(t, bctx, b, nil, cloud, cctx, "cache-b", bRoot, bOther)
 	second, h := secondRunTestNumber(bBundle, bReply, bStep), secondRunTestNumber(bBundle, bReply, bRoot)
+	v := secondRunTestNumber(bBundle, bReply, bOther)
 	require.NotEqual(t, first, second, "cache-b's run is kept apart")
 
 	// cache-c holds H, with a dependency it holds nothing of: not whole.
@@ -949,6 +953,20 @@ func TestABundleCountsTheRunsAWholeHoldingExposes(t *testing.T) {
 	for _, value := range sent.Bundle.Values {
 		numbers = append(numbers, value.SenderNumber)
 	}
+	require.Contains(t, numbers, second)
+	require.NotContains(t, numbers, first, "one run of the step")
+
+	// V, over the run H exposes once it goes in full, goes with H: U, over
+	// the other run, is the one left out, though V comes after it.
+	sent, err = cloud.StoredBundle(cctx, []uint64{h, u, v}, time.Now().Unix(), &HeldBy{Cache: "cache-c", Whole: true})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{h}, sent.NotWhole)
+	require.Equal(t, []uint64{u}, sent.OtherRun, "only U, over the other run, is left out")
+	numbers = nil
+	for _, value := range sent.Bundle.Values {
+		numbers = append(numbers, value.SenderNumber)
+	}
+	require.Contains(t, numbers, v, "V agrees with H's run")
 	require.Contains(t, numbers, second)
 	require.NotContains(t, numbers, first, "one run of the step")
 }
