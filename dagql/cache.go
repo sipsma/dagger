@@ -2842,10 +2842,17 @@ type Cache struct {
 	// engine cache's state (BlobCacheUsage). Changed with the states'
 	// counts, read without egraphMu.
 	remoteHoldings atomic.Int64
-	// changes are the holdings and entries changed since the last write
-	// handed them back, on a blob-backed cache only: nil on any other
-	// (cache_change_marks.go). Guarded by egraphMu.
-	changes *changeMarks
+	// changes are the entries changed since the last write handed them
+	// back, on a blob-backed cache only: nil on any other
+	// (cache_change_marks.go). Written by writers holding egraphMu
+	// exclusively; handed back under changesMu as well, since writers of
+	// one engine cache's holdings, holding egraphMu for reading, hand back
+	// beside each other (takeChangesLocked). changesMu is a leaf.
+	changes   *changeMarks
+	changesMu sync.Mutex
+	// sharedHoldMisses counts the writes in shared holds that changed state
+	// engines share (RemoteWrites.unlockWrite).
+	sharedHoldMisses atomic.Uint64
 	// uploads counts, on a blob-backed cache, the uploads of parts its
 	// reader marks in progress, by entry and part address key
 	// (StartPartUploads, EndPartUploads). Memory only, as the reader's own

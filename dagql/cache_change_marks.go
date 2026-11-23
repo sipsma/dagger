@@ -266,6 +266,12 @@ func (c *Cache) takeChangesLocked(change *RemoteChange) {
 		slices.SortFunc(change.Holdings, compareChangedHoldings)
 		change.Holdings = slices.CompactFunc(change.Holdings, func(a, b HolderKey) bool { return a == b })
 	}
+	// The entry and class marks waiting are an exclusive writer's, left for
+	// the next write to hand back: writers in shared holds take them in
+	// turn. Their stamps were applied as they were left
+	// (stampPendingLocked), so this only reads the classes it widens over.
+	c.changesMu.Lock()
+	defer c.changesMu.Unlock()
 	if !c.changesPendingLocked() {
 		return
 	}
