@@ -82,7 +82,7 @@ func TestAValueOverAnotherRunWithTheRecipientsContentIsNotWithheld(t *testing.T)
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			s, _, root := guardsTestTwoRuns(t, contents[0], contents[1])
+			s, root := guardsTestTwoRuns(t, contents[0], contents[1])
 			cloud, cctx := s.cloud, s.cctx
 			got, err := cloud.StoredBundle(cctx, []uint64{root}, time.Now().Unix(), guardsTestRecipient(t, s))
 			require.NoError(t, err)
@@ -98,8 +98,8 @@ func TestAValueOverAnotherRunWithTheRecipientsContentIsNotWithheld(t *testing.T)
 // guardsTestTwoRuns has cache-a's run of a step, of content digest a, merged
 // into a new Cloud, then cache-b's own run of it, of content digest b, with
 // a unique result over it, which the Cloud keeps apart as a second run. It
-// returns the setup and the Cloud's numbers for cache-b's run and result.
-func guardsTestTwoRuns(t *testing.T, a, b digest.Digest) (*secondRunTestSetup, uint64, uint64) {
+// returns the setup and the Cloud's number for cache-b's result.
+func guardsTestTwoRuns(t *testing.T, a, b digest.Digest) (*secondRunTestSetup, uint64) {
 	t.Helper()
 	cctx, cloud := storedPartTestCache(t, WithBlobStore())
 	actx, ac, asrv := transferTestCache(t)
@@ -119,7 +119,7 @@ func guardsTestTwoRuns(t *testing.T, a, b digest.Digest) (*secondRunTestSetup, u
 	second, root := secondRunTestNumber(bundle, reply, bStep), secondRunTestNumber(bundle, reply, bRoot)
 	require.NotZero(t, root)
 	require.NotEqual(t, s.first, second, "cache-b's run is an entry of its own")
-	return s, second, root
+	return s, root
 }
 
 // One bundle still carries one run of a step, even where the two runs'
@@ -130,7 +130,7 @@ func guardsTestTwoRuns(t *testing.T, a, b digest.Digest) (*secondRunTestSetup, u
 func TestABundleCarriesOneRunOfAStepWhateverItsContent(t *testing.T) {
 	t.Parallel()
 	same := digest.FromString("same")
-	s, _, root := guardsTestTwoRuns(t, same, same)
+	s, root := guardsTestTwoRuns(t, same, same)
 	got, err := s.cloud.StoredBundle(s.cctx, []uint64{s.first, root}, time.Now().Unix(), nil)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{root}, got.Withheld, "the root over the second run, after the first run")
@@ -196,4 +196,52 @@ func TestAMergeOverAnotherRunWithTheEnginesContentIsNotRefused(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A value's output names its owner's rows and its services directly, not
+// through the value's dependencies: a part the Cloud borrows from a class
+// mate names rows of the value's closure, wherever they are in it. So an
+// engine refuses a value whose output names another run of a service it
+// holds, even where the value reaches that service through its dependencies
+// only below a step whose content its key addresses.
+func TestAMergeRefusesAServiceAnOutputNamesBelowAStepItsKeyAddresses(t *testing.T) {
+	t.Parallel()
+	actx, a, asrv := transferTestCache(t)
+	from := CacheID(a.Identity().ID)
+	service := secondRunTestStep(t, actx, a, asrv, "guards-dep", "service, a's run")
+	guardsTestFrame(t, a, service, "", digest.FromString("service content"))
+	read := secondRunTestStep(t, actx, a, asrv, "guards-read", "read")
+	guardsTestFrame(t, a, read, FollowsKey, "")
+	root := persistedListTestResult(t, actx, a, asrv, "guards-root", &transferTestValue{Text: "root"})
+	transferTestDependency(a, actx, root, read)
+	transferTestDependency(a, actx, read, service)
+	cctx, cloud := storedPartTestCache(t, WithBlobStore())
+	exported := exportTestBundle(t, actx, a, root)
+	reply, err := cloud.MergeValues(cctx, from, exported)
+	require.NoError(t, err)
+	rootNumber, serviceNumber := secondRunTestNumber(exported, reply, root), secondRunTestNumber(exported, reply, service)
+	require.NotZero(t, rootNumber)
+	require.NotZero(t, serviceNumber)
+	member := storedBundleTestClassMember(t, cctx, cloud, rootNumber, "guards-member")
+	stored, _, err := cloud.SetStoredPart(cctx, member, storedPartNaming(serviceNumber), 0)
+	require.NoError(t, err)
+	require.True(t, stored)
+	sent, err := cloud.StoredBundle(cctx, []uint64{rootNumber}, time.Now().Unix(), nil)
+	require.NoError(t, err)
+	require.Empty(t, sent.Withheld)
+	require.Len(t, sent.Bundle.Outputs, 1, "the root's output, borrowed, naming the service")
+	output := sent.Bundle.Outputs[0]
+	require.Len(t, output.Value.Services, 1)
+	for _, value := range sent.Bundle.Values {
+		if value.Ordinal == output.Ordinal {
+			require.NotContains(t, value.DependencyIDs, output.Value.Services[0].ServiceResultID, "the root reaches the service only through the read")
+		}
+	}
+
+	bctx, b, bsrv := transferTestCache(t)
+	own := secondRunTestStep(t, bctx, b, bsrv, "guards-dep", "service, b's run")
+	guardsTestFrame(t, b, own, "", digest.FromString("other content"))
+	merged, err := b.MergeValues(bctx, cloudCacheID, sent.Bundle)
+	require.NoError(t, err)
+	require.NotEmpty(t, merged.OtherRun, "the output names b's other run of the service")
 }
