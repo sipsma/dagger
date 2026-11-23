@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"golang.org/x/sync/errgroup"
@@ -1004,6 +1005,13 @@ func delegateContainerPart(ctx context.Context, dst *Container, parent dagql.Obj
 	}
 }
 
+// containerPartSourceEpoch advances when a container gains or replaces an
+// acquired output (containerPartStore.Publish). A container this engine
+// built can gain one when an offered part is installed into it, and a walk
+// then stops there, before a source an earlier walk remembered past it: a
+// remembered source counts only while the epoch its walk began in holds.
+var containerPartSourceEpoch atomic.Uint64
+
 // containerPartSource returns the result that delegation copies part
 // from: parent, or the nearest result below it that does not pass the part
 // through. A refined op passes a part through when it maps the part to its
@@ -1020,13 +1028,15 @@ func containerPartSource(ctx context.Context, parent dagql.ObjectResult[*Contain
 	// passed are the refined results walked past, which remember where the
 	// walk ends when that can't change: not after a result decoded from
 	// another engine's record, whose offers come and go, and not at a
-	// result whose metadata isn't settled.
+	// result whose metadata isn't settled. What they remember holds only
+	// while no result gains an acquired output (containerPartSourceEpoch).
+	epoch := containerPartSourceEpoch.Load()
 	var passed []*LazyState
 	settled := true
 	done := func(src dagql.ObjectResult[*Container]) dagql.ObjectResult[*Container] {
 		if settled {
 			for _, state := range passed {
-				state.rememberPartSource(part, src)
+				state.rememberPartSource(part, src, epoch)
 			}
 		}
 		return src
@@ -1057,7 +1067,7 @@ func containerPartSource(ctx context.Context, parent dagql.ObjectResult[*Contain
 		if state.GroupConsumed(group) {
 			return done(parent)
 		}
-		if src, ok := state.partSource(part); ok {
+		if src, ok := state.partSource(part, epoch); ok {
 			if src, ok := src.(dagql.ObjectResult[*Container]); ok {
 				return done(src)
 			}
