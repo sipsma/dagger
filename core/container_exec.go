@@ -1412,6 +1412,24 @@ func (ssh *execSSHMountInstance) Mount() ([]ctrdmount.Mount, func() error, error
 	}}, release, nil
 }
 
+// execReadScope is what the part reads of the requests the exec's process
+// makes count as (ContainerExecState.readScope): what reads made under the
+// exec's call count as, but for the exec that runs a module's process for
+// the function call its client answers, as an SDK entrypoint's withExec does
+// (ModuleProcessModule). That process answers the call, as the one
+// ContainerRuntime.Call starts with the call does, and runs whenever the call
+// does: the entrypoint keys its withExec to the call. So its reads count as
+// reads made under the call (FunctionCall.ReadScope), not as reads under a
+// cached call, which runs only when its lookup misses.
+func execReadScope(ctx context.Context, moduleContext dagql.ObjectResult[*Module], functionCall *FunctionCall) dagql.ReadScope {
+	if functionCall == nil && moduleContext.Self() != nil {
+		if fnCall, err := moduleProcessCall(ctx); err == nil && fnCall != nil {
+			return fnCall.ReadScope()
+		}
+	}
+	return dagql.CurrentReadScope(ctx)
+}
+
 // mutates container caller must have handled cloning or creating a new child.
 func (container *Container) WithExec(
 	ctx context.Context,
@@ -1434,7 +1452,7 @@ func (container *Container) WithExec(
 		EngineWork:     functionCall.EngineWork() || IsEngineWork(ctx),
 		originalExecMD: copyExecInputMetadata(execMD),
 		callerRecipe:   dagql.CallerRecipe(ctx),
-		readScope:      dagql.CurrentReadScope(ctx),
+		readScope:      execReadScope(ctx, moduleContext, functionCall),
 	}
 	container.Lazy = &ContainerExecLazy{State: state}
 	container.ImageRef = ""

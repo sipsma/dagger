@@ -2653,20 +2653,34 @@ func (fnCall *FunctionCall) SetModuleProcess() {
 // no call, so it does not.
 func ModuleProcessModule(ctx context.Context) (dagql.ObjectResult[*Module], error) {
 	var none dagql.ObjectResult[*Module]
+	fnCall, err := moduleProcessCall(ctx)
+	if err != nil || fnCall == nil {
+		return none, err
+	}
 	query, err := CurrentQuery(ctx)
 	if err != nil {
 		return none, err
 	}
+	return query.CurrentModule(ctx)
+}
+
+// moduleProcessCall returns the function call that the current client runs,
+// if that call runs its function in a process it starts (ModuleProcessModule).
+func moduleProcessCall(ctx context.Context) (*FunctionCall, error) {
+	query, err := CurrentQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
 	fnCall, err := query.CurrentFunctionCall(ctx)
 	switch {
 	case errors.Is(err, ErrNoCurrentFunctionCall), errors.Is(err, ErrNoCurrentModule):
-		return none, nil
+		return nil, nil
 	case err != nil:
-		return none, err
+		return nil, err
 	case fnCall == nil || !fnCall.moduleProcess:
-		return none, nil
+		return nil, nil
 	}
-	return query.CurrentModule(ctx)
+	return fnCall, nil
 }
 
 // CallerAgent returns the agent whose turn dispatched this function call, if

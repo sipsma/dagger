@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/dagger/dagger/dagql"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,4 +48,35 @@ func TestModuleProcessModule(t *testing.T) {
 		_, err := ModuleProcessModule(ContextWithQuery(t.Context(), &Query{Server: &failingCallServer{}}))
 		require.ErrorContains(t, err, "client scope lookup failed")
 	})
+}
+
+// The exec that runs a module's process for the function call its client
+// answers, as an SDK entrypoint's withExec does, carries that call's read
+// scope to the process's requests, as ContainerRuntime.Call's exec of the
+// call does: the process answers the call. Any other exec carries what reads
+// made under its own call count as.
+func TestExecReadScopeOfAModuleProcess(t *testing.T) {
+	t.Parallel()
+	// The function call's reads count, as a session-bound call's at a
+	// session's top do; under the withExec, a cached call, reads don't.
+	fnCall := newFunctionCall(FunctionCall{Name: "check"})
+	fnCall.SetModuleProcess()
+	fnCall.readScope = dagql.CurrentReadScope(t.Context())
+	query := &Query{Server: &mockServer{moduleSource: &ModuleSource{ModuleName: "app"}, functionCall: fnCall}}
+	ctx := dagql.ContextWithCallerRecipe(ContextWithQuery(t.Context(), query), "xxh3:0123456789abcdef")
+	underExec := dagql.CurrentReadScope(ctx)
+	require.NotEqual(t, fnCall.ReadScope(), underExec, "the two scopes differ")
+	mod, err := ModuleProcessModule(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, mod.Self(), "the exec serves the call's module")
+
+	require.Equal(t, fnCall.ReadScope(), execReadScope(ctx, mod, nil), "the module's process answers the call")
+	var none dagql.ObjectResult[*Module]
+	require.Equal(t, underExec, execReadScope(ctx, none, nil), "an exec serving no module")
+	require.Equal(t, underExec, execReadScope(ctx, mod, newFunctionCall(FunctionCall{Name: "other"})), "an exec run for a call it is given")
+
+	runtime := newFunctionCall(FunctionCall{Name: "check"})
+	runtime.readScope = fnCall.ReadScope()
+	other := dagql.ContextWithCallerRecipe(ContextWithQuery(t.Context(), &Query{Server: &mockServer{moduleSource: &ModuleSource{ModuleName: "app"}, functionCall: runtime}}), "xxh3:0123456789abcdef")
+	require.Equal(t, underExec, execReadScope(other, mod, nil), "a client whose call starts no process of its own")
 }
