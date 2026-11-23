@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -198,4 +199,39 @@ func TestRemoteHoldingInfoMatchesEntryInfo(t *testing.T) {
 	got = requireHeldEntryMatches(t, cloud, "pruned", keys)
 	require.False(t, got[roots[2]].Stored)
 	require.False(t, got[roots[2]].Holding.Executed)
+}
+
+// A held entry reports every one of its entry's own facts as EntriesFacts
+// does, a second run's marks included: a reader that keeps holdings reads a
+// holding's entry first through its held entry, and only an entry a change
+// names through EntriesFacts, so the two give one set of facts.
+func TestAHeldEntryReportsItsEntrysFactsAsEntriesFactsDoes(t *testing.T) {
+	t.Parallel()
+	bundle, _ := mergeTestSource(t, "root", "value")
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	merged, err := cloud.MergeValues(ctx, "cache-a", bundle)
+	require.NoError(t, err)
+	number := merged.Imported()[0].ResultID
+	sender := HolderKey{Cache: "cache-a", Number: bundleSenderNumberForTest(t, cloud, number)}
+	// The entry as a kept second run, as the merge that keeps one apart
+	// leaves it.
+	cloud.egraphMu.Lock()
+	entry := cloud.resultsByID[sharedResultID(number)]
+	require.NotNil(t, entry)
+	entry.secondRunOf, entry.keptUnder = "recipe-it-is-a-second-run-of", true
+	cloud.egraphMu.Unlock()
+
+	held, ok := cloud.RemoteHoldingInfo(sender)
+	require.True(t, ok)
+	facts := cloud.EntriesFacts([]uint64{number})
+	require.Len(t, facts, 1)
+	require.True(t, facts[0].SecondRun && facts[0].KeptUnder)
+	want := reflect.ValueOf(facts[0])
+	got := reflect.ValueOf(held)
+	for i := range want.NumField() {
+		name := want.Type().Field(i).Name
+		field := got.FieldByName(name)
+		require.True(t, field.IsValid(), "the held entry reports the entry's %s", name)
+		require.Equal(t, want.Field(i).Interface(), field.Interface(), name)
+	}
 }
