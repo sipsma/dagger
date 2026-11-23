@@ -155,9 +155,12 @@ var errNeedsWholeCache = errors.New("remote writes: the write needs the cache to
 
 // lockWrite takes, in a shared hold, the lock of the engine cache whose
 // holdings a write changes, and returns its state, which the write lets go
-// of (unlockWrite); ok is false, with nothing locked, for a write a shared
-// hold can't make (errNeedsWholeCache). A hold of the whole cache takes
-// nothing.
+// of (unlockWrite); ok is false, with nothing locked, for a write of another
+// engine cache's holdings, which a shared hold can't make
+// (errNeedsWholeCache). An engine cache with no state holds nothing: the
+// write finds no holding, and changes nothing, as it would with the cache
+// held to itself, unless it would create the state, which its plan names
+// (SharedNewEngineCache). A hold of the whole cache takes nothing.
 func (w *RemoteWrites) lockWrite(cache CacheID) (state *remoteCacheState, ok bool) {
 	if !w.shared {
 		return nil, true
@@ -166,10 +169,9 @@ func (w *RemoteWrites) lockWrite(cache CacheID) (state *remoteCacheState, ok boo
 		return nil, false
 	}
 	state = w.c.remoteCaches[cache]
-	if state == nil {
-		return nil, false
+	if state != nil {
+		state.mu.Lock()
 	}
-	state.mu.Lock()
 	return state, true
 }
 
@@ -178,11 +180,10 @@ func (w *RemoteWrites) lockWrite(cache CacheID) (state *remoteCacheState, ok boo
 // did is counted and logged, as a write the holder should have made with
 // the cache to itself (Cache.SharedHoldMisses).
 func (w *RemoteWrites) unlockWrite(state *remoteCacheState, change RemoteChange) {
-	if state == nil {
-		return
+	if state != nil {
+		state.mu.Unlock()
 	}
-	state.mu.Unlock()
-	if change.Shared != 0 {
+	if w.shared && change.Shared != 0 {
 		w.c.sharedHoldMisses.Add(1)
 		slog.Error("remote writes: a shared hold's write changed state engines share", "engine", w.engine, "kinds", change.Shared.String())
 	}
@@ -236,7 +237,9 @@ func (w *RemoteWrites) AttachPreparedRemoteHolding(ctx context.Context, key Hold
 		return RemoteChange{}, prepared.err
 	}
 	state, ok := w.lockWrite(key.Cache)
-	if !ok {
+	if !ok || w.shared && state == nil {
+		// An attach to an engine cache with no state creates it
+		// (SharedNewEngineCache), which its holder's plan names.
 		return RemoteChange{}, errNeedsWholeCache
 	}
 	change := w.c.attachRemoteHoldingLocked(ctx, key, desc, prepared.parts, prepared.kept)
@@ -317,12 +320,10 @@ func (w *RemoteWrites) ReleaseRemoteCache(ctx context.Context, cache CacheID) Re
 	return change
 }
 
-// refused logs a write of the engine cache a shared hold refused, when the
-// cache has state to change: a holder's write of another engine cache.
+// refused logs a write a shared hold refused that has no error to report it
+// with: a holder's write of another engine cache's holdings, or a merged
+// reply's piece that would create its engine cache's state.
 func (w *RemoteWrites) refused(what string, cache CacheID) {
-	if cache == w.engine && w.c.remoteCaches[cache] == nil {
-		return
-	}
 	w.c.sharedHoldMisses.Add(1)
 	slog.Error("remote writes: a shared hold refused a write", "engine", w.engine, "write", what, "cache", cache)
 }
@@ -348,7 +349,9 @@ func (w *RemoteWrites) ApplyMergedReply(ctx context.Context, cache CacheID, sent
 		return RemoteChange{}, err
 	}
 	state, ok := w.lockWrite(cache)
-	if !ok {
+	if !ok || w.shared && state == nil {
+		// A reply that lands a record creates the engine cache's state: a
+		// shared hold applies a reply in pieces, each planned first.
 		return RemoteChange{}, errNeedsWholeCache
 	}
 	change := w.c.applyMergedReplyLocked(ctx, cache, cloudEntries, targets, reply)
@@ -366,18 +369,12 @@ func (w *RemoteWrites) ApplyMergedReply(ctx context.Context, cache CacheID, sent
 // for one record, not the reply.
 func (w *RemoteWrites) ApplyMergedReplyPiece(ctx context.Context, a *MergedReplyApply, stop func() bool) (change RemoteChange, done bool) {
 	state, ok := w.lockWrite(a.cache)
-	if !ok {
-		if a.cache != w.engine || w.c.mergedReplySharesLocked(a) != 0 {
-			// A shared hold's holder plans the piece first
-			// (PlanMergedReplyPiece): a piece that would create the engine
-			// cache's state takes the cache to itself.
-			w.refused("apply a merged reply's piece", a.cache)
-			return change, false
-		}
-		// An engine cache with no state, whose records' Cloud entries are
-		// all gone, lands nothing: the reply ends, with nothing written.
-		a.next = len(a.targets)
-		return change, true
+	if !ok || w.shared && state == nil && w.c.mergedReplySharesLocked(a) != 0 {
+		// A shared hold's holder plans the piece first
+		// (PlanMergedReplyPiece): a piece that would create the engine
+		// cache's state takes the cache to itself.
+		w.refused("apply a merged reply's piece", a.cache)
+		return change, false
 	}
 	defer func() { w.unlockWrite(state, change) }()
 	defer w.c.takeChangesLocked(&change)

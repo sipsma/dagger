@@ -196,6 +196,56 @@ func TestEngineWriteHoldsRunBesideEachOther(t *testing.T) {
 	require.Equal(t, []string{"s-b"}, held.Holding.Sessions)
 }
 
+// A shared hold's writes of an engine cache with no state, such as a late
+// update of a holding the engine no longer has, find nothing and change
+// nothing, as they do with the cache held to itself; an attach, which would
+// create the state, is refused, and creates none.
+func TestSharedHoldWritesOfAnEngineCacheWithNoStateFindNothing(t *testing.T) {
+	t.Parallel()
+	key := HolderKey{"cache-a", 1}
+	writes := func(hold func(*Cache) *RemoteWrites) []string {
+		t.Helper()
+		ctx, cloud := storedPartTestCache(t, WithBlobStore())
+		_, err := cloud.AttachRemoteHolding(ctx, HolderKey{"cache-b", 1}, holdingOf("no-state-1"))
+		require.NoError(t, err)
+		w := hold(cloud)
+		var got []string
+		note := func(what string, change RemoteChange, found bool, err error) {
+			got = append(got, fmt.Sprintf("%s: holdings %v shared %v found %v err %v", what, change.Holdings, change.Shared, found, err))
+		}
+		change, found, err := w.UpdateRemoteHolding(ctx, key, RemoteHoldingUpdate{Parts: []PersistedPartAddress{{Part: "fs"}}})
+		note("update", change, found, err)
+		change, err = w.AddRemoteHold(ctx, key, "s-a")
+		note("hold", change, false, err)
+		change, err = w.ObserveRemoteRetention(ctx, key, RetentionObservation{Retained: true})
+		note("retention", change, false, err)
+		change, found, err = w.ApplyHeldValueState(ctx, key, HeldValueState{Replacements: 1})
+		note("value state", change, found, err)
+		note("release", w.ReleaseRemoteSession(ctx, key.Cache, "s-a"), false, nil)
+		require.NoError(t, w.Release(ctx))
+		require.Zero(t, cloud.SharedHoldMisses())
+		cloud.egraphMu.RLock()
+		_, has := cloud.remoteCaches[key.Cache]
+		cloud.egraphMu.RUnlock()
+		require.False(t, has, "cache-a holds nothing")
+		return got
+	}
+	whole := writes(func(c *Cache) *RemoteWrites { return c.HoldRemoteWrites() })
+	shared := writes(func(c *Cache) *RemoteWrites { return c.HoldEngineWrites(key.Cache) })
+	require.Equal(t, whole, shared)
+
+	ctx, cloud := storedPartTestCache(t, WithBlobStore())
+	w := cloud.HoldEngineWrites(key.Cache)
+	desc := holdingOf("no-state-1")
+	require.NotZero(t, w.PlanAttach(key, desc, PrepareRemoteHolding(key, desc))&SharedNewEngineCache)
+	_, err := w.AttachRemoteHolding(ctx, key, desc)
+	require.ErrorIs(t, err, errNeedsWholeCache)
+	require.NoError(t, w.Release(ctx))
+	cloud.egraphMu.RLock()
+	defer cloud.egraphMu.RUnlock()
+	require.Empty(t, cloud.remoteCaches, "the refused attach created no state")
+}
+
 // Many engine caches each apply their rows as the service does: in a hold
 // of their own writes, each write planned first, the hold taken to itself
 // for a write whose plan names shared state and turned shared again when
