@@ -182,6 +182,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			// decline mark. An engine's saves name none.
 			run, runRan := env.Run, runRanBy(env.RunRan)
 			secondRunOf, keptUnder := env.SecondRunOf, env.KeptUnder
+			if secondRunOf != "" {
+				c.keptSecondRun.Store(true)
+			}
 			env.Run, env.RunRan, env.SecondRunOf, env.KeptUnder = nil, 0, "", false
 			res := &sharedResult{
 				id:                    resultID,

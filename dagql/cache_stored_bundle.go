@@ -24,6 +24,10 @@ type StoredBundleResult struct {
 	// known only through holdings.
 	Gone    []uint64
 	NoValue []uint64
+	// OtherRun are the roots the bundle leaves out because each would carry
+	// another run of a step than the one it carries, the recipient's or the
+	// first its roots reach (oneRunRootsLocked), in their order: to the
+	// recipient they are misses.
 	OtherRun []uint64
 	// Held are the numbers of the entries the bundle carries as held rows.
 	Held []uint64
@@ -270,6 +274,9 @@ func (c *Cache) storedBundle(roots []uint64, nowUnix int64, held *HeldBy, opts s
 		}
 	}
 	if len(rootEntries) == 0 {
+		return out, nil, nil
+	}
+	if rootEntries, out.OtherRun = c.leaveOutOtherRunsLocked(rootEntries, held, nowUnix); len(rootEntries) == 0 {
 		return out, nil, nil
 	}
 	c.storedBundleBuilds.Add(1)

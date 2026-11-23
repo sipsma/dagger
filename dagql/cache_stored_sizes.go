@@ -96,9 +96,15 @@ func (c *Cache) storedSizes(ctx context.Context, roots []uint64, nowUnix int64, 
 	sizes := make([]StoredSize, len(roots))
 	seen, ordinary := map[sharedResultID]bool{}, map[sharedResultID]bool{}
 	outputs := &storedOutputsSeen{layers: map[*storedLayer]bool{}, blobs: map[digest.Digest]digest.Digest{}}
+	// A root a bundle of these roots leaves out for another run of a step
+	// carries nothing, as a gone root doesn't.
+	left := c.oneRunLeftOut(roots, held, nowUnix)
 	for i, number := range roots {
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
+		}
+		if left[sharedResultID(number)] {
+			continue
 		}
 		size, closure, own, misses := c.walkStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, outputs)
 		if len(misses) > 0 && !measure {
@@ -658,9 +664,13 @@ func (c *Cache) StoredClosure(ctx context.Context, roots []uint64, nowUnix int64
 		list.asked[sharedResultID(number)] = true
 	}
 	seen, ordinary := map[sharedResultID]bool{}, map[sharedResultID]bool{}
+	left := c.oneRunLeftOut(roots, held, nowUnix)
 	for _, number := range roots {
 		if err := context.Cause(ctx); err != nil {
 			return StoredClosureResult{}, err
+		}
+		if left[sharedResultID(number)] {
+			continue
 		}
 		order, closure, own := c.listStoredRoot(sharedResultID(number), nowUnix, held, seen, ordinary, list)
 		for _, res := range order {
@@ -717,7 +727,7 @@ func (c *Cache) StoredLowerHalf(ctx context.Context, root uint64, nowUnix int64,
 		defer c.rlockEngineLocked(held.Cache).runlock()
 	}
 	res := c.resultsByID[sharedResultID(root)]
-	if res == nil || res.noValueLocked() {
+	if res == nil || res.noValueLocked() || c.oneRunRootsLocked([]*sharedResult{res}, held, nowUnix)[res.id] {
 		return nil, 0, nil
 	}
 	walk, _ := c.storedRootWalkLocked(res, nowUnix, held, map[sharedResultID]bool{}, map[sharedResultID]bool{},

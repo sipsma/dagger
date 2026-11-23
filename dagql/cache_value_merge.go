@@ -3081,6 +3081,7 @@ func (c *Cache) commitValueMergeLocked(ctx context.Context, commit *valueMergeCo
 			c.putResultLocked(row.res)
 			row.res.onRelease = c.resultSnapshotLeaseCleanup(row.res)
 			row.res.secondRunOf = row.plan.recipe
+			c.keptSecondRun.Store(true)
 			created = append(created, row.res)
 		case mergeStore:
 			c.installMergedRecordLocked(row.res, row, origin)
