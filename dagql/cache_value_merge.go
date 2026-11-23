@@ -1881,12 +1881,18 @@ func (c *Cache) decideMergeRowsLocked(commit *valueMergeCommit) {
 	// (Erik's rule, 23 Nov), which the same bundle brings: else it folds, as
 	// a copy does. A later export that brings such a result over a run that
 	// folded sends that run as a held row, answered stale, and then in full
-	// (otherRunHeldRowsLocked).
+	// (otherRunHeldRowsLocked). A copy is kept apart over an input kept
+	// apart, which may be decided after it, by a later record of its recipe:
+	// the rows are judged again until none changes.
 	if c.blobBacked {
 		under := underUniqueResultsLocked(prep, commit.rows, best)
-		for _, row := range commit.rows {
-			if best[row.plan.recipe.String()] == row && row.action == mergeKeep && !row.keptExpired && !prep.held[row.ordinal] && under[row.plan.recipe.String()] && c.keepsApartLocked(prep, best, row) {
-				row.action, row.res = mergeBeside, &sharedResult{id: sharedResultID(prep.firstID + row.ordinal - 1)}
+		for changed := true; changed; {
+			changed = false
+			for _, row := range commit.rows {
+				if best[row.plan.recipe.String()] == row && row.action == mergeKeep && !row.keptExpired && !prep.held[row.ordinal] && under[row.plan.recipe.String()] && c.keepsApartLocked(prep, best, row) {
+					row.action, row.res = mergeBeside, &sharedResult{id: sharedResultID(prep.firstID + row.ordinal - 1)}
+					changed = true
+				}
 			}
 		}
 	}
@@ -1964,31 +1970,39 @@ func (c *Cache) keepsApartLocked(prep *valueMergePrep, best map[string]*mergeRow
 	return false
 }
 
-// otherRunHeldRowsLocked returns, on the Cloud, the held rows that a record
-// the commit installs depends on and that land on an entry whose stored
-// record names another run than the sender's run of the step
-// (heldRowOfOtherRunLocked), by ordinal, sorted. A result is never installed
-// over an entry that isn't its engine's run of the step below it: refused as
-// stale, those rows come in full, and merge keeps them apart. Requires
-// egraphMu.
+// otherRunHeldRowsLocked returns, on the Cloud, the held rows below a
+// record the commit installs, through the bundle's dependencies, that land on
+// an entry whose stored record names another run than the sender's run of
+// the step (heldRowOfOtherRunLocked), by ordinal, sorted. A result is never
+// installed over an entry that isn't its engine's run of the steps below it:
+// refused as stale, those rows come in full, and merge keeps them apart.
+// Requires egraphMu.
 func (c *Cache) otherRunHeldRowsLocked(commit *valueMergeCommit) []TransferOrdinal {
 	if !c.blobBacked {
 		return nil
 	}
 	seen := map[uint64]bool{}
-	var stale []TransferOrdinal
+	var stack []uint64
 	for _, row := range commit.rows {
-		if !row.action.installs() {
+		if row.action.installs() {
+			stack = append(stack, row.value.DependencyIDs...)
+		}
+	}
+	var stale []TransferOrdinal
+	for len(stack) > 0 {
+		dep := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		row := commit.byOrdinal[dep]
+		if seen[dep] || row == nil {
 			continue
 		}
-		for _, dep := range row.value.DependencyIDs {
-			if seen[dep] || !commit.prep.held[dep] {
-				continue
-			}
-			seen[dep] = true
-			if held := commit.byOrdinal[dep]; held != nil && c.heldRowOfOtherRunLocked(commit.from, held) {
-				stale = append(stale, TransferOrdinal(dep))
-			}
+		seen[dep] = true
+		if !commit.prep.held[dep] {
+			stack = append(stack, row.value.DependencyIDs...)
+			continue
+		}
+		if c.heldRowOfOtherRunLocked(commit.from, row) {
+			stale = append(stale, TransferOrdinal(dep))
 		}
 	}
 	slices.Sort(stale)
@@ -1997,32 +2011,64 @@ func (c *Cache) otherRunHeldRowsLocked(commit *valueMergeCommit) []TransferOrdin
 
 // heldRowOfOtherRunLocked reports whether row, a held row of the cache from,
 // lands on an entry whose stored record names another run than from's run
-// of the step: from's own, when its holding ran the value at the row's
-// replacement count (holdingRanLocked) or the merge kept from's own record of
-// it at that count there (holding.own), or else the run the Cloud served it
-// (holding.served), for a step that can differ. A run the Cloud can't name,
-// the sender's or the entry's, says nothing: the row holds as it did.
-// Requires egraphMu.
+// of the step (heldOfOtherRunLocked). Requires egraphMu.
 func (c *Cache) heldRowOfOtherRunLocked(from CacheID, row *mergeRow) bool {
-	entry := row.res
+	key := HolderKey{Cache: from, Number: row.value.SenderNumber}
+	return c.heldOfOtherRunLocked(key, row.value.SenderReplacements, row.res, map[uint64]bool{})
+}
+
+// heldOfOtherRunLocked reports whether the holding key, at replacement count
+// replacements, is another run than the stored record of entry, where it
+// lands: its run is its cache's own, when the holding ran the value at that
+// count (holdingRanLocked) or the merge kept its own record of it at that
+// count there (holding.own), or else the run the Cloud served it
+// (holding.served); and its step can differ, or follows from its inputs with
+// one of them another value. An input is another value when the holding's
+// dependency sits on a second run entry doesn't stand over, or is itself of
+// another run than the entry it sits on, judged the same way; judged tracks
+// the dependencies judged so, each once. A run the Cloud can't name, the
+// holding's or the entry's, says nothing: the row holds as it did. Requires
+// egraphMu.
+func (c *Cache) heldOfOtherRunLocked(key HolderKey, replacements uint64, entry *sharedResult, judged map[uint64]bool) bool {
 	if entry == nil || entry.run == nil {
 		return false
 	}
-	key := HolderKey{Cache: from, Number: row.value.SenderNumber}
 	_, h := c.holdingLocked(key)
 	var run RunName
 	switch {
 	case h == nil:
 		return false
-	case c.holdingRanLocked(key, row.value.SenderReplacements),
-		h.ownSent && h.own == row.value.SenderReplacements:
-		run = RunName{Cache: from, Number: key.Number, Replacements: row.value.SenderReplacements}
-	case h.served != nil && h.served.known && h.served.replacements == row.value.SenderReplacements:
+	case c.holdingRanLocked(key, replacements),
+		h.ownSent && h.own == replacements:
+		run = RunName{Cache: key.Cache, Number: key.Number, Replacements: replacements}
+	case h.served != nil && h.served.known && h.served.replacements == replacements:
 		run = h.served.run
 	default:
 		return false
 	}
-	return run != *entry.run && c.entryCanDifferLocked(entry)
+	if run == *entry.run {
+		return false
+	}
+	if c.entryCanDifferLocked(entry) {
+		return true
+	}
+	for _, number := range h.deps {
+		depKey := HolderKey{Cache: key.Cache, Number: number}
+		on, dep := c.holdingLocked(depKey)
+		if on == nil || dep == nil {
+			continue
+		}
+		if _, over := entry.deps[on.id]; !over && on.secondRunOf != "" {
+			return true
+		}
+		if !judged[number] {
+			judged[number] = true
+			if c.heldOfOtherRunLocked(depKey, dep.replacements, on, judged) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // liveClosure returns the rows the bundle's unexpired roots need, judged at
