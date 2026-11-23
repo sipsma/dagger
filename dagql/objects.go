@@ -732,11 +732,12 @@ func (r ObjectResult[T]) preselect(ctx context.Context, srv *Server, sel Selecto
 			Args:              frameArgs,
 			ImplicitInputs:    implicitInputs,
 		},
-		TTL:                  field.Spec.TTL,
-		DoNotCache:           field.Spec.DoNotCache != "",
-		IsPersistable:        field.Spec.IsPersistable,
-		DeduplicateTelemetry: field.Spec.DeduplicateTelemetry,
-		PassthroughTelemetry: field.Spec.PassthroughTelemetry,
+		TTL:                      field.Spec.TTL,
+		DoNotCache:               field.Spec.DoNotCache != "",
+		IsPersistable:            field.Spec.IsPersistable,
+		DeduplicateTelemetry:     field.Spec.DeduplicateTelemetry,
+		PassthroughTelemetry:     field.Spec.PassthroughTelemetry,
+		ClientLendsOnlyResources: field.Spec.ClientLendsOnlyResources,
 		// The immediate receiver's type name is free here (r is the receiver);
 		// core.AroundFunc reads it to make the static profile-skip decision without
 		// an egraphMu receiver-resolution lookup per call.
@@ -1155,6 +1156,18 @@ type FieldSpec struct {
 	// is undeclared, not worked around. The call frame carries it
 	// (ResultCall.FollowsFromInputs).
 	FollowsFromInputs bool
+
+	// ClientLendsOnlyResources marks a field keyed per client only to take
+	// what its client lends it, such as credentials, each of which its
+	// result carries as a session resource: the cache serves that result
+	// only to a session that holds them. A caller whose result stands for the
+	// calls it makes (CallScopes) need not then be kept to its session by
+	// such a call, for a reader that honours it
+	// (CallScopes.SessionBoundBeyondResources), unless the call's result
+	// carries none: then the field answered without the client lending it
+	// anything, by what it decided for that session alone, such as whether a
+	// remote it reads is public.
+	ClientLendsOnlyResources bool
 
 	// Trivial marks fields that only unwrap data from their receiver rather
 	// than performing meaningful work. Their telemetry spans are internal, and
@@ -1800,6 +1813,17 @@ func (field Field[T]) FollowsFromInputs() Field[T] {
 		panic("cannot call on extended field")
 	}
 	field.Spec.FollowsFromInputs = true
+	return field
+}
+
+// ClientLendsOnlyResources marks the field as keyed per client only to take
+// what its client lends it, which its result carries as session resources.
+// See FieldSpec.ClientLendsOnlyResources.
+func (field Field[T]) ClientLendsOnlyResources() Field[T] {
+	if field.Spec.extend {
+		panic("cannot call on extended field")
+	}
+	field.Spec.ClientLendsOnlyResources = true
 	return field
 }
 

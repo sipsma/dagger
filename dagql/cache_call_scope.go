@@ -24,6 +24,10 @@ type CallScopes struct {
 	mu        sync.Mutex
 	bound     string
 	expiresAt int64
+	// boundBeyondResources is bound, leaving out calls whose client lent
+	// them only what their results carry as session resources
+	// (CallRequest.ClientLendsOnlyResources).
+	boundBeyondResources string
 }
 
 // WithCallScopes returns a context that records the scopes of the calls made
@@ -42,6 +46,18 @@ func (s *CallScopes) SessionBound() string {
 	return s.bound
 }
 
+// SessionBoundBeyondResources is SessionBound for a reader that honours a
+// call's declaration that its client lent it only what its result carries as
+// session resources (FieldSpec.ClientLendsOnlyResources). The cache serves
+// such a result, and anything made from it, only to a session holding those
+// resources, so the call keeps nothing to its session that the cache doesn't
+// already gate. A call whose result carries none still counts.
+func (s *CallScopes) SessionBoundBeyondResources() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.boundBeyondResources
+}
+
 // ExpiresAtUnix returns the earliest expiry of the recorded calls' results,
 // or 0 when none expires.
 func (s *CallScopes) ExpiresAtUnix() int64 {
@@ -57,11 +73,52 @@ func (s *CallScopes) record(req *CallRequest) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.bound == "" {
-		s.bound = req.Field
-		if req.ReceiverTypeName != "" {
-			s.bound = req.ReceiverTypeName + "." + req.Field
-		}
+		s.bound = scopedCallName(req)
 	}
+	// A call its client lent only resources counts once its result shows it
+	// carries none (recordCallResultExpiry).
+	if !req.ClientLendsOnlyResources && s.boundBeyondResources == "" {
+		s.boundBeyondResources = scopedCallName(req)
+	}
+}
+
+// RecordSessionRead records, in the call scopes the resolver running under
+// ctx records into (WithCallScopes), that the resolver read state of its
+// session other than through a cached call, such as the session's workspace
+// lock: its result stands for that read too, which a later session may make
+// with another outcome. what names the read. It does nothing outside call
+// scopes.
+func RecordSessionRead(ctx context.Context, what string) {
+	s := callScopesFrom(ctx)
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.bound == "" {
+		s.bound = what
+	}
+	if s.boundBeyondResources == "" {
+		s.boundBeyondResources = what
+	}
+}
+
+// recordCarriesNoResources records a call its client lent only resources
+// whose result carries none: it answered by what it decided for its session
+// alone.
+func (s *CallScopes) recordCarriesNoResources(req *CallRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.boundBeyondResources == "" {
+		s.boundBeyondResources = scopedCallName(req)
+	}
+}
+
+func scopedCallName(req *CallRequest) string {
+	if req.ReceiverTypeName != "" {
+		return req.ReceiverTypeName + "." + req.Field
+	}
+	return req.Field
 }
 
 func (s *CallScopes) recordExpiry(expiresAt int64) {
@@ -134,7 +191,8 @@ func callScopesFrom(ctx context.Context) *CallScopes {
 	return scopes
 }
 
-// recordCallResultExpiry records when a recorded call's result expires.
+// recordCallResultExpiry records when a recorded call's result expires, and
+// a call its client lent only resources whose result carries none.
 func (c *Cache) recordCallResultExpiry(ctx context.Context, scopes *CallScopes, req *CallRequest, res AnyResult) {
 	if scopes == nil || req == nil || req.DoNotCache || res == nil {
 		return
@@ -145,8 +203,12 @@ func (c *Cache) recordCallResultExpiry(ctx context.Context, scopes *CallScopes, 
 	}
 	c.readLockGraphGathered(ctx)
 	expiresAt := shared.expiresAtUnix
+	carriesResources := shared.requiredSessionResources != nil && !shared.requiredSessionResources.Empty()
 	c.egraphMu.RUnlock()
 	scopes.recordExpiry(expiresAt)
+	if req.ClientLendsOnlyResources && !carriesResources && sessionBoundInputs(req.ImplicitInputs) {
+		scopes.recordCarriesNoResources(req)
+	}
 }
 
 // withoutCallScopes ends recording for a cached call's resolver: its result

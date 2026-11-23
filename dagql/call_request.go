@@ -29,6 +29,12 @@ type CallRequest struct {
 	// asking the UI to show its children in its place.
 	PassthroughTelemetry bool
 
+	// ClientLendsOnlyResources is the field's declaration that it is keyed
+	// per client only to take what its client lends it, which its result
+	// carries as session resources (FieldSpec.ClientLendsOnlyResources).
+	// Request-only carrier state, read by CallScopes.
+	ClientLendsOnlyResources bool
+
 	// ReceiverTypeName is the immediate receiver's GraphQL type name, stamped
 	// lookup-free at the object call site (objects.go) from r.class.inner.Type().Name().
 	// It is request-only carrier state (never digested, never persisted) consumed by
@@ -69,15 +75,16 @@ func (req *CallRequest) Clone() *CallRequest {
 		frame = &ResultCall{}
 	}
 	return &CallRequest{
-		ResultCall:           frame,
-		ConcurrencyKey:       req.ConcurrencyKey,
-		TTL:                  req.TTL,
-		DoNotCache:           req.DoNotCache,
-		IsPersistable:        req.IsPersistable,
-		ListItem:             req.ListItem,
-		DeduplicateTelemetry: req.DeduplicateTelemetry,
-		PassthroughTelemetry: req.PassthroughTelemetry,
-		ReceiverTypeName:     req.ReceiverTypeName,
+		ResultCall:               frame,
+		ConcurrencyKey:           req.ConcurrencyKey,
+		TTL:                      req.TTL,
+		DoNotCache:               req.DoNotCache,
+		IsPersistable:            req.IsPersistable,
+		ListItem:                 req.ListItem,
+		DeduplicateTelemetry:     req.DeduplicateTelemetry,
+		PassthroughTelemetry:     req.PassthroughTelemetry,
+		ClientLendsOnlyResources: req.ClientLendsOnlyResources,
+		ReceiverTypeName:         req.ReceiverTypeName,
 		// CacheEvidence is deliberately NOT carried over: it is per-invocation
 		// state owned by the one AroundFunc-wrapped invocation that allocated
 		// it; a cloned request is a different (or internal) invocation and

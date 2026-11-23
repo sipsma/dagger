@@ -124,3 +124,55 @@ func TestCallScopesRecordDeclaredSessionScopedInputs(t *testing.T) {
 	require.Equal(t, "session-scoped", scoped("session-scoped", "session-1"))
 	require.Empty(t, scoped("unscoped", ""))
 }
+
+// A call keyed per client only to take what its client lends it, which its
+// result carries as session resources, doesn't bind its caller for a reader
+// that honours that (SessionBoundBeyondResources): the cache gates every hit
+// on what it made by those resources. A result that carries none came of
+// what the call decided for its session alone, as a Git read that found its
+// remote public, and binds it. SessionBound counts both, as before.
+func TestCallScopesHonourWhatAClientLends(t *testing.T) {
+	s := newCallScopesTest(t)
+	lent := func(field string, carries bool) *CallScopes {
+		t.Helper()
+		ctx, scopes := WithCallScopes(s.ctx)
+		frame := &ResultCall{Kind: ResultCallKindField, Field: field, Type: NewResultCallType(String("").Type())}
+		arg, err := resultCallArgFromInput(ctx, PerClientInput.Name, NewString("client-1"), false)
+		require.NoError(t, err)
+		frame.ImplicitInputs = []*ResultCallArg{arg}
+		req := &CallRequest{ResultCall: frame, IsPersistable: true, ClientLendsOnlyResources: true}
+		_, err = s.c.GetOrInitCall(ctx, s.session, s.srv, req, func(ctx context.Context) (AnyResult, error) {
+			res, err := NewResultForCall(String(field), frame)
+			if err != nil || !carries {
+				return res, err
+			}
+			return res.WithSessionResourceHandle(ctx, "lent-credential")
+		})
+		require.NoError(t, err)
+		return scopes
+	}
+
+	carried := lent("lent-with-credential", true)
+	require.Equal(t, "lent-with-credential", carried.SessionBound())
+	require.Empty(t, carried.SessionBoundBeyondResources(), "a call whose result carries what it was lent doesn't bind its caller")
+
+	none := lent("lent-with-nothing", false)
+	require.Equal(t, "lent-with-nothing", none.SessionBound())
+	require.Equal(t, "lent-with-nothing", none.SessionBoundBeyondResources(), "a call that carries nothing it was lent binds its caller")
+
+	ctx, scopes := WithCallScopes(s.ctx)
+	s.call(ctx, "per-session", true, false, 0, nil)
+	require.Equal(t, "per-session", scopes.SessionBoundBeyondResources(), "an undeclared call binds for every reader")
+}
+
+// A resolver that reads its session's state other than through a cached
+// call says so, and its call scopes count the read for every reader.
+// Outside call scopes the note does nothing.
+func TestCallScopesRecordASessionRead(t *testing.T) {
+	s := newCallScopesTest(t)
+	ctx, scopes := WithCallScopes(s.ctx)
+	RecordSessionRead(ctx, "the session's lock")
+	require.Equal(t, "the session's lock", scopes.SessionBound())
+	require.Equal(t, "the session's lock", scopes.SessionBoundBeyondResources())
+	RecordSessionRead(s.ctx, "outside call scopes")
+}
