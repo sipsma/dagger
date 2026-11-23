@@ -50,6 +50,34 @@ type LazyState struct {
 	// reader sees the body's output before it has run. The value whose op this
 	// is sets it (OnBodyDone).
 	bodyDone atomic.Pointer[func(context.Context, dagql.LazyGroupKey) error]
+	// sweptSources are, for a container op, where the final-delegation
+	// sweep's walk for each part ended (containerSweptPartFinal); guarded by
+	// LazyMu.
+	sweptSources map[dagql.PartKey]dagql.AnyResult
+}
+
+// sweptPartSource returns where the sweep's walk for part last ended.
+func (lazy *LazyState) sweptPartSource(part dagql.PartKey) (dagql.AnyResult, bool) {
+	if lazy.LazyMu == nil {
+		return nil, false
+	}
+	lazy.LazyMu.Lock()
+	defer lazy.LazyMu.Unlock()
+	src, ok := lazy.sweptSources[part]
+	return src, ok
+}
+
+// rememberSweptPartSource keeps where the sweep's walk for part ended.
+func (lazy *LazyState) rememberSweptPartSource(part dagql.PartKey, src dagql.AnyResult) {
+	if lazy.LazyMu == nil {
+		return
+	}
+	lazy.LazyMu.Lock()
+	defer lazy.LazyMu.Unlock()
+	if lazy.sweptSources == nil {
+		lazy.sweptSources = map[dagql.PartKey]dagql.AnyResult{}
+	}
+	lazy.sweptSources[part] = src
 }
 
 // lazyGroupOnce is one group's object-side run-once state. mu is held

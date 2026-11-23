@@ -440,7 +440,7 @@ func (container *Container) runLazyGroupAdmitted(ctx context.Context, op LazyCon
 	}
 	// Keep the sweep inside the attempt callback. It must finish before the
 	// cache retires the attempt and decides whether its resume span is partial.
-	if err := container.consumeFinalParentDelegations(ctx, op); err != nil {
+	if err := container.consumeFinalParentDelegations(ctx, op, group); err != nil {
 		return err
 	}
 	_, err := container.lazyGroupsEvaluated(ctx, op)
@@ -448,10 +448,20 @@ func (container *Container) runLazyGroupAdmitted(ctx context.Context, op LazyCon
 }
 
 // consumeFinalParentDelegations copies every remaining delegated snapshot
-// part whose parent part is already final. These copies start no parent work:
-// an unrefined pending parent is never final, and a refined parent is final
-// for a part only after the group that fills that part has completed.
-func (container *Container) consumeFinalParentDelegations(ctx context.Context, op LazyContainerParts) error {
+// part that is already final where it is checked, after the op ran group.
+// That is the parent, unless the group that ran copied one of the op's parts
+// from below (a delegation): then the container is being made as a copy of
+// what is below it, and each other part is checked where its own copy comes
+// from (containerPartSource), up to the first result with an acquired
+// output. In a chain whose metadata settled before a part was written, the
+// parent passes the part through unevaluated and is never final, so the
+// container copied from below would otherwise be left without it. A
+// container that writes its own part keeps checking only the parent, so the
+// layers of a long chain don't each fill what passes through them. These
+// copies start no parent work: an unrefined pending source is never final,
+// and a refined source is final for a part only after the group that fills
+// that part has completed.
+func (container *Container) consumeFinalParentDelegations(ctx context.Context, op LazyContainerParts, ran dagql.LazyGroupKey) error {
 	parent := op.ContainerLazyParent()
 	parentCtr := parent.Self()
 	if parentCtr == nil {
@@ -459,7 +469,15 @@ func (container *Container) consumeFinalParentDelegations(ctx context.Context, o
 	}
 
 	state := op.ContainerLazyState()
-	for _, part := range containerSnapshotParts(container) {
+	parts := containerSnapshotParts(container)
+	copied := false
+	for _, part := range parts {
+		if containerDelegationGroup(part) == ran {
+			copied = true
+			break
+		}
+	}
+	for _, part := range parts {
 		delegation := containerDelegationGroup(part)
 		// Delegation groups are exactly the snapshot groups whose key is the
 		// part key. LazyOperation groups such as execOutputs and write never match.
@@ -471,7 +489,7 @@ func (container *Container) consumeFinalParentDelegations(ctx context.Context, o
 			continue
 		}
 
-		final, err := containerParentPartFinal(ctx, parentCtr, part)
+		final, err := containerSweptPartFinal(ctx, state, parent, part, copied)
 		if err != nil {
 			return err
 		}
@@ -485,6 +503,31 @@ func (container *Container) consumeFinalParentDelegations(ctx context.Context, o
 		dagql.PartTaskFromContext(ctx).AlsoFilled(part)
 	}
 	return nil
+}
+
+// containerSweptPartFinal reports whether part is final where the sweep
+// checks it: at parent, or, when the op copied a part from below, where the
+// part's own copy comes from, stopping at a result with an acquired output.
+// That walk's end is remembered for the op's later sweeps. It can stop being
+// the nearest end, when a result in between gains an acquired output, so a
+// remembered end only ever says the part isn't final yet: a copy is made
+// only when a fresh walk finds it final.
+func containerSweptPartFinal(ctx context.Context, state *LazyState, parent dagql.ObjectResult[*Container], part dagql.PartKey, copied bool) (bool, error) {
+	if !copied {
+		return containerParentPartFinal(ctx, parent.Self(), part)
+	}
+	if remembered, ok := state.sweptPartSource(part); ok {
+		if src, ok := remembered.(dagql.ObjectResult[*Container]); ok {
+			if final, err := containerParentPartFinal(ctx, src.Self(), part); err != nil || !final {
+				return final, err
+			}
+		}
+	}
+	src, settled := walkContainerPartSource(ctx, parent, part, false)
+	if settled {
+		state.rememberSweptPartSource(part, src)
+	}
+	return containerParentPartFinal(ctx, src.Self(), part)
 }
 
 func containerParentPartFinal(ctx context.Context, parent *Container, part dagql.PartKey) (bool, error) {
@@ -1009,34 +1052,55 @@ func delegateContainerPart(ctx context.Context, dst *Container, parent dagql.Obj
 // part through by the same rule, read from its recorded operation
 // (transferredPartReceiver).
 func containerPartSource(ctx context.Context, parent dagql.ObjectResult[*Container], part dagql.PartKey) dagql.ObjectResult[*Container] {
+	src, _ := walkContainerPartSource(ctx, parent, part, true)
+	return src
+}
+
+// walkContainerPartSource is containerPartSource's walk. Without
+// throughAcquired it stops at a result with an acquired output instead, as
+// the final-delegation sweep does: the sweep only checks whether the part is
+// final there, as at a parent, and following each such result to what it
+// copies from costs a load of its receiver. settled reports that the walk
+// ended where it will keep ending: not at a result whose metadata isn't
+// settled yet, and not on an error.
+func walkContainerPartSource(ctx context.Context, parent dagql.ObjectResult[*Container], part dagql.PartKey, throughAcquired bool) (_ dagql.ObjectResult[*Container], settled bool) {
 	group := containerDelegationGroup(part)
 	for {
 		ctr := parent.Self()
 		if view := ctr.acquiredOutput.Load(); view != nil {
+			if !throughAcquired {
+				return parent, true
+			}
 			next, ok := transferredPartReceiver(ctx, parent, view, part)
 			if !ok {
-				return parent
+				return parent, true
 			}
 			parent = next
 			continue
 		}
 		op, ok := ctr.lazyOpForRouting().(LazyContainerParts)
 		if !ok {
-			return parent
+			return parent, true
 		}
 		// Mappings read settled metadata. A consumed delegation already holds
 		// its copy.
 		state := op.ContainerLazyState()
-		if !state.GroupConsumed(ContainerLazyGroupMetadata) || state.GroupConsumed(group) {
-			return parent
+		if !state.GroupConsumed(ContainerLazyGroupMetadata) {
+			return parent, false
+		}
+		if state.GroupConsumed(group) {
+			return parent, true
 		}
 		groups, err := op.ContainerLazyGroups(ctx, ctr, []dagql.PartKey{part})
-		if err != nil || len(groups) != 1 || groups[0] != group {
-			return parent
+		if err != nil {
+			return parent, false
+		}
+		if len(groups) != 1 || groups[0] != group {
+			return parent, true
 		}
 		next := op.ContainerLazyParent()
 		if next.Self() == nil {
-			return parent
+			return parent, true
 		}
 		parent = next
 	}
