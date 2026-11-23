@@ -341,7 +341,7 @@ func TestBuiltThenOfferedMountChainCopiesFromWriter(t *testing.T) {
 // A source remembered past a layer this engine built counts no longer once
 // an offered part is installed into that layer: a walk stops at the layer
 // that now holds the part, as it does with nothing remembered, and doesn't
-// go on to the writer below it.
+// go on to the writer below it, which a copy would evaluate.
 func TestContainerPartSourceStopsAtALayerThatGainsAnOffer(t *testing.T) {
 	t.Parallel()
 	aStore, bStore := testutil.NewStore(t), testutil.NewStore(t)
@@ -349,14 +349,15 @@ func TestContainerPartSourceStopsAtALayerThatGainsAnOffer(t *testing.T) {
 	bctx, b, bsrv := transferCache(t, bStore, "", "b")
 	const n = 4
 	exported := buildMountChain(t, actx, a, asrv, aStore, "a", n)
-	require.NoError(t, a.EvaluateParts(actx, exported.top, exported.parts()...))
 	built := buildMountChain(t, bctx, b, bsrv, bStore, "b", n)
+	// The first layer writes its mount, and every layer above passes it
+	// through. Settling the chain's metadata leaves the mount pending.
+	part := ContainerPartMount(built.targets[0])
+	writer, middle, parent := built.layers[0], built.layers[1], built.layers[n-2]
 	require.NoError(t, b.EvaluateParts(bctx, built.top, ContainerPartMetadata))
-	parent, middle := built.layers[n-2], built.layers[1]
-	// Every layer passes fs through to the base, and the layers walked past
-	// remember it.
-	require.NotSame(t, middle.Self(), containerPartSource(bctx, parent, ContainerPartFS).Self())
-	selection := dagql.ValueSelection{Roots: []dagql.AnyResult{exported.top}, Outputs: exported.outputs}
+	require.Same(t, writer.Self(), containerPartSource(bctx, parent, part).Self(), "the walk passes every layer to the writer, which the layers walked past remember")
+	require.NoError(t, a.EvaluateParts(actx, exported.layers[1], part))
+	selection := dagql.ValueSelection{Roots: []dagql.AnyResult{exported.top}, Outputs: []dagql.SelectedValueOutput{{Result: exported.layers[1], Address: dagql.PersistedPartAddress{Part: part}}}}
 	require.NoError(t, a.WithExportedValues(actx, selection, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(_ context.Context, bundle *dagql.ExportedValues) error {
 		var source chainsContentSource
 		for _, entry := range bundle.Chains.Entries {
@@ -365,10 +366,10 @@ func TestContainerPartSourceStopsAtALayerThatGainsAnOffer(t *testing.T) {
 		b.SetPartContentSource(source)
 		_, err := b.MergeValues(bctx, dagql.CloudCacheID, bundle.Bundle)
 		require.NoError(t, err)
-		require.True(t, b.HasPartOffer(middle, ContainerPartFS), "the merge offers the middle layer's rootfs")
-		require.NoError(t, b.EvaluateParts(bctx, middle, ContainerPartFS))
+		require.True(t, b.HasPartOffer(middle, part), "the merge offers the middle layer's mount")
+		require.NoError(t, b.EvaluateParts(bctx, middle, part))
 		require.NotNil(t, middle.Self().acquiredOutput.Load(), "the installed offer gives the middle layer an acquired output")
-		require.Same(t, middle.Self(), containerPartSource(bctx, parent, ContainerPartFS).Self(), "the walk stops at the middle layer, which holds the part")
+		require.Same(t, middle.Self(), containerPartSource(bctx, parent, part).Self(), "the walk stops at the middle layer, which holds the part")
 		return nil
 	}))
 }
