@@ -12,12 +12,16 @@ import (
 )
 
 // keptTaughtBundle is a records-only export, from its own engine cache, of
-// one result of the field "kept-taught", its frame carrying extras.
+// one result of the field "kept-taught", its frame carrying extras. The
+// value is a constant of its field, so its call declares that it follows
+// from its inputs: every engine's record of it is the same value, kept on
+// the first one's entry, where another run of a step that can differ would
+// be kept apart (keepsApartLocked).
 func keptTaughtBundle(t *testing.T, extras ...call.ExtraDigest) (ValueBundle, uint64, digest.Digest) {
 	t.Helper()
 	ctx, c, srv := transferTestCache(t)
 	value := String("kept")
-	frame := &ResultCall{Kind: ResultCallKindField, Field: "kept-taught", Type: NewResultCallType(value.Type()), ExtraDigests: extras}
+	frame := &ResultCall{Kind: ResultCallKindField, Field: "kept-taught", Type: NewResultCallType(value.Type()), ExtraDigests: extras, FollowsFromInputs: true}
 	res, err := c.GetOrInitCall(ctx, "test-session", srv, &CallRequest{ResultCall: frame, IsPersistable: true}, func(context.Context) (AnyResult, error) {
 		return NewResultForCall(value, frame)
 	})

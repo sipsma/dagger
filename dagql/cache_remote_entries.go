@@ -96,6 +96,11 @@ type RemoteHolding struct {
 	Request digest.Digest
 	// Field is the name of the call's field, for description.
 	Field string
+	// Entry is the Cloud entry the holding's copy came from, when the
+	// caller knows it, as a set file's handover does. A new holding sits on
+	// it when it is a second run of Recipe (secondRunOf), which no recipe
+	// index names; otherwise on Recipe's current entry.
+	Entry uint64
 	// Term is the call's structural term, when the call derived one.
 	Term *RemoteTerm
 	// ContentDigest is the entry's content digest, when known.
@@ -348,6 +353,14 @@ type holding struct {
 	// replaces it, and a higher count drops it, so a holding keeps at most
 	// one; it goes with the holding.
 	served *servedRun
+	// own is, on the Cloud, the replacement count of the record of its own
+	// run the holding's cache last sent in full for this entry, when a merge
+	// kept it on this entry (ownSent): the cache's value of the step is its
+	// own run at that count, whether or not it has run yet, which a held row
+	// of it later names (heldRowOfOtherRunLocked). A serve since supersedes
+	// it.
+	own     uint64
+	ownSent bool
 	// follows is the declaration the holding's latest call row stamped, that
 	// the entry's result follows from its inputs
 	// (RemoteHolding.FollowsFromInputs): one of the two places the Cloud
@@ -639,10 +652,14 @@ func (c *Cache) attachRemoteHoldingLocked(ctx context.Context, key HolderKey, de
 	return change
 }
 
-// newHoldingLocked attaches a new holding to the entry of desc's recipe and
-// gives it its waiting dependents. Requires egraphMu for writing.
+// newHoldingLocked attaches a new holding to the entry of desc's recipe, or
+// to the second run of it desc names (RemoteHolding.Entry), and gives it its
+// waiting dependents. Requires egraphMu for writing.
 func (c *Cache) newHoldingLocked(ctx context.Context, change *RemoteChange, key HolderKey, desc RemoteHolding) (*sharedResult, *holding) {
 	entry := c.resultsByID[c.entriesByRecipe[desc.Recipe]]
+	if named := c.resultsByID[sharedResultID(desc.Entry)]; desc.Entry != 0 && named != nil && desc.Recipe != "" && named.secondRunOf == desc.Recipe {
+		entry = named
+	}
 	if entry == nil {
 		entry = &sharedResult{
 			id:          c.takeResultIDs(1),
@@ -805,6 +822,7 @@ func (c *Cache) applyMergedTargetsLocked(ctx context.Context, cache CacheID, clo
 				served.run, served.ran, served.known = t.served.run, t.served.ran, true
 			}
 			h.served = &served
+			h.ownSent = false
 		}
 	}
 }
@@ -931,6 +949,11 @@ func (c *Cache) updateRemoteHoldingLocked(ctx context.Context, key HolderKey, up
 	// An evaluation that reported a part complete ran the value at its
 	// count.
 	if update.Evaluated && ranPartsReported(parts) && c.noteHoldingRanLocked(&change, key, entry, h, update.Replacements, runRanByEvaluation) {
+		change.Saved = true
+	}
+	// A second run's own engine that installed its content is the run
+	// with content, whatever the content came from (noteSecondRunContentLocked).
+	if !update.Evaluated && ranPartsReported(parts) && c.noteSecondRunContentLocked(key, entry, update.Replacements) {
 		change.Saved = true
 	}
 	return change, true
@@ -2059,10 +2082,16 @@ func (c *Cache) EntryRecipe(number uint64) (digest.Digest, bool) {
 // entryRecipeLocked is EntryRecipe's answer. Requires egraphMu.
 func (c *Cache) entryRecipeLocked(number uint64) (digest.Digest, bool) {
 	entry := c.resultsByID[sharedResultID(number)]
-	if entry == nil || len(entry.recipeKeys) == 0 {
+	switch {
+	case entry == nil:
 		return "", false
+	case len(entry.recipeKeys) > 0:
+		return entry.recipeKeys[0], true
+	case entry.secondRunOf != "":
+		// A second run, which no index key names.
+		return entry.secondRunOf, true
 	}
-	return entry.recipeKeys[0], true
+	return "", false
 }
 
 // EntryClass is an entry's own facts, as RemoteEntryInfo reports them, and
@@ -2199,6 +2228,13 @@ type EntryFacts struct {
 	Stored              bool
 	StoredExpiresAtUnix int64
 	Recipes             []digest.Digest
+	// SecondRun reports that the entry is a second run of its recipe, kept
+	// beside the recipe's current entry (secondRunOf), and KeptUnder that a
+	// stored entry that is its recipe's current entry stands over it,
+	// through second runs only (keptUnder): only such a second run's own
+	// content is needed, and it outlives its engine. A write that changes
+	// either names the entry (RemoteChange.Entries).
+	SecondRun, KeptUnder bool
 }
 
 // EntriesFacts returns, for each of numbers the cache has an entry for, in
@@ -2221,6 +2257,7 @@ func (c *Cache) EntriesFacts(numbers []uint64) []EntryFacts {
 		}
 		var facts EntryFacts
 		facts.Number, facts.Stored, facts.StoredExpiresAtUnix, facts.Recipes = entryFactsLocked(entry)
+		facts.SecondRun, facts.KeptUnder = entry.secondRunOf != "", entry.keptUnder
 		out = append(out, facts)
 		if c.testBatchAnswered != nil {
 			c.testBatchAnswered(len(out) - 1)
@@ -2230,12 +2267,17 @@ func (c *Cache) EntriesFacts(numbers []uint64) []EntryFacts {
 }
 
 // entryFactsLocked returns entry's number, whether it stores a record and
-// that record's expiry, and its recipes, sorted. Requires egraphMu.
+// that record's expiry, and its recipes, sorted: its index keys, or, for a
+// second run, which no key names, the recipe it is a second run of.
+// Requires egraphMu.
 func entryFactsLocked(entry *sharedResult) (number uint64, stored bool, storedExpiresAtUnix int64, recipes []digest.Digest) {
 	if !entry.noValueLocked() {
 		stored, storedExpiresAtUnix = true, entry.expiresAtUnix
 	}
 	recipes = slices.Clone(entry.recipeKeys)
+	if len(recipes) == 0 && entry.secondRunOf != "" {
+		recipes = []digest.Digest{entry.secondRunOf}
+	}
 	slices.Sort(recipes)
 	return uint64(entry.id), stored, storedExpiresAtUnix, recipes
 }

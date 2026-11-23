@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	set "github.com/hashicorp/go-set/v3"
+	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -62,10 +63,17 @@ type PersistedResultEnvelope struct {
 	// and runRan): restore takes them back onto the entry. An engine saves
 	// neither, and no record sent to another cache carries them
 	// (lightStoredEnvelope).
-	Run     *RunName `json:"run,omitempty"`
-	RunRan  uint8    `json:"runRan,omitempty"`
-	Version int      `json:"version"`
-	Kind    string   `json:"kind"`
+	Run    *RunName `json:"run,omitempty"`
+	RunRan uint8    `json:"runRan,omitempty"`
+	// SecondRunOf and KeptUnder are, in the Cloud's saved records, the
+	// recipe the entry is a second run of beside that recipe's current
+	// entry, and whether a stored current entry stands over it
+	// (sharedResult.secondRunOf and keptUnder), which restore takes back
+	// onto the entry as it does Run.
+	SecondRunOf digest.Digest `json:"secondRunOf,omitempty"`
+	KeptUnder   bool          `json:"keptUnder,omitempty"`
+	Version     int           `json:"version"`
+	Kind        string        `json:"kind"`
 	// TypeName identifies the GraphQL value type of object and scalar
 	// envelopes.
 	TypeName string `json:"typeName,omitempty"`
