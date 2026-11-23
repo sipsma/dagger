@@ -54,8 +54,14 @@ type gitSchema struct {
 
 func (s *gitSchema) Install(srv *dagql.Server) {
 	dagql.Fields[*core.Query]{
+		// Keyed per client to take the client's credentials, its SSH agent
+		// or its credential helper's token, which it passes on as a socket or
+		// a secret, so its result carries each as a session resource. A
+		// remote it finds public it reads with none, a decision it makes for
+		// each session (cachedPublicRemote).
 		dagql.NodeFunc("git", s.git).
 			WithInput(gitPerClientInput).
+			ClientLendsOnlyResources().
 			View(AllVersion).
 			Doc(`Queries a Git repository.`).
 			Args(
