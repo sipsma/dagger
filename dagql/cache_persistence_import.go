@@ -889,7 +889,39 @@ func (c *Cache) retainDecodedDependencyResults(ctx context.Context, res *sharedR
 			return fmt.Errorf("decoded payload of result %d declares a detached %T dependency", res.id, dep)
 		}
 	}
+	// A record often brings these edges itself: an object of a module that
+	// engines share depends on that module in every engine's record of it.
+	// Adding an edge the entry has changes nothing, so a read settles it,
+	// where a write would wait for every reader and hold every new one back.
+	if c.hasDependenciesOf(ctx, res, deps) {
+		return nil
+	}
 	return c.addExplicitDependencies(ctx, Result[Typed]{shared: res}, deps, "decoded_dependency_result")
+}
+
+// hasDependenciesOf reports whether res and each of deps are registered and
+// res already depends on each of deps (itself excepted), so that adding them
+// as explicit dependencies would change nothing. It holds the graph lock for
+// reading.
+func (c *Cache) hasDependenciesOf(ctx context.Context, res *sharedResult, deps []AnyResult) bool {
+	c.readLockGraphGathered(ctx)
+	defer c.egraphMu.RUnlock()
+	if _, found := c.resultsByID[res.id]; !found {
+		return false
+	}
+	for _, dep := range deps {
+		depShared := dep.cacheSharedResult()
+		if _, found := c.resultsByID[depShared.id]; !found {
+			return false
+		}
+		if depShared.id == res.id {
+			continue
+		}
+		if _, ok := res.deps[depShared.id]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func collectDecodedDependencyResults(decoded AnyResult, deps *[]AnyResult) {
