@@ -65,12 +65,14 @@ func TestStoredEntryHoldingAnswers(t *testing.T) {
 	held, ok := cloud.RemoteHoldingInfo(rootKey)
 	require.True(t, ok)
 	require.Equal(t, RemoteHeldEntry{
-		Number:              root,
-		Stored:              true,
-		StoredExpiresAtUnix: expiry,
-		Recipes:             info.Recipes,
-		RunParts:            []PersistedPartAddress{{Part: "snapshot"}},
-		RunPartsKnown:       true,
+		EntryFacts: EntryFacts{
+			Number:              root,
+			Stored:              true,
+			StoredExpiresAtUnix: expiry,
+			Recipes:             info.Recipes,
+			RunParts:            []PersistedPartAddress{{Part: "snapshot"}},
+			RunPartsKnown:       true,
+		},
 		Holding: RemoteHoldingInfo{
 			Key:                    rootKey,
 			TypeName:               "transferTestValue",

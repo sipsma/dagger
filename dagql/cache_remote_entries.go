@@ -1867,14 +1867,8 @@ func (c *Cache) EntryInfo(number uint64) (RemoteEntryInfo, bool) {
 // entry's own facts, without the entry's other holdings, digests, classes or
 // terms.
 type RemoteHeldEntry struct {
-	// Number, Stored, StoredExpiresAtUnix, Recipes, RunParts and
-	// RunPartsKnown are the entry's, as RemoteEntryInfo reports them.
-	Number              uint64
-	Stored              bool
-	StoredExpiresAtUnix int64
-	Recipes             []digest.Digest
-	RunParts            []PersistedPartAddress
-	RunPartsKnown       bool
+	// EntryFacts are the entry's own facts, as EntriesFacts reports them.
+	EntryFacts
 	// Holding is the holding's description, as in RemoteEntryInfo.Holdings.
 	Holding RemoteHoldingInfo
 }
@@ -1915,10 +1909,7 @@ func (c *Cache) remoteHoldingInfoLocked(key HolderKey) (RemoteHeldEntry, bool) {
 	if h == nil {
 		return RemoteHeldEntry{}, false
 	}
-	held := RemoteHeldEntry{Holding: holdingInfo(key, h)}
-	held.Number, held.Stored, held.StoredExpiresAtUnix, held.Recipes = entryFactsLocked(entry)
-	held.RunParts, held.RunPartsKnown = c.runPartsLocked(entry)
-	return held, true
+	return RemoteHeldEntry{EntryFacts: c.entryFactsOfLocked(entry), Holding: holdingInfo(key, h)}, true
 }
 
 // HolderEntry returns the number of the entry a holding sits on, as
@@ -2131,16 +2122,23 @@ func (c *Cache) EntriesFacts(numbers []uint64) []EntryFacts {
 		if entry == nil {
 			continue
 		}
-		var facts EntryFacts
-		facts.Number, facts.Stored, facts.StoredExpiresAtUnix, facts.Recipes = entryFactsLocked(entry)
-		facts.RunParts, facts.RunPartsKnown = c.runPartsLocked(entry)
-		facts.SecondRun, facts.KeptUnder = entry.secondRunOf != "", entry.keptUnder
-		out = append(out, facts)
+		out = append(out, c.entryFactsOfLocked(entry))
 		if c.testBatchAnswered != nil {
 			c.testBatchAnswered(len(out) - 1)
 		}
 	}
 	return out
+}
+
+// entryFactsOfLocked is entry's own facts (EntryFacts), as every reader of
+// them gets them: EntriesFacts, and a held entry (RemoteHeldEntry). Requires
+// egraphMu.
+func (c *Cache) entryFactsOfLocked(entry *sharedResult) EntryFacts {
+	var facts EntryFacts
+	facts.Number, facts.Stored, facts.StoredExpiresAtUnix, facts.Recipes = entryFactsLocked(entry)
+	facts.RunParts, facts.RunPartsKnown = c.runPartsLocked(entry)
+	facts.SecondRun, facts.KeptUnder = entry.secondRunOf != "", entry.keptUnder
+	return facts
 }
 
 // entryFactsLocked returns entry's number, whether it stores a record and

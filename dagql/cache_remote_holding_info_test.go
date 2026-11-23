@@ -39,14 +39,22 @@ func requireHeldEntryMatches(t *testing.T, cloud *Cache, step string, keys []Hol
 			require.Equal(t, RemoteHeldEntry{}, got, "%s: %v", step, key)
 			continue
 		}
-		want := RemoteHeldEntry{
+		// A second run's marks aren't RemoteEntryInfo's: they're read as
+		// EntriesFacts reads them.
+		var second EntryFacts
+		if facts := cloud.EntriesFacts([]uint64{info.Number}); len(facts) == 1 {
+			second = facts[0]
+		}
+		want := RemoteHeldEntry{EntryFacts: EntryFacts{
 			Number:              info.Number,
 			Stored:              info.Stored,
 			StoredExpiresAtUnix: info.StoredExpiresAtUnix,
 			Recipes:             info.Recipes,
 			RunParts:            info.RunParts,
 			RunPartsKnown:       info.RunPartsKnown,
-		}
+			SecondRun:           second.SecondRun,
+			KeptUnder:           second.KeptUnder,
+		}}
 		found := false
 		for _, h := range info.Holdings {
 			if h.Key == key {
