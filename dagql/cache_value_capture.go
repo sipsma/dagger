@@ -1632,7 +1632,24 @@ func (c *Cache) exportPass(ctx context.Context, selection ValueSelection, cfg co
 		rows.Full[uint64(row.shared.id)] = RowRevision{Replacements: row.replacements, Transfer: row.transferRev, Dependencies: row.dependencyRev}
 	}
 	profExportedParts(ctx, bundle, sources)
+	capture.dropCopies()
 	return nil, consume(ctx, &ExportedValues{Bundle: bundle, Chains: chains, ChainTime: passes.chainTime, Phases: *phases, CopiedRows: passes.copiedRows, UnpredictedLinks: passes.unpredicted, LateMoved: passes.lateMoved, Sources: sources, LeftOut: leftOut, Rows: rows, LeftOutHeld: leftOutHeld, KeptEveryRow: keptAll})
+}
+
+// dropCopies lets go of the copies of the rows' records and their outputs
+// once the bundle that read them is built. Nothing reads them again: the
+// bundle carries its own record of each row it carries in full, and none of
+// a held row. The rows stay held until the export ends, which the copies
+// have no part in. An export's consume, which sends the bundle and uploads
+// its parts, can hold it for minutes, and a filling engine's exports in
+// flight held 0.7 GB of such copies at the peak of a Go test check's burst
+// of calls.
+func (capture *HeldCapturedClosure) dropCopies() {
+	for _, rows := range [][]*capturedTransferRow{capture.order, capture.dropped} {
+		for _, row := range rows {
+			row.record, row.outputs, row.copied = PersistedRecord{}, nil, false
+		}
+	}
 }
 
 // keepNeededRows leaves out of bundle the known rows nothing in it stands
