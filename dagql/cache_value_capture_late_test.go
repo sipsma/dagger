@@ -1,10 +1,14 @@
 package dagql
 
 import (
+	"context"
 	"encoding/json"
+	"runtime"
 	"sync"
 	"testing"
+	"weak"
 
+	"github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,4 +142,46 @@ func countOf(ids []uint64, id uint64) int {
 		}
 	}
 	return n
+}
+
+// An export reads a held row's record once its chains are open only to find
+// the parts its bundle offers as the chains' prefixes, and the bundle
+// carries no record of a held row. So the copy is let go of once the bundle
+// is built, before the export's consume, which sends the bundle and uploads
+// its parts. A filling engine's exports in flight held 0.7 GB of such
+// copies at the peak of a Go test check's burst of calls.
+func TestContentExportLetsGoOfLateCopiesBeforeConsume(t *testing.T) {
+	t.Parallel()
+	f := capturePrefixesFixture(t)
+	var mu sync.Mutex
+	var copies []weak.Pointer[byte]
+	f.c.testLateCopied = func(rec PersistedRecord) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(rec.Envelope.ObjectJSON) > 0 {
+			copies = append(copies, weak.Make(&rec.Envelope.ObjectJSON[0]))
+		}
+	}
+	t.Cleanup(func() { f.c.testLateCopied = nil })
+	snapshot := PersistedPartAddress{Part: "snapshot"}
+	selection := ValueSelection{
+		Roots:                         []AnyResult{f.top, f.side},
+		Outputs:                       []SelectedValueOutput{{Result: f.top, Address: snapshot}, {Result: f.side, Address: snapshot}},
+		Known:                         f.known,
+		LeaveOutOutputsOutsideClosure: true,
+	}
+	var held int
+	require.NoError(t, f.c.WithExportedValues(f.ctx, selection, config.RefConfig{Builds: config.LayerBuilds{Workers: 4}}, func(_ context.Context, values *ExportedValues) error {
+		runtime.GC()
+		mu.Lock()
+		defer mu.Unlock()
+		require.NotEmpty(t, copies, "the export read held rows' records late")
+		for _, copied := range copies {
+			if copied.Value() != nil {
+				held++
+			}
+		}
+		return nil
+	}))
+	require.Zero(t, held, "of %d records copied late, %d still held as the export consumed its bundle", len(copies), held)
 }

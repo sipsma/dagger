@@ -597,6 +597,9 @@ func (capture *HeldCapturedClosure) copyLate(ctx context.Context, row *capturedT
 	if hook := c.testTransferCopied; hook != nil {
 		hook(uint64(row.shared.id))
 	}
+	if hook := c.testLateCopied; hook != nil {
+		hook(rec)
+	}
 	if hook := c.testCopyLate; hook != nil && hook(row.shared) {
 		return nil
 	}

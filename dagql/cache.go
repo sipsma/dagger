@@ -2695,6 +2695,11 @@ type Cache struct {
 	// timing its warming (CommitValueMerge, MergeReply.Warm).
 	testWarmStarted func()
 
+	// testLateCopied, nil but in tests, is given the copy of each held
+	// row's record that an export makes once its chains are open
+	// (copyLate).
+	testLateCopied func(PersistedRecord)
+
 	// partsWithoutSource counts the parts read with no source.
 	partsWithoutSource partsWithoutSource
 	// firstUseStats are what first uses prepared of the records merges left
