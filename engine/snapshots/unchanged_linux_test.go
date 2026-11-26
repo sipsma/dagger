@@ -162,6 +162,40 @@ func TestUnchanged(t *testing.T) {
 		require.False(t, unchanged(t, child))
 	})
 
+	// An attribute set on the root with no value is set all the same.
+	t.Run("an empty attribute set on the root", func(t *testing.T) {
+		t.Parallel()
+		child, upper, _ := overlayDirs(t, testutil.NewOverlayStore(t), lowerFile)
+		if err := unix.Setxattr(upper, "user.dagger.test", nil, 0); errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EPERM) {
+			t.Skipf("the store can't hold user attributes: %v", err)
+		} else {
+			require.NoError(t, err)
+		}
+		require.False(t, unchanged(t, child))
+	})
+
+	// Only the mount's own namespace is overlay bookkeeping: without
+	// userxattr, a user.overlay attribute is a process's, and so is an
+	// escaped trusted.overlay.overlay one.
+	for _, name := range []string{"user.overlay.note", "trusted.overlay.overlay.note"} {
+		t.Run("the root's "+name, func(t *testing.T) {
+			t.Parallel()
+			store := testutil.NewOverlayStore(t)
+			child, upper, _ := overlayDirs(t, store, lowerFile)
+			for _, o := range snapshotMounts(t, store, child.SnapshotID())[0].Options {
+				if o == "userxattr" {
+					t.Skip("the store's mounts keep their bookkeeping in user attributes")
+				}
+			}
+			if err := unix.Setxattr(upper, name, []byte("set"), 0); errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EPERM) {
+				t.Skipf("the store can't hold %s: %v", name, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.False(t, unchanged(t, child))
+		})
+	}
+
 	t.Run("the root opaque", func(t *testing.T) {
 		t.Parallel()
 		store := testutil.NewOverlayStore(t)

@@ -116,8 +116,13 @@ func TestExportFileChainBuildsItsLayerOnce(t *testing.T) {
 	})
 	cfg := listingsConfig(compression.New(compression.Zstd))
 
-	first := exportFileChain(t, tree, cfg, "/bin/tool")
+	first, err := tree.ExportFileChain(context.Background(), cfg, "/bin/tool")
+	require.NoError(t, err)
 	require.Equal(t, 1, first.Stats.LayersDiffed)
+	// Its export released and the store collected, the blobs are kept by
+	// what keeps the snapshot.
+	require.NoError(t, first.Release(context.Background()))
+	collect(t, store)
 	second := exportFileChain(t, tree, cfg, "bin/tool")
 	require.Zero(t, second.Stats.LayersDiffed, "a later export of the same file builds nothing")
 	require.Equal(t, 1, second.Stats.LayersReused)

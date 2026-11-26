@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/containerd/continuity/sysx"
@@ -54,14 +55,26 @@ func (sr *mutableRef) Unchanged(ctx context.Context) (bool, error) {
 	if !emptyDir(upper) {
 		return false, nil
 	}
-	return sameRoot(upper, below)
+	return sameRoot(upper, below, overlayXattrPrefix(mounts[0].Options))
+}
+
+// overlayXattrPrefix is the prefix of the extended attributes an overlay
+// mount with options keeps for itself: its user namespace's with userxattr,
+// the trusted one's otherwise.
+func overlayXattrPrefix(options []string) string {
+	if slices.Contains(options, "userxattr") {
+		return "user.overlay."
+	}
+	return "trusted.overlay."
 }
 
 // sameRoot reports whether the snapshot's own directory upper shows the
 // owner, mode and extended attributes of below, the directory of the layer
-// under it, and isn't opaque. The overlay filesystem's own attributes are
-// its bookkeeping, not the directory's.
-func sameRoot(upper, below string) (bool, error) {
+// under it, and isn't opaque. The overlay mount's own attributes, those
+// under prefix, are its bookkeeping, not the directory's; one under
+// prefix+"overlay." is an escaped one a process set, and is the
+// directory's.
+func sameRoot(upper, below, prefix string) (bool, error) {
 	var su, sb unix.Stat_t
 	if err := unix.Lstat(upper, &su); err != nil {
 		return false, err
@@ -76,25 +89,26 @@ func sameRoot(upper, below string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, opaque := range []string{"trusted.overlay.opaque", "user.overlay.opaque"} {
-		if bytes.Equal(xu[opaque], []byte("y")) {
-			return false, nil
-		}
+	if bytes.Equal(xu[prefix+"opaque"], []byte("y")) {
+		return false, nil
 	}
 	xb, err := rootXattrs(below)
 	if err != nil {
 		return false, err
 	}
-	overlays := func(name string) bool {
-		return strings.HasPrefix(name, "trusted.overlay.") || strings.HasPrefix(name, "user.overlay.")
+	private := func(name string) bool {
+		return strings.HasPrefix(name, prefix) && !strings.HasPrefix(name, prefix+"overlay.")
 	}
 	for name, value := range xu {
-		if !overlays(name) && !bytes.Equal(value, xb[name]) {
+		if private(name) {
+			continue
+		}
+		if was, ok := xb[name]; !ok || !bytes.Equal(value, was) {
 			return false, nil
 		}
 	}
 	for name := range xb {
-		if _, ok := xu[name]; !ok && !overlays(name) {
+		if _, ok := xu[name]; !ok && !private(name) {
 			return false, nil
 		}
 	}
