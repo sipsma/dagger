@@ -342,6 +342,10 @@ func (*cacheVolumeTestMutableRef) InvalidateSize(context.Context) error {
 	return nil
 }
 
+func (*cacheVolumeTestMutableRef) Unchanged(context.Context) (bool, error) {
+	panic("unexpected Unchanged call")
+}
+
 type cacheVolumeTestPersistedObjectCache struct {
 	resultID uint64
 	seen     []dagql.AnyResult

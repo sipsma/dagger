@@ -58,6 +58,9 @@ type MutableRef interface {
 	Commit(context.Context) (ImmutableRef, error)
 	CommitWithUsage(context.Context, snapshots.Usage) (ImmutableRef, error)
 	InvalidateSize(context.Context) error
+	// Unchanged reports whether the snapshot holds no change against the
+	// one it was prepared on, so that its parent can stand for it.
+	Unchanged(context.Context) (bool, error)
 }
 
 type Mountable interface {

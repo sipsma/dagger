@@ -721,6 +721,40 @@ type execMountState struct {
 	OutputImmutable bkcache.ImmutableRef
 }
 
+// commitExecOutput turns a writable output's new snapshot into the output:
+// committed, or, when the exec left it as its input was, released, with the
+// input reopened in its place. A read-only mount's output is its input, and
+// so is a writable one the exec didn't change: committing it would make a
+// second snapshot of the input's filesystem, whose layer holds nothing, and
+// put one more layer in its chain. The new snapshot is the state's no longer.
+func commitExecOutput(ctx context.Context, cache bkcache.SnapshotManager, state *execMountState) (bkcache.ImmutableRef, error) {
+	mutable := state.OutputMutable
+	if input, ok := state.SourceRef.(bkcache.ImmutableRef); ok && input != nil {
+		unchanged, err := mutable.Unchanged(ctx)
+		if err != nil {
+			// Not knowing costs only a snapshot: commit it, as when it changed.
+			slog.Warn("exec output: could not tell whether the exec changed it", "mount", state.Dest, "error", err)
+		}
+		if unchanged {
+			reopened, err := cache.GetBySnapshotID(ctx, input.SnapshotID(), bkcache.NoUpdateLastUsed)
+			if err != nil {
+				return nil, fmt.Errorf("reopen unchanged input %s of %s: %w", input.SnapshotID(), state.Dest, err)
+			}
+			state.OutputMutable = nil
+			if err := mutable.Release(context.WithoutCancel(ctx)); err != nil {
+				return nil, errors.Join(fmt.Errorf("release unchanged output %s of %s: %w", mutable.ID(), state.Dest, err), reopened.Release(context.WithoutCancel(ctx)))
+			}
+			return reopened, nil
+		}
+	}
+	committed, err := mutable.Commit(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error committing %s: %w", mutable.ID(), err)
+	}
+	state.OutputMutable = nil
+	return committed, nil
+}
+
 type materializedExecPlan struct {
 	Root   executor.Mount
 	Mounts []executor.Mount
@@ -1713,11 +1747,10 @@ func (state *ContainerExecState) evaluateOutputs(ctx context.Context, container 
 				}
 
 				if state.OutputMutable != nil {
-					committed, err := state.OutputMutable.Commit(ctx)
+					committed, err := commitExecOutput(ctx, cache, state)
 					if err != nil {
-						return fmt.Errorf("error committing %s: %w", state.OutputMutable.ID(), err)
+						return err
 					}
-					state.OutputMutable = nil
 					state.OutputImmutable = committed
 				}
 
