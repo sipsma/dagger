@@ -201,6 +201,15 @@ type RestoredPartReport struct {
 	PrepareLockWait  time.Duration
 	PrepareLockWaits map[string]time.Duration
 	DecodeWait       time.Duration
+	// Began is when the part's turn on its lane began, before it waited for
+	// its decode, and Ended when the lane was done with it, after its late
+	// count. Settle is the time from its commit's stamp (Committed) to its
+	// merge's return, Note and Plan noting its entries and planning its
+	// fetches, and LateCount counting its late misses, with LateLog the
+	// misses the connection's log held as the count began.
+	Began, Ended                  time.Time
+	Settle, Note, Plan, LateCount time.Duration
+	LateLog                       int
 }
 
 // restoreFile is one file of a restore: queued, being fetched, being merged,
@@ -675,6 +684,7 @@ func (r *restorer) mergePart(ctx context.Context, f *restoreFile) error {
 	}
 	records := len(bundle.Values)
 	reply, priorityWait, err := r.s.adapter.RestorePart(ctx, bundle, next.checked, f.unretained[f.next], r.s.known, f.source())
+	returned := time.Now()
 	f.report.Prepare += reply.Prepare
 	f.report.Commit += reply.Commit
 	if reply.Release != nil {
@@ -684,7 +694,9 @@ func (r *restorer) mergePart(ctx context.Context, f *restoreFile) error {
 		return fmt.Errorf("part %d: %w", f.next, err)
 	}
 	f.noteEntries(bundle, reply)
+	noted := time.Now()
 	r.planFetches(ctx, f.fetch[f.next], reply)
+	planned := time.Now()
 	committed := time.Unix(0, reply.EngineTimeUnixNano)
 	f.next++
 	if f.next == f.firstParts {
@@ -710,8 +722,16 @@ func (r *restorer) mergePart(ctx context.Context, f *restoreFile) error {
 		PrepareLockWait:  reply.PrepareLockWait,
 		PrepareLockWaits: reply.PrepareLockWaits,
 		DecodeWait:       decodeWait,
+		Began:            began,
+		Settle:           returned.Sub(committed),
+		Note:             noted.Sub(returned),
+		Plan:             planned.Sub(noted),
 	}
+	part.LateLog = r.s.adapter.LateLog()
+	counting := time.Now()
 	r.lateMisses(reply, &part)
+	part.Ended = time.Now()
+	part.LateCount = part.Ended.Sub(counting)
 	f.report.Parts = append(f.report.Parts, part)
 	return nil
 }

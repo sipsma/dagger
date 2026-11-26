@@ -462,6 +462,24 @@ func (c *Cache) lateMissCandidates(l *remoteLookups, before time.Time, generatio
 	return slices.CompactFunc(late, func(a, b loggedMiss) bool { return a.seq == b.seq })
 }
 
+// LateRemoteLog returns how many misses the current connection's log holds
+// that no call returned (LateRemoteMisses).
+func (c *Cache) LateRemoteLog() int {
+	b := c.partContentSource.attachedBridge()
+	if b == nil {
+		return 0
+	}
+	b.lookups.mu.Lock()
+	defer b.lookups.mu.Unlock()
+	n := 0
+	for _, m := range b.lookups.missed {
+		if !m.found {
+			n++
+		}
+	}
+	return n
+}
+
 // TrimmedRemoteMisses returns how many misses a full log dropped before
 // LateRemoteMisses could count them, over the bridge's connections: the
 // misses the late count never saw.
