@@ -30,11 +30,25 @@ var accountDatabases = []string{"/etc/passwd", "/etc/group"}
 // File is its content, so the rest of the filesystem it was taken from stays
 // behind. A path through a symlink, or to anything but a regular file,
 // exports sr's whole chain.
+//
+// The chain is built once for sr and filePath: its blobs are kept as sr's,
+// and a later export of the file takes them, as a snapshot's own layer is
+// built once (fileChains). Exports of the same file at once build it once.
 func (sr *immutableRef) ExportFileChain(ctx context.Context, refCfg config.RefConfig, filePath string) (_ *ExportChain, rerr error) {
 	if sr == nil {
 		return &ExportChain{}, nil
 	}
 	filePath = path.Clean("/" + filePath)
+
+	key := newFileChainKey(filePath, refCfg)
+	unlock, err := sr.cm.fileChainLocker.acquire(ctx, fmt.Sprintf("%s\x00%+v", sr.SnapshotID(), key))
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if chain, ok, err := sr.cm.reuseFileChain(ctx, sr.SnapshotID(), key); err != nil || ok {
+		return chain, err
+	}
 
 	srcRoot, _, releaseSrc, err := sr.MountShared(ctx)
 	if err != nil {
@@ -93,7 +107,15 @@ func (sr *immutableRef) ExportFileChain(ctx context.Context, refCfg config.RefCo
 	// "export layer built" line names only the new snapshot.
 	slog.Debug("export file chain", "snapshot", committed.SnapshotID(), "source", sr.SnapshotID(),
 		"source_description", cutDescription(sr.GetDescription()), "path", filePath)
-	return committed.ExportChain(ctx, refCfg)
+	chain, err := committed.ExportChain(ctx, refCfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := sr.cm.recordFileChain(ctx, sr.SnapshotID(), key, chain.Layers); err != nil {
+		// The chain is exported; a later export builds it again.
+		slog.Warn("export file chain: not kept for later exports", "source", sr.SnapshotID(), "path", filePath, "error", err)
+	}
+	return chain, nil
 }
 
 // OwnFileSize reports the size of the file at filePath in the snapshot when

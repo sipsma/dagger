@@ -207,13 +207,13 @@ type CollectedSnapshotForgetter interface {
 
 // ForgetCollectedSnapshots drops what the manager keeps in memory about
 // snapshots that garbage collection removed: their records, metadata and
-// loaded hash records, their recorded blobs, and the imported layers that
-// name them. Nothing else tells the manager a snapshot is gone: only a later
-// Get of it notices, and most collected snapshots are never asked for again,
-// so without this their metadata would stay in memory, and the serialized
-// content-hash tree each hashed snapshot keeps in memory or on disk would
-// stay there, for the life of the engine, and the blob rows in every
-// checkpoint.
+// loaded hash records, their recorded blobs and File chains, and the
+// imported layers that name them. Nothing else tells the manager a snapshot
+// is gone: only a later Get of it notices, and most collected snapshots are
+// never asked for again, so without this their metadata would stay in
+// memory, and the serialized content-hash tree each hashed snapshot keeps in
+// memory or on disk would stay there, for the life of the engine, and the
+// blob rows in every checkpoint.
 //
 // Every snapshot ID is a fresh random ID, or that of a snapshot that exists
 // when its metadata is made, and every snapshot is made before its metadata
@@ -243,6 +243,9 @@ func (cm *snapshotManager) ForgetCollectedSnapshots(ctx context.Context) error {
 		candidates[id] = struct{}{}
 	}
 	for id := range cm.snapshotContentOwned {
+		candidates[id] = struct{}{}
+	}
+	for id := range cm.fileChains {
 		candidates[id] = struct{}{}
 	}
 	for _, id := range cm.importedLayerByBlob {
@@ -293,6 +296,7 @@ func (cm *snapshotManager) ForgetCollectedSnapshots(ctx context.Context) error {
 		}
 		delete(cm.snapshotContentDigests, id)
 		delete(cm.snapshotContentOwned, id)
+		delete(cm.fileChains, id)
 		if rec, ok := cm.records[id]; ok {
 			if rec.mutable && rec.locked {
 				// In use: its holder finds the snapshot gone.

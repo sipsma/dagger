@@ -5,9 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/containerd/containerd/v2/pkg/namespaces"
+	bkcache "github.com/dagger/dagger/engine/snapshots"
+	"github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/dagger/dagger/engine/snapshots/testutil"
+	"github.com/dagger/dagger/internal/buildkit/util/compression"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,4 +103,123 @@ func TestOwnFileSize(t *testing.T) {
 	_, own, err = sizer.OwnFileSize(context.Background(), tree.SnapshotID(), "/link/big.bin")
 	require.NoError(t, err)
 	require.False(t, own, "a file reached through a symlink travels as its chain")
+}
+
+// A File exported again builds nothing: the first export built its layer,
+// and a later export of the same file of the same snapshot takes it, as a
+// snapshot's own layer is taken once built.
+func TestExportFileChainBuildsItsLayerOnce(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewStore(t)
+	tree, _ := store.BuildWith(t, nil, func(root string) {
+		writeExportFile(t, root, "bin/tool", listingBody("tool", 1<<20))
+	})
+	cfg := listingsConfig(compression.New(compression.Zstd))
+
+	first := exportFileChain(t, tree, cfg, "/bin/tool")
+	require.Equal(t, 1, first.Stats.LayersDiffed)
+	second := exportFileChain(t, tree, cfg, "bin/tool")
+	require.Zero(t, second.Stats.LayersDiffed, "a later export of the same file builds nothing")
+	require.Equal(t, 1, second.Stats.LayersReused)
+	require.Equal(t, chainDigests(first), chainDigests(second))
+	for _, layer := range second.Layers {
+		require.False(t, layer.Computed, "the later export computed nothing")
+	}
+
+	// What it exports is the file, as the first export's was.
+	imported := importChain(t, testutil.NewStore(t), supplied(second, second.Provider))
+	testutil.CheckFile(t, imported, "bin/tool", listingBody("tool", 1<<20))
+
+	// Another config makes other blobs: it builds its own.
+	other := exportFileChain(t, tree, transferConfig, "/bin/tool")
+	require.Equal(t, 1, other.Stats.LayersDiffed)
+}
+
+// Exports of one file at once build its layer once.
+func TestExportFileChainsAtOnceBuildOnce(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewStore(t)
+	tree, _ := store.BuildWith(t, nil, func(root string) {
+		writeExportFile(t, root, "bin/tool", listingBody("tool", 1<<20))
+	})
+	cfg := listingsConfig(compression.New(compression.Zstd))
+	const exports = 4
+	chains := make([]*bkcache.ExportChain, exports)
+	var wg sync.WaitGroup
+	for i := range exports {
+		wg.Go(func() {
+			chain, err := tree.ExportFileChain(context.Background(), cfg, "/bin/tool")
+			assert.NoError(t, err)
+			chains[i] = chain
+		})
+	}
+	wg.Wait()
+	diffed := 0
+	for _, chain := range chains {
+		require.NotNil(t, chain)
+		t.Cleanup(func() { require.NoError(t, chain.Release(context.Background())) })
+		diffed += chain.Stats.LayersDiffed
+		require.Equal(t, chainDigests(chains[0]), chainDigests(chain))
+	}
+	require.Equal(t, 1, diffed)
+}
+
+// A file whose blobs left the store is built again.
+func TestExportFileChainBuildsAgainWithoutItsBlobs(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewStore(t)
+	tree, _ := store.BuildWith(t, nil, func(root string) {
+		writeExportFile(t, root, "bin/tool", listingBody("tool", 1<<20))
+	})
+	cfg := listingsConfig(compression.New(compression.Zstd))
+	first, err := tree.ExportFileChain(context.Background(), cfg, "/bin/tool")
+	require.NoError(t, err)
+	digests := chainDigests(first)
+	require.NoError(t, first.Release(context.Background()))
+	// The engine's own store refuses deletes: they are the collector's.
+	ctx := namespaces.WithNamespace(context.Background(), testutil.Namespace)
+	for _, layer := range first.Layers {
+		require.NoError(t, store.DB.ContentStore().Delete(ctx, layer.Descriptor.Digest))
+	}
+
+	again := exportFileChain(t, tree, cfg, "/bin/tool")
+	require.Equal(t, 1, again.Stats.LayersDiffed)
+	require.Equal(t, digests, chainDigests(again))
+}
+
+// The chains kept for later exports go when their snapshot is collected.
+func TestFileChainsForgottenWhenCollected(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := testutil.NewStore(t)
+	tree, owner := store.BuildWith(t, nil, func(root string) {
+		writeExportFile(t, root, "bin/tool", "a small tool")
+	})
+	chain, err := tree.ExportFileChain(ctx, transferConfig, "/bin/tool")
+	require.NoError(t, err)
+	require.NoError(t, chain.Release(ctx))
+	require.Equal(t, 1, bkcache.MetadataMemory(store.Manager).FileChains)
+
+	require.NoError(t, tree.Release(ctx))
+	require.NoError(t, store.Manager.RemoveLease(ctx, owner))
+	collect(t, store)
+	_, err = store.Snapshots.Stat(ctx, tree.SnapshotID())
+	require.Error(t, err, "the snapshot is collected")
+	require.Zero(t, bkcache.MetadataMemory(store.Manager).FileChains)
+}
+
+func exportFileChain(t *testing.T, ref bkcache.ImmutableRef, cfg config.RefConfig, filePath string) *bkcache.ExportChain {
+	t.Helper()
+	chain, err := ref.ExportFileChain(context.Background(), cfg, filePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, chain.Release(context.Background())) })
+	return chain
+}
+
+func chainDigests(chain *bkcache.ExportChain) []string {
+	var out []string
+	for _, layer := range chain.Layers {
+		out = append(out, layer.Descriptor.Digest.String())
+	}
+	return out
 }

@@ -160,13 +160,20 @@ type snapshotManager struct {
 	snapshotContentOwned map[string]map[digest.Digest]struct{}
 	importedLayerByBlob  map[ImportedLayerBlobKey]string
 	importedLayerByDiff  map[ImportedLayerDiffKey]string
-	snapshotOwnerLeases  map[string]map[string]struct{}
+	// fileChains are the chains of the Files exported as their own content
+	// (ExportFileChain), by the snapshot each was taken from, then its path
+	// and export config. Their blobs are recorded as that snapshot's
+	// content. In memory only; dropped with the snapshot's recorded blobs.
+	fileChains          map[string]map[fileChainKey][]ExportLayer
+	snapshotOwnerLeases map[string]map[string]struct{}
 	// leaseOwnedSnapshots is snapshotOwnerLeases by lease: the snapshots
 	// each lease owns, so that removing a lease visits only those.
 	leaseOwnedSnapshots map[string]map[string]struct{}
 	importLayerLocker   keyedLocker
 	exportLayerLocker   keyedLocker
-	ownerLeaseLocker    *locker.Locker
+	// fileChainLocker makes one File chain of a snapshot at a time.
+	fileChainLocker  keyedLocker
+	ownerLeaseLocker *locker.Locker
 	// layerImported is closed, and replaced, whenever a layer is added to
 	// the import indexes: chain imports waiting for a layer's blob look
 	// again. Under mu.
@@ -211,6 +218,7 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		snapshotContentOwned:   make(map[string]map[digest.Digest]struct{}),
 		importedLayerByBlob:    make(map[ImportedLayerBlobKey]string),
 		importedLayerByDiff:    make(map[ImportedLayerDiffKey]string),
+		fileChains:             make(map[string]map[fileChainKey][]ExportLayer),
 		layerImported:          make(chan struct{}),
 		snapshotOwnerLeases:    make(map[string]map[string]struct{}),
 		leaseOwnedSnapshots:    make(map[string]map[string]struct{}),

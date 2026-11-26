@@ -19,6 +19,8 @@ type MetadataMemoryStats struct {
 	// still to delete included, and ContentHashFileBytes sums their sizes.
 	ContentHashFiles     int
 	ContentHashFileBytes int
+	// FileChains counts the File chains kept for later exports.
+	FileChains int
 }
 
 // MetadataMemory reports what m's in-memory snapshot metadata holds.
@@ -33,6 +35,9 @@ func MetadataMemory(m SnapshotManager) MetadataMemoryStats {
 		Records:              len(cm.records),
 		Metadata:             len(s.refs),
 		PendingContentHashes: len(s.pendingContentHashes),
+	}
+	for _, chains := range cm.fileChains {
+		stats.FileChains += len(chains)
 	}
 	for _, md := range s.refs {
 		for _, dt := range md.external {
