@@ -7,6 +7,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -88,6 +89,10 @@ func (sr *immutableRef) ExportFileChain(ctx context.Context, refCfg config.RefCo
 	}
 	mut = nil
 	defer func() { rerr = stderrors.Join(rerr, committed.Release(context.WithoutCancel(ctx))) }()
+	// The file's snapshot against the one it was taken from: its layer's
+	// "export layer built" line names only the new snapshot.
+	slog.Debug("export file chain", "snapshot", committed.SnapshotID(), "source", sr.SnapshotID(),
+		"source_description", cutDescription(sr.GetDescription()), "path", filePath)
 	return committed.ExportChain(ctx, refCfg)
 }
 

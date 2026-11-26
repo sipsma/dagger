@@ -463,13 +463,20 @@ func TestExportLayerBuiltLogsWhenItsBlobIsReady(t *testing.T) {
 		}
 	}
 	require.Len(t, built, 2, "one line a layer built")
-	for _, layer := range chain.Layers {
+	// Each line names its snapshot and the one it was diffed against.
+	snapshotIDs := []string{a.SnapshotID(), ab.SnapshotID()}
+	for i, layer := range chain.Layers {
 		rec := built[layer.Descriptor.Digest.String()]
 		require.NotNil(t, rec, "layer %s", layer.Descriptor.Digest)
 		require.EqualValues(t, layer.Descriptor.Size, rec["bytes"])
 		ready, err := time.Parse(time.RFC3339Nano, rec["ready"].(string))
 		require.NoError(t, err)
 		require.False(t, ready.Before(before), "ready once built")
+		require.Equal(t, snapshotIDs[i], rec["snapshot"])
+		if i > 0 {
+			require.Equal(t, snapshotIDs[i-1], rec["parent"])
+		}
+		require.Contains(t, rec, "description")
 	}
 
 	// Exported again, its blobs exist: nothing is built, and nothing logged.

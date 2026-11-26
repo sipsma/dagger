@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/containerd/containerd/v2/core/diff"
 	"github.com/containerd/containerd/v2/core/mount"
@@ -446,9 +447,12 @@ func (cm *snapshotManager) ensureExportBlob(
 		stats.CompressTime += compressTime
 		// When the blob was ready, against when its upload starts: at an
 		// engine's stop, what could have gone up while the export's other
-		// layers still built. One line a layer built, at debug.
+		// layers still built. One line a layer built, at debug. The
+		// snapshot, its parent and its description say what made the layer,
+		// so a layer built again for another snapshot is traced to its call.
 		slog.Debug("export layer built", "blob", desc.Digest, "bytes", desc.Size, "raw_bytes", usage.Size,
-			"diff_start", diffStart, "ready", time.Now(), "diff_time", diffTime, "compress_time", compressTime)
+			"diff_start", diffStart, "ready", time.Now(), "diff_time", diffTime, "compress_time", compressTime,
+			"snapshot", ref.SnapshotID(), "parent", parentSnapshotID, "description", cutDescription(ref.GetDescription()))
 		return ensureExportBlobResult{
 			desc:     desc,
 			contents: contents,
@@ -460,6 +464,22 @@ func (cm *snapshotManager) ensureExportBlob(
 		return ensureExportBlobResult{}, err
 	}
 	return result, nil
+}
+
+// maxLoggedDescription bounds the description a log line carries: an exec's
+// mount names the exec's whole command line.
+const maxLoggedDescription = 160
+
+// cutDescription is s, cut to maxLoggedDescription bytes at a rune boundary.
+func cutDescription(s string) string {
+	if len(s) <= maxLoggedDescription {
+		return s
+	}
+	cut := maxLoggedDescription
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // pinListingContents pins every content blob a listing names into ctx's
