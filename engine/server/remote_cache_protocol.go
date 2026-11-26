@@ -726,6 +726,12 @@ func (a *RemoteCacheAdapter) LateMisses(before time.Time, entries map[uint64]str
 	return a.cache.LateRemoteMisses(before, entries)
 }
 
+// LateLog is how many misses the cache's log holds that no part has
+// returned (dagql.Cache.LateRemoteLog).
+func (a *RemoteCacheAdapter) LateLog() int {
+	return a.cache.LateRemoteLog()
+}
+
 // Restored keeps what a restore did with a file, for the engine's stop
 // event.
 func (a *RemoteCacheAdapter) Restored(report remotecache.RestoreReport) {
