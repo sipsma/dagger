@@ -243,6 +243,8 @@ func (a *fakeAdapter) CacheWork() CacheWork {
 	return a.work()
 }
 
+func (a *fakeAdapter) LateLog() int { return 0 }
+
 func (a *fakeAdapter) LateMisses(before time.Time, entries map[uint64]struct{}) []dagql.RemoteMiss {
 	if a.late == nil {
 		return nil

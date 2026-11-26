@@ -129,6 +129,9 @@ type Adapter interface {
 	// It also returns how long the part's merge waited behind the merges that
 	// answer lookups before it began.
 	RestorePart(ctx context.Context, part dagql.ValueBundle, checked *dagql.CheckedValues, unretained []dagql.TransferOrdinal, known *dagql.KnownRows, source string) (dagql.MergeReply, time.Duration, error)
+	// LateLog is how many misses the connection's log holds that no part
+	// has returned (dagql.Cache.LateRemoteLog).
+	LateLog() int
 	// PlanPartFetch plans a fetch ahead of entry number's part, or the whole
 	// entry when part is empty (dagql.Cache.PlanPartFetch).
 	PlanPartFetch(ctx context.Context, number uint64, part dagql.PartKey)

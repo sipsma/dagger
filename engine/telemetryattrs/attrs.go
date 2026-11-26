@@ -1485,4 +1485,11 @@ type EngineRestorePart struct {
 	PrepareLockWait  int64            `json:"prepareLockWait,omitempty"`
 	PrepareLockWaits map[string]int64 `json:"prepareLockWaits,omitempty"`
 	DecodeWait       int64            `json:"decodeWait,omitempty"`
+	Began            int64            `json:"began,omitempty"`
+	Ended            int64            `json:"ended,omitempty"`
+	Settle           int64            `json:"settle,omitempty"`
+	Note             int64            `json:"note,omitempty"`
+	Plan             int64            `json:"plan,omitempty"`
+	LateCount        int64            `json:"lateCount,omitempty"`
+	LateLog          int              `json:"lateLog,omitempty"`
 }
